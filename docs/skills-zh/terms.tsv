@@ -1,0 +1,53 @@
+中文	English
+接缝	seam
+切片	slice
+垂直切片	vertical slice
+水平切片	horizontal slicing
+工单	ticket
+阻塞边	blocking edge
+阻塞者	blocker
+阻塞	blocked
+前沿	frontier
+认领	claim
+任务图	task graph
+集成分支	integration branch
+工作树	worktree
+简报	brief
+坏味道	code smell
+追踪器	tracker
+词表	glossary
+拷打	grilling
+阶段边界	phase boundary
+上下文窗口	context window
+设计树	design tree
+同义反复	tautological
+一手来源	primary source
+单向门	one-way door
+双向门	two-way door
+智能区	smart zone
+验收标准	acceptance criteria
+回归测试	regression test
+规格	spec
+用户故事	user story
+不在范围内	out of scope
+预重构	prefactor
+大范围重构	wide refactor
+降级	graceful degradation
+镜像	mirror
+子 issue	sub-issue
+原生阻塞链接	native blocking links
+免责声明	disclaimer
+分类	category
+状态	state
+角色	role
+探针	probe
+适配器	adapter
+杠杆	leverage
+局部性	locality
+深度	depth
+深模块	deep module
+模块	module
+接口	interface
+拉取请求	pull request
+草稿 PR	draft PR
+状态机	state machine

@@ -185,14 +185,19 @@ rg -n '^Status: ready-for-agent' .scratch/   # 可以开工的
 
 ---
 
-## 8. 本地翻译策略（重要）
+## 8. 中文译本策略（重要）
 
-本仓库的 `.agents/skills/**/SKILL.md` 已**部分翻译为中文**（首批：主流程与 triage 链）。由此产生两个后果：
+两份文件，职责分开：
 
-1. **`npx skills update` 会用英文原文覆盖翻译** —— 更新前先 `git diff` 确认，或更新后重译。
-2. `.agents/skills` 目前被 `.gitignore` 排除；若希望翻译随仓库走（换机器不丢），需要把它入库：
-   ```bash
-   sed -i '/^\.agents\/$/d' .gitignore && git add -A && git commit -m 'chore: vendor 已翻译的 skill'
-   ```
+| | 位置 | 谁读 | 权威性 |
+|---|---|---|---|
+| 英文原文 | `.agents/skills/<name>/SKILL.md` | **agent 执行** | 唯一权威（不入库，由 `skills-lock.json` 记录来源与 hash） |
+| 中文译本 | `docs/skills-zh/<name>.md` | **人阅读** | 派生参考，不具权威性（入库） |
 
-未翻译的部分（含各 skill 目录下的参考文档，如 `AGENT-BRIEF.md`、`tests.md`、`PHASE-BOUNDARIES.md`）仍是英文原文。
+- 改了行为 → 只改英文那份，再同步译中文
+- 上游更新 → `npx skills add mattpocock/skills -s '*' -a pi --copy -y` 拉新版英文，再 `scripts/check-skills-zh.sh` 看谁落队
+- 术语统一 → `docs/skills-zh/terms.tsv` + `scripts/apply-terms.sh`（关键术语首次出现写成「中文（english）」）
+- 索引与状态 → `docs/skills-zh/README.md`
+
+注意 `-s '*'` 会把已移除的 `setup-matt-pocock-skills` 一并装回来，重装后需手动删（`rm -rf .agents/skills/setup-matt-pocock-skills` 并清 `skills-lock.json`）。
+

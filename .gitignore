@@ -1,1 +1,3 @@
-# 已翻译的 skill 随仓库走（换机器不丢）。注意：`npx skills update` 会用英文原文覆盖翻译。
+# 第三方 skill 英文原文不入库：由 skills-lock.json 记录来源与 hash，换机器时 npx skills add 重建。
+# 中文译本（供人阅读）在 docs/skills-zh/，入库。
+.agents/
