@@ -474,6 +474,23 @@ pub struct SettingsView {
     pub error: Option<String>,
 }
 
+/// 测试用入口：让每个测试文件从干净的库开始（`nsh test` 的多个文件共用一个进程）。
+///
+/// 不是产品功能——「清空本地数据」属于后续工单的重操作，界面不走这里。
+#[module]
+pub struct Testing;
+
+#[module]
+impl Testing {
+    /// 清空本地库并重建空表；返回失败原因，成功是 `null`。
+    pub async fn reset() -> Option<String> {
+        match Store::open_app() {
+            Ok(store) => store.reset_all().err().map(|error| error.to_string()),
+            Err(error) => Some(error.to_string()),
+        }
+    }
+}
+
 /// 本机设置：DeepSeek 的 API key（打码读取）。
 #[module]
 pub struct Settings;

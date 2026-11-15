@@ -1,5 +1,8 @@
 # Spec：身体档案与锻炼计划（MVP）
 
+GitHub: #1
+Status: 追踪 issue（spec 本身，不是可开工工单）
+
 > 词汇以仓库根 `GLOSSARY.md` 为准；本文出现的每个术语都在词表里。决策以 `docs/adr/0001`–`0006` 为准。
 
 ## Problem Statement

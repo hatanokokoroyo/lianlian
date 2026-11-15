@@ -1,6 +1,14 @@
-import { expect, open, test } from "nsh/test";
+import { beforeAll, expect, open, test } from "nsh/test";
 
-import { ensureOnboarded, replyWith, setApiKey } from "./test-helpers";
+import {
+  ensureOnboarded,
+  freshDatabase,
+  replyWith,
+  setApiKey,
+} from "./test-helpers";
+
+// 一个文件一个干净的库：`nsh test` 的多个文件共用一个进程。
+beforeAll(freshDatabase);
 
 // #7：三类错误态各有明确出路；输入不丢；超长自动裁剪重发一次并提示。
 // 全部离线：网络由 `open` 的 `network` 桩替代，真实响应语料在 Rust 测试里回放。

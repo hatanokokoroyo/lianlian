@@ -103,6 +103,14 @@ impl Store {
     }
 }
 
+impl Store {
+    /// 清空全部表并重新建库（测试用：一个文件一个干净的起点）。
+    pub fn reset_all(&self) -> Result<(), StoreError> {
+        reset(&self.db)?;
+        initialize(&self.db)
+    }
+}
+
 fn read_meta(db: &Database, key: &str) -> Result<Option<String>, StoreError> {
     let read = db.begin_read().map_err(db_error)?;
     match read.open_table(META) {

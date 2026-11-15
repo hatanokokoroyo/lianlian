@@ -1,4 +1,9 @@
-import { expect, open, test } from "nsh/test";
+import { beforeAll, expect, open, test } from "nsh/test";
+
+import { freshDatabase } from "./test-helpers";
+
+// 一个文件一个干净的库：`nsh test` 的多个文件共用一个进程。
+beforeAll(freshDatabase);
 
 // 冷启动的主干：空档案 → 引导三步 → 今日页不再空白 → 档案可改 → 缺项会提示 →
 // 重开 app 数据还在。数据真的落在 redb 里（Rust 侧校验），不是内存里过一遍。

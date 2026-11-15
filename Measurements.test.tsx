@@ -1,6 +1,9 @@
-import { expect, open, test } from "nsh/test";
+import { beforeAll, expect, open, test } from "nsh/test";
 
-import { deleteAllMeasurements, ensureOnboarded } from "./test-helpers";
+import { deleteAllMeasurements, ensureOnboarded, freshDatabase } from "./test-helpers";
+
+// 一个文件一个干净的库：`nsh test` 的多个文件共用一个进程。
+beforeAll(freshDatabase);
 
 // #5：每次记录都追加一条带时间的测量，折线图跟着变；单条可删，删完回到引导态；
 // 基本属性里的「当前体重」始终是最新一条测量；重开 app 仍在。

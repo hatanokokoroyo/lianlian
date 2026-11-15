@@ -21,4 +21,5 @@ fn native(registry: &mut Registry) {
     registry.module::<api::Measurements>();
     registry.module::<api::Conversations>();
     registry.module::<api::Settings>();
+    registry.module::<api::Testing>();
 }

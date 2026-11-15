@@ -1,9 +1,17 @@
-import { expect, open, test } from "nsh/test";
+import { beforeAll, expect, open, test } from "nsh/test";
 
-import { ensureOnboarded, replyWith, setApiKey } from "./test-helpers";
+import {
+  ensureOnboarded,
+  freshDatabase,
+  replyWith,
+  setApiKey,
+} from "./test-helpers";
+
+// 一个文件一个干净的库：`nsh test` 的多个文件共用一个进程。
+beforeAll(freshDatabase);
 
 // #6：会话能新建、续聊、归档、删除；消息按序落库，重开 app 还在。
-// 这时还没有模型，回复是占位的；测试只断言「有回复且按序」。
+// 回复走 #7 的网关（这里用 nsh 的 network 桩，不联网）。
 test("会话新建、续聊、归档、删除与重开仍在", async () => {
   const network = {
     "POST https://api.deepseek.com/responses": replyWith("先做一个踝背屈测试，看看脚跟会不会抬。"),

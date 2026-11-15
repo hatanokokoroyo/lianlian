@@ -1,6 +1,15 @@
 // `nsh test` 的测试文件共用一个进程，也就共用同一个临时库（见 README「踩过的坑」）。
 // 所以每个文件都从「可能是干净的，也可能已经被前面的文件走过引导」这个前提出发。
 import type { App } from "nsh/test";
+import { Testing } from "lianlian/native";
+
+/** 每个测试文件从干净的库开始（同一进程里文件之间不共享数据）。 */
+export async function freshDatabase() {
+  const error = await Testing.reset();
+  if (error) {
+    throw new Error(`清空测试库失败：${error}`);
+  }
+}
 
 /** 如果还在引导里，就把它走完；已经走完就什么都不做。 */
 export async function ensureOnboarded(app: App) {
