@@ -28,7 +28,7 @@ fn search_spec() -> Value {
                 },
                 "from": { "type": "string", "description": "起始日期，YYYY-MM-DD（含）" },
                 "to": { "type": "string", "description": "结束日期，YYYY-MM-DD（含当天）" },
-                "contains": { "type": "string", "description": "关键词，查四段文本与撤回理由" },
+                "contains": { "type": "string", "description": "关键词，只查四段原文" },
                 "limit": { "type": "integer", "minimum": 1, "maximum": 20, "description": "最多几条，默认 20，超过 20 也只给 20" }
             },
             "additionalProperties": false
@@ -145,12 +145,15 @@ mod tests {
     #[test]
     fn writing_tools_require_all_four_evidence_sections() {
         for spec in &specs()[1..] {
+            let required: Vec<&str> = spec["parameters"]["properties"]["evidence"]["required"]
+                .as_array()
+                .expect("必填四段")
+                .iter()
+                .map(|name| name.as_str().expect("段名"))
+                .collect();
             assert_eq!(
-                spec["parameters"]["properties"]["evidence"]["required"]
-                    .as_array()
-                    .expect("必填四段")
-                    .len(),
-                4
+                required,
+                vec!["user_said", "test_and_feedback", "reasoning", "uncertainty"]
             );
         }
     }

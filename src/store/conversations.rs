@@ -156,6 +156,7 @@ impl Store {
                 StoredItem::Message {
                     role: Role::User,
                     text,
+                    ..
                 } => Some(text.clone()),
                 _ => None,
             }) {
@@ -198,7 +199,9 @@ impl Store {
                 all.push(entry);
             }
         }
-        all.sort_by_key(|entry| (entry.at, entry.id));
+        // 按编号排：同一轮里时间戳是 +1ms 递推的，下一轮可能落进上一轮那几毫秒
+        // 之内；只有编号是全局单调的，`function_call` 与它的 `output` 不会被排反。
+        all.sort_by_key(|entry| entry.id);
         Ok(all)
     }
 
@@ -208,7 +211,7 @@ impl Store {
             .items(conversation)?
             .into_iter()
             .filter_map(|entry| match entry.item {
-                StoredItem::Message { role, text } => Some(Message {
+                StoredItem::Message { role, text, .. } => Some(Message {
                     id: entry.id,
                     conversation: entry.conversation,
                     role,

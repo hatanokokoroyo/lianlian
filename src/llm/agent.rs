@@ -595,6 +595,79 @@ mod tests {
     }
 
     #[test]
+    fn searching_in_an_earlier_turn_does_not_count_for_this_one() {
+        let temp = TempStore::new("agent-cross-turn");
+        let store = temp.store();
+        let conversation = store.create_conversation(1).expect("会话");
+
+        // 上一轮查过 soleus。
+        let first = Scripted::new(vec![
+            vec![call(SEARCH_EVIDENCE, search_args("soleus"))],
+            vec![OutputItem::Message("查过了。".to_owned())],
+        ]);
+        let mut host = StoreHost::new(store, conversation.id, 100);
+        futures_join(|| run_turn(&first, &mut host, vec![Input::user("先看看")], 6)).expect("上一轮");
+
+        // 这一轮直接写：不认上一轮的账，必须被拒。
+        let second = Scripted::new(vec![
+            vec![call(RECORD_FINDING, record_args("soleus"))],
+            vec![OutputItem::Message("记下了。".to_owned())],
+        ]);
+        let mut host = StoreHost::new(store, conversation.id, 200);
+        let outcome =
+            futures_join(|| run_turn(&second, &mut host, vec![Input::user("现在写")], 6)).expect("这一轮");
+        let refused = match &outcome.items[1] {
+            StoredItem::FunctionCallOutput { output, .. } => output.clone(),
+            other => panic!("应该是工具结果，收到 {other:?}"),
+        };
+        assert!(refused.contains("not_searched"), "{refused}");
+        assert!(store.findings().expect("判定").is_empty());
+    }
+
+    #[test]
+    fn a_log_whose_conversation_was_deleted_says_so_in_the_search_result() {
+        let temp = TempStore::new("agent-source-deleted");
+        let store = temp.store();
+        let doomed = store.create_conversation(1).expect("会话");
+        store
+            .record_with_evidence(
+                crate::domain::FindingDraft {
+                    site: "soleus".to_owned(),
+                    side: Some(crate::domain::Side::Left),
+                    values: {
+                        let mut values = crate::domain::AxisValues::new();
+                        values.set(crate::domain::AxisValue::Tension(
+                            crate::domain::Tension::Weak,
+                        ));
+                        values
+                    },
+                    confidence: 60,
+                    at: 10,
+                },
+                crate::domain::EvidenceDraft {
+                    kind: EvidenceKind::Record,
+                    site: "soleus".to_owned(),
+                    side: Some(crate::domain::Side::Left),
+                    finding: None,
+                    conversation: Some(doomed.id),
+                    at: 10,
+                    user_said: "小腿紧".to_owned(),
+                    test_and_feedback: "提踵".to_owned(),
+                    reasoning: "张力弱".to_owned(),
+                    uncertainty: "未涉及".to_owned(),
+                },
+            )
+            .expect("落一条");
+        store.delete_conversation(doomed.id).expect("删会话");
+
+        let mut host = StoreHost::new(store, doomed.id, 20);
+        let output = host.call(SEARCH_EVIDENCE, r#"{"site":"soleus"}"#);
+        assert!(output.contains("\"source\":\"deleted\""), "{output}");
+        // 日志还在（ADR-0005）。
+        assert_eq!(store.evidence_log().expect("日志").len(), 1);
+    }
+
+    #[test]
     fn the_round_limit_is_clamped_to_a_working_range() {
         assert_eq!(clamp_rounds(0), 1);
         assert_eq!(clamp_rounds(6), 6);

@@ -103,7 +103,7 @@ impl Input {
     /// 库里的一条 → 请求里的一项。
     pub fn from_stored(item: &StoredItem) -> Input {
         match item {
-            StoredItem::Message { role, text } => Input::Message(MessageItem {
+            StoredItem::Message { role, text, .. } => Input::Message(MessageItem {
                 role: role.key().to_owned(),
                 content: text.clone(),
             }),
@@ -400,6 +400,7 @@ mod tests {
             item: crate::domain::StoredItem::Message {
                 role,
                 text: text.to_owned(),
+                photos: Vec::new(),
             },
         }
     }
@@ -671,6 +672,14 @@ mod tests {
         let body = include_str!("../../tests/corpus/deepseek-first-reply.json");
         let text = crate::llm::deepseek::parse_response(200, body).expect("录制的响应仍能解析");
         assert!(text.contains("踝背屈") || text.contains("深蹲"));
+    }
+
+    #[test]
+    fn tool_dates_parse_back_into_the_state_blocks_dates() {
+        // 工具参数里的 YYYY-MM-DD 与状态块里的日期必须互逆。
+        let day = crate::domain::tool::parse_date("2025-11-24").expect("解析");
+        assert_eq!(date(day), "2025-11-24");
+        assert_eq!(date(crate::domain::tool::parse_date("2026-11-15").expect("解析")), "2026-11-15");
     }
 
     #[test]

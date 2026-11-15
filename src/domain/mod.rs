@@ -10,6 +10,7 @@ pub mod evidence;
 pub mod finding;
 pub mod item;
 pub mod measurement;
+pub mod photo;
 pub mod projection;
 pub mod tool;
 pub mod training;
@@ -26,6 +27,7 @@ pub use measurement::{
     Measurement, MeasurementDraft, MeasurementId, MeasurementKind, Trend, trend,
 };
 #[allow(unused_imports)]
+pub use photo::{Photo, PhotoId};
 pub use projection::{Aggregate, Projection, SiteState};
 #[allow(unused_imports)]
 pub use training::{Place, Readiness, TrainingContext, TrainingField};
@@ -61,6 +63,14 @@ pub enum DomainError {
     EmptyEvidenceSection(&'static str),
     /// 工具条目缺了必需字段（call_id / name / output）。
     EmptyToolItem,
+    /// 照片没有文件或尺寸（落盘前的约束）。
+    EmptyPhotoFile,
+    /// 照片的媒体类型不是图片。
+    NotAnImage(String),
+    /// 一条消息只能带一张照片。
+    TooManyPhotos(usize),
+    /// agent 不发表情……不，不发表照片。
+    SideForbiddenPhotos,
     /// 找不到这个会话。
     UnknownConversation(u64),
     /// 同一条目被撤回了两次。
@@ -134,6 +144,20 @@ impl fmt::Display for DomainError {
             DomainError::EmptyToolItem => write!(
                 f,
                 "工具条目缺少 call_id、name 或 output；工具往返要原样重放，缺一不可。"
+            ),
+            DomainError::EmptyPhotoFile => {
+                write!(f, "照片缺了文件或尺寸；没有字节的东西不能当照片存。")
+            }
+            DomainError::TooManyPhotos(count) => write!(
+                f,
+                "一条消息只能带一张照片，收到 {count} 张；分两条发。"
+            ),
+            DomainError::SideForbiddenPhotos => {
+                write!(f, "只有用户消息能带照片；agent 的回复是文字。")
+            }
+            DomainError::NotAnImage(mime) => write!(
+                f,
+                "`{mime}` 不是图片；照片只收选择器给的 image/* 文件。"
             ),
             DomainError::EmptyEvidenceSection(section) => write!(
                 f,

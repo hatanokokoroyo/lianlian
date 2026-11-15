@@ -2,13 +2,16 @@
 //!
 //! 每条判定、每次撤回各占一行，值是该结构的 JSON。时间线永远是整张表读出来再排
 //! 序——这一层不做「就地更新」，因为没有更新这回事。
+//!
+//! 写入口只有一条：`store::evidence` 里的 `record_with_evidence` /
+//! `retract_with_evidence`（判定与依据日志必须同一个事务）。这里只有读。
 
 use redb::{ReadableDatabase, ReadableTable, TableDefinition};
 
 use super::{db_error, Store, StoreError};
-use crate::domain::{
-    DomainError, Event, Finding, FindingDraft, FindingId, Projection, Retract, Timestamp,
-};
+#[cfg(test)]
+use crate::domain::DomainError;
+use crate::domain::{Event, Finding, FindingId, Projection, Retract};
 
 /// 判定：编号 → Finding 的 JSON。
 pub(crate) const FINDINGS: TableDefinition<u64, &str> = TableDefinition::new("findings");
@@ -16,8 +19,16 @@ pub(crate) const FINDINGS: TableDefinition<u64, &str> = TableDefinition::new("fi
 pub(crate) const RETRACTS: TableDefinition<u64, &str> = TableDefinition::new("retracts");
 
 impl Store {
-    /// 写入一条判定：校验由领域层负责，这里分配编号并落库。
-    pub fn record(&self, draft: FindingDraft) -> Result<Finding, StoreError> {
+    /// **只为存储层自测保留的窄入口**：不写依据日志。
+    ///
+    /// 产品代码一律走 `store::evidence` 的 `record_with_evidence`（判定与日志必须
+    /// 同一个事务）；给 `#[cfg(test)]` 意味着 #10 之类的新代码想「顺手」用它时会
+    /// 直接编译不过，而不是悄悄多出一条没有依据的判定。
+    #[cfg(test)]
+    pub fn record(
+        &self,
+        draft: crate::domain::FindingDraft,
+    ) -> Result<Finding, StoreError> {
         draft.validate()?;
         let id = FindingId(self.next_finding_id()?);
         let finding = Finding::new(id, draft)?;
@@ -36,29 +47,26 @@ impl Store {
         Ok(finding)
     }
 
-    /// 撤回一条判定：必须写理由，且不能撤回一条不存在或已撤回的判定。
+    /// **只为存储层自测保留的窄入口**：不写依据日志（同上）。
+    #[cfg(test)]
     pub fn retract(
         &self,
         finding: FindingId,
         reason: &str,
-        at: Timestamp,
+        at: crate::domain::Timestamp,
     ) -> Result<Retract, StoreError> {
         let retract = Retract::new(finding, reason, at)?;
         if self.finding(finding)?.is_none() {
             return Err(StoreError::Domain(DomainError::UnknownFinding(finding)));
+        }
+        if self.retraction(finding)?.is_some() {
+            return Err(StoreError::Domain(DomainError::AlreadyRetracted(finding)));
         }
         let json = to_json(&retract)?;
 
         let write = self.db().begin_write().map_err(db_error)?;
         {
             let mut retracts = write.open_table(RETRACTS).map_err(db_error)?;
-            if retracts
-                .get(finding.0)
-                .map_err(db_error)?
-                .is_some()
-            {
-                return Err(StoreError::Domain(DomainError::AlreadyRetracted(finding)));
-            }
             retracts
                 .insert(finding.0, json.as_str())
                 .map_err(db_error)?;
@@ -129,6 +137,7 @@ impl Store {
     }
 }
 
+#[cfg(test)]
 fn to_json<T: serde::Serialize>(value: &T) -> Result<String, StoreError> {
     serde_json::to_string(value).map_err(|error| StoreError::Db(format!("写库序列化失败：{error}")))
 }
@@ -140,7 +149,7 @@ fn from_json<T: serde::de::DeserializeOwned>(json: &str) -> Result<T, StoreError
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::{Axis, AxisValue, AxisValues, Side, Tension};
+    use crate::domain::{Axis, AxisValue, AxisValues, FindingDraft, Side, Tension, Timestamp};
     use crate::store::tests::TempStore;
 
     fn draft(site: &str, side: Option<Side>, at: Timestamp, tension: Tension) -> FindingDraft {

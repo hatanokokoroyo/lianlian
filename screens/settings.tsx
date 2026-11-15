@@ -135,16 +135,18 @@ export function SettingsScreen(props: { onBack: () => void }) {
             <Text style={{ fontSize: 13, fontWeight: "bold", color: token("foreground") }}>
               工具往返上限
             </Text>
-            <SectionLabel text={`${settings()?.toolRounds ?? 6} 轮`} />
+            <SectionLabel text={`${settings()?.toolRounds ?? settings()?.roundsDefault ?? 6} 轮`} />
           </View>
-          <Note text="一轮对话里 agent 最多调几次工具（先查依据、再写档案都算一次）。默认 6，可填 1–128；调太高只会让它空转。" />
+          <Note
+            text={`一轮对话里 agent 最多调几次工具（先查依据、再写档案都算一次）。默认 ${settings()?.roundsDefault ?? 6}，可填 ${settings()?.roundsMin ?? 1}–${settings()?.roundsMax ?? 128}；调太高只会让它空转。`}
+          />
           <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
             <View style={{ flex: 1 }}>
               <TextField
                 testID="tool-rounds"
                 value={rounds()}
                 onChange={(value) => rounds.set(value)}
-                placeholder={String(settings()?.toolRounds ?? 6)}
+                placeholder={String(settings()?.toolRounds ?? settings()?.roundsDefault ?? 6)}
               />
             </View>
             <PrimaryButton

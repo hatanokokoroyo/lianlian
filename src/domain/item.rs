@@ -10,14 +10,20 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use super::{ConversationId, DomainError, MessageId, Role, Timestamp};
+use super::{ConversationId, DomainError, MessageId, PhotoId, Role, Timestamp};
 
 /// 一条落库的条目：可见消息或工具往返。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
 pub enum StoredItem {
-    /// 用户或 agent 说的话。
-    Message { role: Role, text: String },
+    /// 用户或 agent 说的话；用户那句话可以带着一张照片。
+    Message {
+        role: Role,
+        text: String,
+        /// 只有用户消息会有；`#8` 之后一条最多一张。
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        photos: Vec<PhotoId>,
+    },
     /// 模型要求调用工具。
     FunctionCall {
         call_id: String,
@@ -33,29 +39,44 @@ pub enum StoredItem {
 impl StoredItem {
     /// 一条用户消息。
     pub fn user(text: &str) -> Result<StoredItem, DomainError> {
-        StoredItem::message(Role::User, text)
+        StoredItem::message(Role::User, text, Vec::new())
+    }
+
+    /// 一条带照片的用户消息（照片可以没有文字：拍照本身就是一句话）。
+    pub fn user_with_photo(text: &str, photo: PhotoId) -> Result<StoredItem, DomainError> {
+        StoredItem::message(Role::User, text, vec![photo])
     }
 
     /// 一条 agent 回复。
     pub fn assistant(text: &str) -> Result<StoredItem, DomainError> {
-        StoredItem::message(Role::Assistant, text)
+        StoredItem::message(Role::Assistant, text, Vec::new())
     }
 
-    fn message(role: Role, text: &str) -> Result<StoredItem, DomainError> {
+    fn message(role: Role, text: &str, photos: Vec<PhotoId>) -> Result<StoredItem, DomainError> {
         let text = text.trim();
-        if text.is_empty() {
+        if role == Role::Assistant && !photos.is_empty() {
+            return Err(DomainError::SideForbiddenPhotos);
+        }
+        if photos.len() > crate::domain::photo::PER_MESSAGE as usize {
+            return Err(DomainError::TooManyPhotos(photos.len()));
+        }
+        // 只有照片没有文字也算一条消息。
+        if text.is_empty() && photos.is_empty() {
             return Err(DomainError::EmptyMessage);
         }
         Ok(StoredItem::Message {
             role,
             text: text.to_owned(),
+            photos,
         })
     }
 
     /// 校验一条已有条目（存储层反序列化后复查用）。
     pub fn validate(&self) -> Result<(), DomainError> {
         match self {
-            StoredItem::Message { role, text } => StoredItem::message(*role, text).map(|_| ()),
+            StoredItem::Message { role, text, photos } => {
+                StoredItem::message(*role, text, photos.clone()).map(|_| ())
+            }
             StoredItem::FunctionCall {
                 call_id,
                 name,
@@ -90,8 +111,16 @@ impl StoredItem {
     /// 可见消息的投影：不是消息就是 `None`。
     pub fn as_message(&self) -> Option<(Role, &str)> {
         match self {
-            StoredItem::Message { role, text } => Some((*role, text.as_str())),
+            StoredItem::Message { role, text, .. } => Some((*role, text.as_str())),
             _ => None,
+        }
+    }
+
+    /// 这条消息带的照片（不是消息或没有照片就是空）。
+    pub fn photos(&self) -> &[PhotoId] {
+        match self {
+            StoredItem::Message { photos, .. } => photos,
+            _ => &[],
         }
     }
 }
@@ -113,6 +142,21 @@ mod tests {
     fn a_blank_message_is_not_a_message() {
         assert_eq!(StoredItem::user("  \n "), Err(DomainError::EmptyMessage));
         assert!(StoredItem::assistant("先说一句").is_ok());
+    }
+
+    #[test]
+    fn a_photo_is_a_message_even_without_words_but_only_from_the_user() {
+        let with_photo = StoredItem::user_with_photo("", PhotoId(7)).expect("只有照片也算");
+        assert_eq!(with_photo.photos(), &[PhotoId(7)]);
+        assert_eq!(with_photo.as_message(), Some((Role::User, "")));
+
+        // agent 不会发照片；一条只允许一张。
+        assert!(matches!(
+            StoredItem::assistant("看这张"),
+            Ok(StoredItem::Message { .. })
+        ));
+        let two = StoredItem::message(Role::User, "x", vec![PhotoId(1), PhotoId(2)]);
+        assert_eq!(two, Err(DomainError::TooManyPhotos(2)));
     }
 
     #[test]

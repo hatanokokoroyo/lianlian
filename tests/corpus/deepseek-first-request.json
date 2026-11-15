@@ -37,7 +37,7 @@
             "type": "string"
           },
           "contains": {
-            "description": "关键词，查四段文本与撤回理由",
+            "description": "关键词，只查四段原文",
             "type": "string"
           },
           "from": {

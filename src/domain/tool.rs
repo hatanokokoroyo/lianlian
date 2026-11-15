@@ -112,14 +112,6 @@ impl EvidenceQuery {
         })
     }
 
-    /// 这条检索能不能证明「查过」某部位。
-    ///
-    /// 只有明确指名该部位才算：`contains` 之类的模糊检索不算，否则规则形同虚设。
-    /// 指名之后即使一条记录都没有也算查过——第一次记录一个部位时档案里本来就
-    /// 什么都没有，不认这一点会让模型永远写不进第一条。
-    pub fn covers(&self, site: &str) -> bool {
-        self.site.as_deref() == Some(site)
-    }
 }
 
 /// `record_finding` 的参数。
@@ -151,7 +143,17 @@ impl RecordArgs {
             .and_then(Value::as_u64)
             .ok_or_else(|| {
                 ToolError::invalid_arguments("缺少 confidence（0–100 的整数）。".to_owned())
-            })? as u8;
+            })?;
+        // 先判范围再转换：`as u8` 会把 300 悄悄变成 44，那是把「没听懂」当成了
+        // 「很确定」。
+        let confidence = u8::try_from(confidence)
+            .ok()
+            .filter(|value| *value <= 100)
+            .ok_or_else(|| {
+                ToolError::invalid_arguments(format!(
+                    "confidence 必须是 0–100 的整数，收到 {confidence}。"
+                ))
+            })?;
         let values = parse_values(object.get("values"))?;
         let evidence = parse_evidence(
             object.get("evidence"),
@@ -295,6 +297,50 @@ fn parse_evidence(
         reasoning: section("reasoning"),
         uncertainty: section("uncertainty"),
     })
+}
+
+impl EvidenceQuery {
+    /// 这条日志符不符合条件（`axis` 看它服务的那条判定测过哪些轴）。
+    ///
+    /// 规则放这里而不是 store：store 只负责遍历与截断，判断是领域的事。
+    pub fn matches(&self, evidence: &super::Evidence, findings: &[super::Finding]) -> bool {
+        if let Some(site) = &self.site {
+            if &evidence.site != site {
+                return false;
+            }
+        }
+        if let Some(from) = self.from {
+            if evidence.at < from {
+                return false;
+            }
+        }
+        if let Some(to) = self.to {
+            if evidence.at > to {
+                return false;
+            }
+        }
+        if let Some(needle) = &self.contains {
+            if !evidence
+                .sections()
+                .iter()
+                .any(|(_, text)| text.contains(needle.as_str()))
+            {
+                return false;
+            }
+        }
+        if let Some(axis) = self.axis {
+            let measured = evidence.finding.is_some_and(|id| {
+                findings
+                    .iter()
+                    .find(|finding| finding.id == id)
+                    .is_some_and(|finding| finding.values.get(axis).is_some())
+            });
+            if !measured {
+                return false;
+            }
+        }
+        true
+    }
 }
 
 /// 本轮已经检索过的部位（Q4：只在当前这一轮里记账）。
@@ -697,9 +743,7 @@ mod tests {
     fn dates_round_trip_with_the_state_block() {
         assert_eq!(parse_date("1970-01-01"), Some(0));
         assert_eq!(parse_date("2026-11-15"), Some(1_794_700_800_000));
-        // 和状态块里的 `date()` 互逆：解析回当天 00:00 再格式化还是同一天。
-        let day = parse_date("2025-11-24").expect("解析");
-        assert_eq!(super::super::super::llm::prompt::date(day), "2025-11-24");
+        assert_eq!(parse_date("2025-11-24"), Some(1_763_942_400_000));
         assert_eq!(parse_date("2026-13-01"), None);
         assert_eq!(parse_date("2026-11-15T00:00"), None);
     }

@@ -356,6 +356,8 @@ impl Conversations {
 
         let assembly = assemble(&snapshot, &history, &text);
         let mut host = StoreHost::new(&store, conversation, at);
+        // 这一轮要挂在会话上的说明（裁剪过历史 / 撞上工具轮次上限）。
+        let mut notice: Option<String> = None;
         let outcome = match agent::run_turn(&model, &mut host, assembly.items.clone(), rounds).await
         {
             Ok(outcome) => outcome,
@@ -373,12 +375,11 @@ impl Conversations {
                 let mut retry_host = StoreHost::new(&store, conversation, at);
                 match agent::run_turn(&model, &mut retry_host, trimmed.items, rounds).await {
                     Ok(outcome) => {
-                        let notice = if keep == 0 {
+                        notice = Some(if keep == 0 {
                             "会话太长了，这次没带历史；建议新开一个会话。".to_owned()
                         } else {
                             format!("会话太长了，这次只带了最近 {keep} 轮对话；建议新开一个会话。")
-                        };
-                        let _ = store.set_conversation_notice(conversation, Some(&notice));
+                        });
                         outcome
                     }
                     Err(error) => return failure(error),
@@ -391,10 +392,10 @@ impl Conversations {
             Err(error) => return failure(error),
         };
 
-        // 撞上工具轮次上限也要说清楚，别让用户以为对话正常收尾了。
-        if let Some(notice) = &outcome.notice {
-            let _ = store.set_conversation_notice(conversation, Some(notice));
-        }
+        // 撞上工具轮次上限也要说清楚，别让用户以为对话正常收尾了；正常收尾就把
+        // 上一轮留下的说明清掉（那句话说的是上一轮，不是这一轮）。
+        let notice = outcome.notice.clone().or(notice);
+        let _ = store.set_conversation_notice(conversation, notice.as_deref());
 
         // 整轮一次落库：用户那句、工具往返、回复。中途失败一条都不写。
         let mut items = vec![match crate::domain::StoredItem::user(&text) {
@@ -472,6 +473,12 @@ pub struct SettingsView {
     pub masked: Option<String>,
     /// 一轮对话里允许的工具往返轮数（1–128）。
     pub tool_rounds: f64,
+    /// 轮数的下界（界面不要自己写死数字）。
+    pub rounds_min: f64,
+    /// 轮数的上界。
+    pub rounds_max: f64,
+    /// 下界与上界之间的默认值。
+    pub rounds_default: f64,
     /// 读库失败的原因。
     pub error: Option<String>,
 }
@@ -559,6 +566,9 @@ fn settings_view(key: Option<String>, tool_rounds: usize, error: Option<String>)
         has_key: key.is_some_and(|key| !key.trim().is_empty()),
         masked,
         tool_rounds: tool_rounds as f64,
+        rounds_min: 1.0,
+        rounds_max: agent::MAX_ROUNDS_LIMIT as f64,
+        rounds_default: agent::DEFAULT_MAX_ROUNDS as f64,
         error,
     }
 }

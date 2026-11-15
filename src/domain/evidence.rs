@@ -2,7 +2,7 @@
 //!
 //! 四段（用户说法要点 / 验证方案与反馈 / 推理 / 不确定之处）对写档案的三种变动
 //! 都是必填——缺段不是「格式没对齐」，而是这条判定没有依据。用户拒绝一项提议不
-//! 产生判定，但同样留下证据，它只要求一段理由，允许为空。
+//! 产生判定，但同样留下一段理由（用户没写理由时由调用方填 [`NO_REASON`]）。
 //!
 //! **照片不算依据**，日志里既不留图片本体也不留引用（`GLOSSARY.md`「证据」）。
 
@@ -48,17 +48,6 @@ impl EvidenceKind {
             EvidenceKind::Resolve => "解决",
             EvidenceKind::Retract => "撤回",
             EvidenceKind::Rejection => "拒绝",
-        }
-    }
-
-    /// 从机器键解析。
-    pub fn from_key(raw: &str) -> Option<EvidenceKind> {
-        match raw {
-            "record" => Some(EvidenceKind::Record),
-            "resolve" => Some(EvidenceKind::Resolve),
-            "retract" => Some(EvidenceKind::Retract),
-            "rejection" => Some(EvidenceKind::Rejection),
-            _ => None,
         }
     }
 
@@ -253,6 +242,23 @@ mod tests {
             midline_with_side.validate().unwrap_err(),
             DomainError::SideForbidden("diaphragm".to_owned())
         );
+    }
+
+    #[test]
+    fn the_machine_key_never_drifts_from_the_serialized_form() {
+        for kind in [
+            EvidenceKind::Record,
+            EvidenceKind::Resolve,
+            EvidenceKind::Retract,
+            EvidenceKind::Rejection,
+        ] {
+            let serialized = serde_json::to_value(kind).expect("序列化");
+            assert_eq!(
+                serialized.as_str().expect("是个字符串"),
+                kind.key(),
+                "key() 与 serde 的编码必须一致"
+            );
+        }
     }
 
     #[test]
