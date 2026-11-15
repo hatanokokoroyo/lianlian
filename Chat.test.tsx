@@ -24,7 +24,7 @@ test("没填 key 时直接去设置，字不丢，换好 key 后能发出去", a
     await app.press("id:clear-api-key");
     await app.wait(200);
   }
-  await app.press("id:settings-back");
+  await app.press("id:back");
 
   await app.press("id:tab-conversations");
   await app.waitFor("id:new-conversation");
@@ -46,7 +46,7 @@ test("没填 key 时直接去设置，字不丢，换好 key 后能发出去", a
   await app.type("id:api-key", "sk-test-lianlian");
   await app.press("id:save-api-key");
   await app.waitFor("id:settings-message");
-  await app.press("id:settings-back");
+  await app.press("id:back");
 
   await app.press("id:tab-conversations");
   await app.waitFor("id:new-conversation");
@@ -115,7 +115,8 @@ test("请求超长自动裁剪最旧的历史重发一次，并提示开新会�
   await app.waitFor("id:new-conversation");
   await app.press("id:new-conversation");
   await app.waitFor("id:message-input");
-  await app.type("id:message-input", `超长测试 ${Date.now() % 10000}`);
+  const longTitle = `超长测试 ${Date.now() % 10000}`;
+  await app.type("id:message-input", longTitle);
   await app.press("id:send");
   await app.waitUntil(() => app.texts().some((text) => text.includes("第一轮的回答")));
 
@@ -134,6 +135,11 @@ test("请求超长自动裁剪最旧的历史重发一次，并提示开新会�
   expect(body(0).input[1].content).toContain("【当前状态】");
   expect(body(0).input[2].content).toContain("超长测试");
 
-  // 重发成功后在会话里给一句说明。
+  // 重发成功后在会话里给一句说明；说明记在会话上，重开会话仍看得见。
+  expect(app.texts().some((text) => text.includes("只带了最近 1 条消息"))).toBe(true);
+  await app.press("id:back");
+  await app.waitFor("id:new-conversation");
+  await app.press(`text:${longTitle}`);
+  await app.waitFor("id:conv-send-notice");
   expect(app.texts().some((text) => text.includes("只带了最近 1 条消息"))).toBe(true);
 });

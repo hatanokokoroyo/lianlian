@@ -24,8 +24,13 @@ Blocked by: 1, 2
 - 2026-11-15：`llm::prompt`（装配，纯函数）+ `llm::deepseek`（`POST https://api.deepseek.com/responses`，
   `reasoning.effort=none`，非流式）。失败按出路分类为 `retryable` / `config` / `request`；`TooLong`
   单独识别（context length 等措辞），自动裁掉最旧一半历史重发一次并在会话里提示「建议新开会话」。
-  发送失败**不落库**，草稿按会话缓存在界面模块里（跳设置再回来还在）。
+  发送失败**不落库**，草稿按会话缓存在界面模块里（跳设置再回来还在）；裁剪说明落在会话上
+  （`Conversation.notice`），重开仍能看到。
 - 首次真实调用的请求与响应录在 `tests/corpus/deepseek-first-request.json` /
   `deepseek-first-reply.json`；Rust 测试断言「今天的装配 == 录下来的请求」，并回放响应解析；
   端到端测试用 `open` 的 `network` 桩，不联网。
 - 偏差：流式输出未做（`fetch` 整包返回；先走非流式），`reasoning.effort=none` 关闭思考模式。
+
+- 2026-11-15（评审后补）：`back` testID 按 contract.md §7 的通用登记统一；测量图分
+  `weight-chart` / `height-chart`；`Chart` 不再在函数体里定格序列；读库失败不再被装作空态；
+  会话说明持久化；发请求时显示「思考中…」（仍是非流式）。

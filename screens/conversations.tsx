@@ -7,7 +7,7 @@ import { Input } from "nsh/base";
 import { Conversations } from "lianlian/native";
 import type { ChatErrorView, ConversationView, MessageView } from "lianlian/native";
 
-import { Card, Note, PrimaryButton, ScreenHeader, SectionLabel, TextButton } from "../ui/parts";
+import { Card, ConfirmRow, Note, PrimaryButton, ScreenHeader, SectionLabel, TextButton } from "../ui/parts";
 
 /** 相对时间：今天 / 昨天 / N 天前 / 月-日。 */
 function relativeDay(at: number): string {
@@ -93,7 +93,6 @@ function Chat(props: {
   const draft = signal(drafts.get(props.id) ?? "");
   const busy = signal(false);
   const failure = signal<ChatErrorView | null>(null);
-  const notice = signal<string | null>(null);
 
   const writeDraft = (text: string) => {
     drafts.set(props.id, text);
@@ -107,7 +106,6 @@ function Chat(props: {
     }
     busy.set(true);
     failure.set(null);
-    notice.set(null);
     const result = await Conversations.send(props.id, text);
     busy.set(false);
     if (result.error) {
@@ -116,9 +114,6 @@ function Chat(props: {
       failure.set(result.error);
     } else {
       writeDraft("");
-      if (result.notice) {
-        notice.set(result.notice);
-      }
     }
     detail.refetch();
     props.onChanged();
@@ -135,7 +130,7 @@ function Chat(props: {
           paddingTop: 12,
         }}
       >
-        <TextButton testID="conv-back" label="← 对话" onPress={props.onBack} />
+        <TextButton testID="back" label="← 对话" onPress={props.onBack} />
         <Text
           style={{
             flex: 1,
@@ -175,10 +170,10 @@ function Chat(props: {
             {(message: () => MessageView) => <MessageRow message={message()} />}
           </List>
 
-          {notice() ? (
+          {detail()?.notice ? (
             <View style={{ paddingHorizontal: 16, paddingBottom: 6 }}>
               <Card testID="conv-send-notice">
-                <Note tone="accent" text={notice()!} />
+                <Note tone="accent" text={detail()!.notice ?? ""} />
               </Card>
             </View>
           ) : null}
@@ -200,6 +195,12 @@ function Chat(props: {
                   ) : null}
                 </View>
               </Card>
+            </View>
+          ) : null}
+
+          {busy() ? (
+            <View style={{ paddingHorizontal: 16, paddingBottom: 4 }}>
+              <Note testID="conv-thinking" text="思考中…" />
             </View>
           ) : null}
 
@@ -320,33 +321,15 @@ function ConversationRow(props: {
       </View>
 
       {props.confirmDelete ? (
-        <View
+        <ConfirmRow
           testID={`delete-conv-confirm-row-${conversation.id}`}
-          style={{
-            gap: 6,
-            backgroundColor: token("muted"),
-            borderRadius: token("radius"),
-            padding: 10,
-          }}
-        >
-          <Note
-            tone="error"
-            text="删除这个会话？消息正文会被清掉；它产生的依据日志与照片保留，档案不会因此失忆。"
-          />
-          <View style={{ flexDirection: "row", gap: 12 }}>
-            <TextButton
-              testID={`delete-conv-confirm-${conversation.id}`}
-              label="确认删除"
-              hint={`确认删除：${conversation.title}`}
-              onPress={props.onDeleteConfirmed}
-            />
-            <TextButton
-              testID={`delete-conv-cancel-${conversation.id}`}
-              label="取消"
-              onPress={props.onDeleteCancelled}
-            />
-          </View>
-        </View>
+          text="删除这个会话？消息正文会被清掉；它产生的依据日志与照片保留，档案不会因此失忆。"
+          confirmTestID={`delete-conv-confirm-${conversation.id}`}
+          cancelTestID={`delete-conv-cancel-${conversation.id}`}
+          confirmHint={`确认删除：${conversation.title}`}
+          onConfirm={props.onDeleteConfirmed}
+          onCancel={props.onDeleteCancelled}
+        />
       ) : null}
     </Card>
   );

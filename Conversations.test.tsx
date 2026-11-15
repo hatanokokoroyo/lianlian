@@ -36,7 +36,7 @@ test("会话新建、续聊、归档、删除与重开仍在", async () => {
   expect(app.texts().some((text) => text.includes(title))).toBe(true);
 
   // 回到列表：标题取自第一句，并有摘要。
-  await app.press("id:conv-back");
+  await app.press("id:back");
   await app.waitFor("id:new-conversation");
   expect(app.texts().some((text) => text.includes(title))).toBe(true);
 
@@ -69,7 +69,7 @@ test("会话新建、续聊、归档、删除与重开仍在", async () => {
   expect(reopened.texts().some((text) => text.includes("还有上下楼梯时"))).toBe(true);
 
   // 删除：只删这个会话，确认后从列表消失。
-  await reopened.press("id:conv-back");
+  await reopened.press("id:back");
   await reopened.waitFor("id:new-conversation");
   await reopened.press(`label:会话菜单：${title}`);
   await reopened.press(`label:删除：${title}`);

@@ -102,7 +102,7 @@ export function Onboarding(props: {
             <BasicsFields draft={basics} />
             <View style={{ gap: 6 }}>
               <SectionLabel text="身高与体重" />
-              <Note text="每次填新值都会追加一条带时间的测量，不覆盖旧值；单条记录可在文档页的「测量」里删除。" />
+              <Note text="每次填新值都会追加一条带时间的测量，不覆盖旧值；单条记录可在档案页的「测量」里删除。" />
               <BodyMetricFields draft={basics} />
             </View>
           </View>
@@ -122,7 +122,7 @@ export function Onboarding(props: {
             </View>
             <Note
               tone="accent"
-              text="对话与模型 key 还没接（工单 #6 / #7），这一步先把你送到门口。"
+              text="去「对话」里开一个会话就能开始；设置页可以填 DeepSeek 的 key（只存在这台设备上）。"
             />
           </Card>
         ) : null}

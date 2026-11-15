@@ -40,7 +40,7 @@ export async function setApiKey(app: App, key = "sk-test-lianlian") {
   await app.type("id:api-key", key);
   await app.press("id:save-api-key");
   await app.waitFor("id:settings-message");
-  await app.press("id:settings-back");
+  await app.press("id:back");
 }
 
 /** 假模型的一次正常响应（OpenAI Responses 的形状）。 */

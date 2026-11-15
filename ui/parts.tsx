@@ -219,6 +219,40 @@ export function Note(props: {
   );
 }
 
+/** 两步确认：一行说明 + 取消/确认。列表里的单条删除共用这一套。 */
+export function ConfirmRow(props: {
+  text: string;
+  testID?: string;
+  confirmTestID: string;
+  cancelTestID: string;
+  confirmHint?: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <View
+      testID={props.testID}
+      style={{
+        gap: 6,
+        backgroundColor: token("muted"),
+        borderRadius: token("radius"),
+        padding: 10,
+      }}
+    >
+      <Note tone="error" text={props.text} />
+      <View style={{ flexDirection: "row", gap: 12 }}>
+        <TextButton
+          testID={props.confirmTestID}
+          label="确认删除"
+          hint={props.confirmHint}
+          onPress={props.onConfirm}
+        />
+        <TextButton testID={props.cancelTestID} label="取消" onPress={props.onCancel} />
+      </View>
+    </View>
+  );
+}
+
 /** 页面标题 + 说明。 */
 export function ScreenHeader(props: { eyebrow?: string; title: string; note?: string }) {
   return (

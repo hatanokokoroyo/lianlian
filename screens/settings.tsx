@@ -42,7 +42,7 @@ export function SettingsScreen(props: { onBack: () => void }) {
   return (
     <View style={{ flex: 1 }}>
       <View style={{ paddingHorizontal: 16, paddingTop: 12 }}>
-        <TextButton testID="settings-back" label="← 回档案" onPress={props.onBack} />
+        <TextButton testID="back" label="← 回档案" onPress={props.onBack} />
       </View>
       <ScreenHeader
         eyebrow="设置"

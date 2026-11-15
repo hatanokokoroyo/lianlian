@@ -47,7 +47,7 @@ test("测量追加入库、折线图重画、单条可删、当前值来自最�
   expect(app.texts()).toContain("62.4");
 
   // 基本属性里的当前体重来自最新一条测量（这里只剩 62.4）。
-  await app.press("id:measurements-back");
+  await app.press("id:back");
   await app.waitFor("id:save-basics");
   // 当前值来自最新一条测量，不是可编辑的草稿。
   expect(app.texts()).toContain("当前 — cm · 62.4 kg");

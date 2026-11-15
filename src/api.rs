@@ -153,30 +153,51 @@ impl Measurements {
 }
 
 fn measurements_view(store: &Store, error: Option<String>) -> MeasurementsView {
-    let series = |kind: MeasurementKind| -> SeriesView {
-        let measurements = store.measurements(kind).unwrap_or_default();
-        let trend = crate::domain::trend(measurements.clone());
-        SeriesView {
-            kind: kind.key().to_owned(),
-            label: kind.zh().to_owned(),
-            unit: kind.unit().to_owned(),
-            current: trend.latest,
-            change: trend.change,
-            points: measurements
-                .iter()
-                .map(|measurement| MeasurementView {
-                    id: measurement.id.0 as f64,
-                    kind: kind.key().to_owned(),
-                    value: measurement.value,
-                    at: measurement.at as f64,
-                })
-                .collect(),
+    let mut errors: Vec<String> = error.into_iter().collect();
+    MeasurementsView {
+        weight: series_view(store, MeasurementKind::Weight, &mut errors),
+        height: series_view(store, MeasurementKind::Height, &mut errors),
+        // 读库失败要显示出来，不能装作「还没有测量」。
+        error: join_errors(errors),
+    }
+}
+
+fn series_view(
+    store: &Store,
+    kind: MeasurementKind,
+    errors: &mut Vec<String>,
+) -> SeriesView {
+    let measurements = match store.measurements(kind) {
+        Ok(measurements) => measurements,
+        Err(error) => {
+            errors.push(error.to_string());
+            Vec::new()
         }
     };
-    MeasurementsView {
-        weight: series(MeasurementKind::Weight),
-        height: series(MeasurementKind::Height),
-        error,
+    let trend = crate::domain::trend(measurements.clone());
+    SeriesView {
+        kind: kind.key().to_owned(),
+        label: kind.zh().to_owned(),
+        unit: kind.unit().to_owned(),
+        current: trend.latest,
+        change: trend.change,
+        points: measurements
+            .iter()
+            .map(|measurement| MeasurementView {
+                id: measurement.id.0 as f64,
+                kind: kind.key().to_owned(),
+                value: measurement.value,
+                at: measurement.at as f64,
+            })
+            .collect(),
+    }
+}
+
+fn join_errors(errors: Vec<String>) -> Option<String> {
+    if errors.is_empty() {
+        None
+    } else {
+        Some(errors.join("；"))
     }
 }
 
@@ -237,6 +258,8 @@ pub struct ConversationDetailView {
     pub title: String,
     /// 按时间升序；界面从下往上读。
     pub messages: Vec<MessageView>,
+    /// 这个会话的说明（目前只有「自动裁剪过历史」）；没有就是 `null`。
+    pub notice: Option<String>,
     pub error: Option<String>,
 }
 
@@ -257,8 +280,6 @@ pub struct SendResultView {
     pub messages: Vec<MessageView>,
     /// 有值时这一轮没有落库（用户那句话仍在输入框里，不丢）。
     pub error: Option<ChatErrorView>,
-    /// 自动裁剪历史后重发成功时的说明；正常是 `null`。
-    pub notice: Option<String>,
 }
 
 /// 会话与消息：新建、续聊、归档、删除。
@@ -366,6 +387,11 @@ impl Conversations {
             Err(error) => return failure(error),
         };
 
+        // 裁剪过的这一轮把说明记在会话上：重开这个会话仍会看到「建议新开会话」。
+        if let Some(notice) = &notice {
+            let _ = store.set_conversation_notice(conversation, Some(notice));
+        }
+
         let at = now_ms();
         let user = store.append_message(conversation, crate::domain::Role::User, &text, at);
         let assistant = user.and_then(|_| {
@@ -385,7 +411,6 @@ impl Conversations {
                     .map(message_view)
                     .collect(),
                 error: None,
-                notice,
             },
             // 回复已经到了但落库失败：别装作成功，也别把用户那句抹掉。
             Err(error) => failure(GatewayError::Config(format!("回复落库失败：{error}"))),
@@ -416,7 +441,6 @@ fn failure(error: GatewayError) -> SendResultView {
             message: error.message().to_owned(),
             can_retry: error.can_retry(),
         }),
-        notice: None,
     }
 }
 
@@ -519,7 +543,14 @@ fn message_view(message: &crate::domain::Message) -> MessageView {
 }
 
 fn conversation_list_view(store: &Store, error: Option<String>) -> ConversationListView {
-    let conversations = store.conversations().unwrap_or_default();
+    let mut errors: Vec<String> = error.into_iter().collect();
+    let conversations = match store.conversations() {
+        Ok(conversations) => conversations,
+        Err(error) => {
+            errors.push(error.to_string());
+            Vec::new()
+        }
+    };
     let view = |conversation: &crate::domain::Conversation| ConversationView {
         id: conversation.id.0 as f64,
         title: conversation.title.clone(),
@@ -527,9 +558,13 @@ fn conversation_list_view(store: &Store, error: Option<String>) -> ConversationL
         archived: conversation.archived,
         preview: store
             .messages(conversation.id)
-            .ok()
-            .and_then(|messages| messages.last().map(|message| preview(&message.text)))
-            .unwrap_or_else(|| "还没有消息".to_owned()),
+            .map(|messages| {
+                messages
+                    .last()
+                    .map(|message| preview(&message.text))
+                    .unwrap_or_else(|| "还没有消息".to_owned())
+            })
+            .unwrap_or_else(|_| "消息读取失败".to_owned()),
         message_count: store
             .messages(conversation.id)
             .map(|messages| messages.len() as f64)
@@ -546,7 +581,7 @@ fn conversation_list_view(store: &Store, error: Option<String>) -> ConversationL
             .filter(|conversation| conversation.archived)
             .map(&view)
             .collect(),
-        error,
+        error: join_errors(errors),
     }
 }
 
@@ -560,17 +595,23 @@ fn conversation_detail_view(
         .ok()
         .flatten();
     match conversation {
-        Some(conversation) => ConversationDetailView {
-            id,
-            title: conversation.title.clone(),
-            messages: store
-                .messages(conversation.id)
-                .unwrap_or_default()
-                .iter()
-                .map(message_view)
-                .collect(),
-            error,
-        },
+        Some(conversation) => {
+            let mut errors: Vec<String> = error.into_iter().collect();
+            let messages = match store.messages(conversation.id) {
+                Ok(messages) => messages,
+                Err(error) => {
+                    errors.push(error.to_string());
+                    Vec::new()
+                }
+            };
+            ConversationDetailView {
+                id,
+                title: conversation.title.clone(),
+                messages: messages.iter().map(message_view).collect(),
+                notice: conversation.notice.clone(),
+                error: join_errors(errors),
+            }
+        }
         None => empty_detail_view(id, error.or_else(|| Some("找不到这个会话。".to_owned()))),
     }
 }
@@ -580,6 +621,7 @@ fn empty_detail_view(id: f64, error: Option<String>) -> ConversationDetailView {
         id,
         title: "新会话".to_owned(),
         messages: Vec::new(),
+        notice: None,
         error,
     }
 }

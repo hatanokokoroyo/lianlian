@@ -38,11 +38,14 @@ function changeText(change: number, unit: string): string {
 
 /** 折线图：按时间升序画点；只有一个点时靠 `Dot` 让那一个点看得见。 */
 function Chart(props: { series: SeriesView }) {
-  const points = props.series.points;
+  // 同一条纪律：序列在 JSX 里读（`props.series.points`），不在函数体里定格。
   return (
-    <View testID="weight-chart" style={{ gap: 6 }}>
+    <View
+      testID={props.series.kind === "weight" ? "weight-chart" : "height-chart"}
+      style={{ gap: 6 }}
+    >
       <View style={{ height: 150 }}>
-        <Plot data={points} y="value" style={{ flex: 1 }}>
+        <Plot data={props.series.points} y="value" style={{ flex: 1 }}>
           <Grid ticks={3} style={{ stroke: token("border"), strokeWidth: 1 }} />
           <Line
             y="value"
@@ -59,18 +62,20 @@ function Chart(props: { series: SeriesView }) {
           <Dot style={{ fill: token("primary") }} r={4} />
           <PlotAxis
             placement="bottom"
-            ticks={Math.min(points.length, 5)}
-            format={(index: number) => shortDate(points[Math.round(index)]?.at ?? 0)}
+            ticks={Math.min(props.series.points.length, 5)}
+            format={(index: number) =>
+              shortDate(props.series.points[Math.round(index)]?.at ?? 0)
+            }
             labelStyle={{ fontSize: 10, color: token("muted-foreground") }}
           />
         </Plot>
       </View>
       <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
         <Text style={{ fontSize: 10, color: token("muted-foreground") }}>
-          {shortDate(points[0].at)}
+          {shortDate(props.series.points[0].at)}
         </Text>
         <Text style={{ fontSize: 10, color: token("muted-foreground") }}>
-          {shortDate(points[points.length - 1].at)}
+          {shortDate(props.series.points[props.series.points.length - 1].at)}
         </Text>
       </View>
     </View>
@@ -221,7 +226,7 @@ export function MeasurementsScreen(props: { onBack: () => void }) {
   return (
     <View style={{ flex: 1 }}>
       <View style={{ paddingHorizontal: 16, paddingTop: 12 }}>
-        <TextButton testID="measurements-back" label="← 回档案" onPress={props.onBack} />
+        <TextButton testID="back" label="← 回档案" onPress={props.onBack} />
       </View>
       <ScreenHeader
         eyebrow="测量"

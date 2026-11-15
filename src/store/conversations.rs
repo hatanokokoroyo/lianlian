@@ -63,6 +63,17 @@ impl Store {
         self.write_conversation(&conversation)
     }
 
+    /// 记下（或清掉）这个会话的说明，重新打开时还能看到。
+    pub fn set_conversation_notice(
+        &self,
+        id: ConversationId,
+        notice: Option<&str>,
+    ) -> Result<(), StoreError> {
+        let mut conversation = self.require_conversation(id)?;
+        conversation.notice = notice.map(str::to_owned);
+        self.write_conversation(&conversation)
+    }
+
     /// 删除一个会话与它的全部消息。
     ///
     /// 只删消息正文：依据日志、照片不在这两张表里，保留语义由 #8/#9 接上。

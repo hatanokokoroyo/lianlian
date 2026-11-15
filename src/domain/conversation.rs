@@ -54,6 +54,9 @@ pub struct Conversation {
     pub created_at: Timestamp,
     pub updated_at: Timestamp,
     pub archived: bool,
+    /// 上一次自动裁剪历史时留下的说明；再开这个会话也要看得见（#7）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub notice: Option<String>,
 }
 
 impl Conversation {
@@ -65,6 +68,7 @@ impl Conversation {
             created_at: at,
             updated_at: at,
             archived: false,
+            notice: None,
         }
     }
 
