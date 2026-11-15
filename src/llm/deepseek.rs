@@ -7,9 +7,9 @@
 //! 可重试（断网 / 超时 / 429 / 5xx）、配置问题（key 无效、无额度）、请求问题
 //! （超长等，需要裁剪后重发）。
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
-use super::prompt::Item;
+use super::prompt::Input;
 
 /// Responses 端点。DeepSeek 的 base_url 没有 `/v1`。
 pub const ENDPOINT: &str = "https://api.deepseek.com/responses";
@@ -55,65 +55,124 @@ impl GatewayError {
     }
 }
 
-/// 请求体：模型 + 输入 item 列表。
+/// 请求体：模型 + 工具 + 输入 item 列表。
 ///
 /// `reasoning.effort = "none"`：关闭思考模式，否则短回复会被思维链吃掉预算。
-pub fn request_body(items: &[Item]) -> Value {
+/// `tools` 每次都在：同一份状态装配两次要逐字节一致，工具列表也得是确定的。
+pub fn request_body(items: &[Input]) -> Value {
     json!({
         "model": MODEL,
         "reasoning": { "effort": "none" },
         "input": items,
+        "tools": super::tools::specs(),
+        "tool_choice": "auto",
     })
 }
 
-/// 把响应正文解析成回复文本。
-pub fn parse_response(status: u16, body: &str) -> Result<String, GatewayError> {
+/// 模型这次输出的一项。
+#[derive(Debug, Clone, PartialEq)]
+pub enum OutputItem {
+    /// 可见正文。
+    Message(String),
+    /// 要求调用工具（`arguments` 是模型给的 JSON **字符串**，可能是坏的）。
+    FunctionCall {
+        call_id: String,
+        name: String,
+        arguments: String,
+    },
+    /// 认不出来的项（思考模式下的 reasoning 等）：原样留着，重放时照发。
+    Raw(Value),
+}
+
+/// 把响应正文解析成输出项列表。
+///
+/// 关掉思考模式之后正常只会看到 `message` 与 `function_call`；别的类型一律进
+/// `Raw`，不猜它的含义，也不丢——丢了会让下一轮的前缀对不上。
+pub fn parse_output_items(status: u16, body: &str) -> Result<Vec<OutputItem>, GatewayError> {
     if !(200..=299).contains(&status) {
         return Err(classify(status, body));
     }
-    let parsed: Value = serde_json::from_str(body).map_err(|error| {
-        GatewayError::Request(format!("模型返回的不是合法 JSON：{error}"))
-    })?;
+    let parsed: Value = serde_json::from_str(body)
+        .map_err(|error| GatewayError::Request(format!("模型返回的不是合法 JSON：{error}")))?;
 
-    let text = output_text(&parsed);
-    if !text.is_empty() {
-        return Ok(text);
-    }
-    // 200 但没有可见输出：截断或被内容安全挡下，都算请求问题（重试同一请求没用）。
-    let status = parsed
-        .get("status")
-        .and_then(Value::as_str)
-        .unwrap_or("unknown");
-    let reason = parsed
-        .get("incomplete_details")
-        .and_then(|details| details.get("reason"))
-        .and_then(Value::as_str)
-        .unwrap_or("没有可见输出");
-    Err(GatewayError::Request(format!(
-        "模型没有给出正文（{status}：{reason}）。"
-    )))
-}
-
-/// 从响应里取 `output[].content[].text`（只取 `output_text`）。
-pub fn output_text(parsed: &Value) -> String {
-    parsed
+    let output = parsed
         .get("output")
         .and_then(Value::as_array)
-        .map(|output| {
-            output
-                .iter()
-                .flat_map(|item| {
-                    item.get("content")
-                        .and_then(Value::as_array)
-                        .map(Vec::as_slice)
+        .cloned()
+        .unwrap_or_default();
+    let mut items = Vec::with_capacity(output.len());
+    for item in output {
+        match item.get("type").and_then(Value::as_str) {
+            Some("message") => {
+                let text = item
+                    .get("content")
+                    .and_then(Value::as_array)
+                    .map(|parts| {
+                        parts
+                            .iter()
+                            .filter(|part| {
+                                part.get("type").and_then(Value::as_str) == Some("output_text")
+                            })
+                            .filter_map(|part| part.get("text").and_then(Value::as_str))
+                            .collect::<Vec<_>>()
+                            .join("")
+                    })
+                    .unwrap_or_default();
+                if !text.is_empty() {
+                    items.push(OutputItem::Message(text));
+                }
+            }
+            Some("function_call") => {
+                let field = |name: &str| {
+                    item.get(name)
+                        .and_then(Value::as_str)
                         .unwrap_or_default()
-                })
-                .filter(|part| part.get("type").and_then(Value::as_str) == Some("output_text"))
-                .filter_map(|part| part.get("text").and_then(Value::as_str))
-                .collect::<Vec<_>>()
-                .join("")
+                        .to_owned()
+                };
+                let (call_id, name) = (field("call_id"), field("name"));
+                if call_id.is_empty() || name.is_empty() {
+                    return Err(GatewayError::Request(
+                        "模型返回了一个缺 call_id 或 name 的 function_call。".to_owned(),
+                    ));
+                }
+                items.push(OutputItem::FunctionCall {
+                    call_id,
+                    name,
+                    arguments: field("arguments"),
+                });
+            }
+            _ => items.push(OutputItem::Raw(item)),
+        }
+    }
+
+    if items.is_empty() {
+        let status = parsed
+            .get("status")
+            .and_then(Value::as_str)
+            .unwrap_or("unknown");
+        let reason = parsed
+            .get("incomplete_details")
+            .and_then(|details| details.get("reason"))
+            .and_then(Value::as_str)
+            .unwrap_or("没有可见输出");
+        return Err(GatewayError::Request(format!(
+            "模型没有给出正文（{status}：{reason}）。"
+        )));
+    }
+    Ok(items)
+}
+
+/// 解析成一段正文：只有消息时用它（`parse_output_items` 的薄包装）。
+pub fn parse_response(status: u16, body: &str) -> Result<String, GatewayError> {
+    let items = parse_output_items(status, body)?;
+    Ok(items
+        .into_iter()
+        .filter_map(|item| match item {
+            OutputItem::Message(text) => Some(text),
+            _ => None,
         })
-        .unwrap_or_default()
+        .collect::<Vec<_>>()
+        .join(""))
 }
 
 /// 状态码 → 出路。
@@ -172,8 +231,8 @@ fn error_message(body: &str) -> String {
         .unwrap_or_else(|| body.chars().take(160).collect())
 }
 
-/// 真发一次请求；测试不联网，走 `parse_response` 与装配的纯函数测试。
-pub async fn send(key: &str, items: &[Item]) -> Result<String, GatewayError> {
+/// 真发一次请求，拿到这一轮输出项；测试不联网，走 `parse_output_items` 与装配的纯函数测试。
+pub async fn send_turn(key: &str, items: &[Input]) -> Result<Vec<OutputItem>, GatewayError> {
     use nsh_core::prelude::HttpRequest;
 
     let body = request_body(items).to_string();
@@ -183,7 +242,20 @@ pub async fn send(key: &str, items: &[Item]) -> Result<String, GatewayError> {
     let response = nsh_core::prelude::fetch(request)
         .await
         .map_err(|message| GatewayError::Retryable(format!("网络请求失败：{message}")))?;
-    parse_response(response.status(), &response.text())
+    parse_output_items(response.status(), &response.text())
+}
+
+/// 只要正文的那一次请求（没有工具往返时用它）。
+pub async fn send(key: &str, items: &[Input]) -> Result<String, GatewayError> {
+    Ok(send_turn(key, items)
+        .await?
+        .into_iter()
+        .filter_map(|item| match item {
+            OutputItem::Message(text) => Some(text),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join(""))
 }
 
 #[cfg(test)]
@@ -230,13 +302,17 @@ mod tests {
         assert_eq!(classify(402, "{}").kind(), "config");
         assert_eq!(classify(429, "{}").kind(), "retryable");
         assert_eq!(classify(503, "{}").kind(), "retryable");
-        assert_eq!(classify(400, r#"{"error":{"message":"bad"}}"#).kind(), "request");
+        assert_eq!(
+            classify(400, r#"{"error":{"message":"bad"}}"#).kind(),
+            "request"
+        );
         assert_eq!(classify(400, "{}").kind(), "request");
     }
 
     #[test]
     fn a_too_long_request_is_told_apart_from_other_bad_requests() {
-        let too_long = r#"{"error":{"message":"This model's maximum context length is 1000000 tokens"}}"#;
+        let too_long =
+            r#"{"error":{"message":"This model's maximum context length is 1000000 tokens"}}"#;
         assert!(looks_too_long(too_long));
         assert_eq!(classify(400, too_long).kind(), "request");
         assert!(matches!(classify(400, too_long), GatewayError::TooLong(_)));
@@ -248,18 +324,64 @@ mod tests {
         let body = r#"{"error":{"message":"Authentication Fails"}}"#;
         let error = classify(401, body);
         assert!(error.message().contains("Authentication Fails"));
-        assert_eq!(
-            error_message(r#"{"message":"plain"}"#),
-            "plain".to_owned()
-        );
+        assert_eq!(error_message(r#"{"message":"plain"}"#), "plain".to_owned());
     }
 
     #[test]
-    fn the_request_body_is_the_input_list_and_nothing_else() {
-        let items = vec![Item::system("s"), Item::user("u")];
+    fn the_request_body_carries_the_input_tools_and_nothing_else() {
+        let items = vec![Input::system("s"), Input::user("u")];
         let body = request_body(&items);
         assert_eq!(body["model"], MODEL);
         assert_eq!(body["input"].as_array().expect("数组").len(), 2);
         assert_eq!(body["reasoning"]["effort"], "none");
+        assert_eq!(body["tool_choice"], "auto");
+        assert_eq!(body["tools"].as_array().expect("工具").len(), 3);
+        assert_eq!(body["input"][0]["role"], "system");
+    }
+
+    #[test]
+    fn a_function_call_item_is_kept_with_its_raw_arguments() {
+        let body = json!({
+            "status": "completed",
+            "output": [
+                {
+                    "type": "function_call",
+                    "id": "fc_1",
+                    "call_id": "call_abc",
+                    "name": "search_evidence",
+                    "arguments": "{\"site\":\"soleus\"}",
+                    "status": "completed"
+                }
+            ]
+        })
+        .to_string();
+        let items = parse_output_items(200, &body).expect("解析");
+        assert_eq!(
+            items,
+            vec![OutputItem::FunctionCall {
+                call_id: "call_abc".to_owned(),
+                name: "search_evidence".to_owned(),
+                // 原文字符串：解析后再序列化会打乱前缀。
+                arguments: "{\"site\":\"soleus\"}".to_owned(),
+            }]
+        );
+        // 只有工具调用、没有正文也是合法的一轮。
+        assert_eq!(parse_response(200, &body).expect("解析"), "");
+    }
+
+    #[test]
+    fn unknown_output_items_are_kept_not_dropped() {
+        let body = json!({
+            "status": "completed",
+            "output": [
+                { "type": "reasoning", "summary": [] },
+                { "type": "message", "content": [{ "type": "output_text", "text": "好" }] }
+            ]
+        })
+        .to_string();
+        let items = parse_output_items(200, &body).expect("解析");
+        assert_eq!(items.len(), 2);
+        assert!(matches!(items[0], OutputItem::Raw(_)));
+        assert_eq!(items[1], OutputItem::Message("好".to_owned()));
     }
 }

@@ -85,14 +85,22 @@ Status: 追踪 issue（spec 本身，不是可开工工单）
 - 删除会话只删消息正文，日志与照片保留并标注来源已删除。
 - `record_finding` / `correct_finding` 之前必须先对该部位 `search_evidence`；此约束由 Rust 工具层强制并返回错误让模型重试。
 
+**工具层强制的不变量**（#9）
+- 依据日志是一张 `evidence` 表：`kind`（record / resolve / retract / rejection）+ 部位 + 侧别 + 判定引用（可空）+ 四段文本；判定与它的日志在**同一个 redb 写事务**里落库。
+- 硬规则的"先查"是**本轮内**的：同一条用户消息引起的工具序列里，对该部位至少一次 `search_evidence`（指名 site 即算，档案里还没有记录也算）才允许 `record_finding` / `correct_finding` 该部位。跨轮不记账。
+- 工具失败一律作为 `function_call_output` 的一段 JSON（`code` / `message` / `hint`）回给模型，不是 HTTP 失败；`arguments` 不是合法 JSON 也算工具错误。
+- 一轮里工具往返的上限默认 6，可配 1–128（**没有"无限制"**）；到上限就停并留一句可见说明，且不落半对 `function_call`（缺 `output` 的调用无法重放）。
+- 会话历史存的是**原始 item**（消息 + 工具往返 + 未识别的 reasoning），重开 app 后按原顺序重放，前缀缓存才重建得起来；界面只渲染其中的消息。
+
 **装配**（ADR-0006）
 - 顺序固定：`[系统提示][本会话历史（逐轮原封不动累加）][档案投影 + 训练条件 + 未结提议][本轮消息 + 照片]`。
 - 跨会话不传别的会话的历史；状态记忆靠档案投影，情景记忆靠检索。
 - 系统提示必须包含"当前状态在最后一条消息之前给出"这一句。
 - 会话长度阈值：20 万 token 提示开新会话，50 万 token 强制新开（新会话自动带档案投影）。
+- 超长时自动裁剪一次：**按整轮**（一条用户消息到下一个用户消息之前）从最旧丢起，不按条丢——按条会把工具调用与它的结果拆开，请求会被拒。
 
 **工具集**（共四个，宁少不多）
-- `search_evidence({ site?, axis?, from?, to?, contains?, limit })`
+- `search_evidence({ site?, axis?, from?, to?, contains?, limit })` —— 返回最近的记录（每条四段各截断到 200 字），`limit` 硬上限 20
 - `record_finding(...)` —— 高置信度 + 用户同轮已口头确认时使用，落库后可撤销
 - `correct_finding(...)` —— 解决 / 撤回
 - `propose_findings(items[])` —— 低置信度或批量时使用，一次最多 8 项，生成待定提议
@@ -112,7 +120,7 @@ Status: 追踪 issue（spec 本身，不是可开工工单）
 
 **存储**（ADR-0002）
 - redb 单文件位于 app 私有目录；表：`meta`（schema 版本）、`basics`、`measurements`、`findings`、`corrections`、`conversations`、`messages`、`proposals`、`photos`、`plans`、`days`、`settings`。
-- 照片存 app 私有目录的原图（长边 2048）+ 缩略图；`photos` 表只存元数据与路径。
+- 照片存 app 私有目录的**一份** JPEG（长边 ≤2048，由系统选择器缩放/转码，不生成缩略图文件）；`photos` 表只存元数据与路径。照片**不作依据留存**，随会话一起删除（ADR-0005 修订）。
 - `measurements` 是唯一允许单条删除的数据。
 
 **模型网关**（ADR-0001）

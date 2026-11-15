@@ -6,18 +6,19 @@
 
 use nsh_core::prelude::*;
 
-use crate::domain::basics::{Basics, Sex, AGE_RANGE};
+use crate::domain::DomainError;
+use crate::domain::basics::{AGE_RANGE, Basics, Sex};
 use crate::domain::measurement::{
-    MeasurementDraft, MeasurementKind, HEIGHT_CM_RANGE, WEIGHT_KG_RANGE,
+    HEIGHT_CM_RANGE, MeasurementDraft, MeasurementKind, WEIGHT_KG_RANGE,
 };
 use crate::domain::training::{
-    Place, Readiness, TrainingContext, DAYS_PER_WEEK_RANGE, MINUTES_RANGE,
+    DAYS_PER_WEEK_RANGE, MINUTES_RANGE, Place, Readiness, TrainingContext,
 };
-use crate::domain::DomainError;
-use crate::llm::deepseek::{self, GatewayError};
-use crate::llm::prompt::{assemble, assemble_with_history, Snapshot};
-use crate::store::settings::API_KEY;
+use crate::llm::agent::{self, DeepSeekModel, StoreHost};
+use crate::llm::deepseek::GatewayError;
+use crate::llm::prompt::{Snapshot, assemble, assemble_with_turns, turns};
 use crate::store::Store;
+use crate::store::settings::{API_KEY, TOOL_ROUNDS};
 
 /// 基本属性。
 #[derive(Debug, Clone, PartialEq, JsObject)]
@@ -162,11 +163,7 @@ fn measurements_view(store: &Store, error: Option<String>) -> MeasurementsView {
     }
 }
 
-fn series_view(
-    store: &Store,
-    kind: MeasurementKind,
-    errors: &mut Vec<String>,
-) -> SeriesView {
+fn series_view(store: &Store, kind: MeasurementKind, errors: &mut Vec<String>) -> SeriesView {
     let measurements = match store.measurements(kind) {
         Ok(measurements) => measurements,
         Err(error) => {
@@ -319,7 +316,7 @@ impl Conversations {
         }
     }
 
-    /// 发一条消息：装配 → 调模型 → 成功才把这一轮（用户 + 回复）落库。
+    /// 发一条消息：装配 → 工具循环 → 成功才把这一轮整个落库。
     ///
     /// 失败时什么都不写：用户打了一半的字在界面里，重试只会重发这一轮，不会
     /// 在时间线上留下半条对话。三类失败各有出路（见 `ChatErrorView`）。
@@ -332,77 +329,80 @@ impl Conversations {
 
         // 会话必须存在；消息不能是空白（同一条规则在领域层再校验一次）。
         if store.conversation(conversation).ok().flatten().is_none() {
-            return failure(GatewayError::Request(format!(
-                "找不到编号 {id} 的会话。"
-            )));
+            return failure(GatewayError::Request(format!("找不到编号 {id} 的会话。")));
         }
-        if let Err(error) = crate::domain::Message::new(
-            crate::domain::MessageId(0),
-            conversation,
-            crate::domain::Role::User,
-            &text,
-            0,
-        ) {
+        if let Err(error) = crate::domain::StoredItem::user(&text) {
             return failure(GatewayError::Request(error.to_string()));
         }
 
         // key 缺失是配置问题，连请求都不发。
-        let key = store
-            .setting(API_KEY)
-            .ok()
-            .flatten()
-            .unwrap_or_default();
+        let key = store.setting(API_KEY).ok().flatten().unwrap_or_default();
         if key.trim().is_empty() {
             return failure(GatewayError::Config(
                 "还没填 DeepSeek 的 API key。去设置里填一把，它只存在这台设备上。".to_owned(),
             ));
         }
 
-        let history = store.messages(conversation).unwrap_or_default();
+        let history = store.items(conversation).unwrap_or_default();
         let snapshot = snapshot(&store);
-        let assembly = assemble(&snapshot, &history, &text);
+        let at = now_ms();
+        let rounds = store
+            .setting(TOOL_ROUNDS)
+            .ok()
+            .flatten()
+            .and_then(|value| value.parse::<usize>().ok())
+            .unwrap_or(agent::DEFAULT_MAX_ROUNDS);
+        let model = DeepSeekModel { key };
 
-        let (reply, notice) = match deepseek::send(&key, &assembly.items).await {
-            Ok(reply) => (reply, None),
-            // 超长：丢掉最旧的一半历史，自动重发一次。
-            Err(GatewayError::TooLong(_)) => {
-                let keep = history.len() / 2;
-                if keep >= history.len() {
+        let assembly = assemble(&snapshot, &history, &text);
+        let mut host = StoreHost::new(&store, conversation, at);
+        let outcome = match agent::run_turn(&model, &mut host, assembly.items.clone(), rounds).await
+        {
+            Ok(outcome) => outcome,
+            // 超长：丢掉最旧的几轮重发一次。只有在这一轮还没往档案里写过东西时
+            // 才重发——写过了再重发会把同一条判定写两遍。
+            Err(GatewayError::TooLong(_)) if !host.wrote() => {
+                let total = turns(&history);
+                if total == 0 {
                     return failure(GatewayError::TooLong(
                         "这一轮本身就超过了模型上下文上限，先删短一点再发。".to_owned(),
                     ));
                 }
-                let trimmed = assemble_with_history(&snapshot, &history, &text, keep);
-                match deepseek::send(&key, &trimmed.items).await {
-                    Ok(reply) => (
-                        reply,
-                        Some(format!(
-                            "会话太长了，这次只带了最近 {} 条消息；建议新开一个会话。",
-                            keep
-                        )),
-                    ),
+                let keep = total / 2;
+                let trimmed = assemble_with_turns(&snapshot, &history, &text, keep);
+                let mut retry_host = StoreHost::new(&store, conversation, at);
+                match agent::run_turn(&model, &mut retry_host, trimmed.items, rounds).await {
+                    Ok(outcome) => {
+                        let notice = if keep == 0 {
+                            "会话太长了，这次没带历史；建议新开一个会话。".to_owned()
+                        } else {
+                            format!("会话太长了，这次只带了最近 {keep} 轮对话；建议新开一个会话。")
+                        };
+                        let _ = store.set_conversation_notice(conversation, Some(&notice));
+                        outcome
+                    }
                     Err(error) => return failure(error),
                 }
             }
+            Err(GatewayError::TooLong(_)) => return failure(GatewayError::Request(
+                "这一轮太长，跑到一半就超了上下文；已经写进档案的判定保留，建议新开会话接着说。"
+                    .to_owned(),
+            )),
             Err(error) => return failure(error),
         };
 
-        // 裁剪过的这一轮把说明记在会话上：重开这个会话仍会看到「建议新开会话」。
-        if let Some(notice) = &notice {
+        // 撞上工具轮次上限也要说清楚，别让用户以为对话正常收尾了。
+        if let Some(notice) = &outcome.notice {
             let _ = store.set_conversation_notice(conversation, Some(notice));
         }
 
-        let at = now_ms();
-        let user = store.append_message(conversation, crate::domain::Role::User, &text, at);
-        let assistant = user.and_then(|_| {
-            store.append_message(
-                conversation,
-                crate::domain::Role::Assistant,
-                &reply,
-                at.saturating_add(1),
-            )
-        });
-        match assistant {
+        // 整轮一次落库：用户那句、工具往返、回复。中途失败一条都不写。
+        let mut items = vec![match crate::domain::StoredItem::user(&text) {
+            Ok(item) => item,
+            Err(error) => return failure(GatewayError::Request(error.to_string())),
+        }];
+        items.extend(outcome.items);
+        match store.append_turn(conversation, items, at) {
             Ok(_) => SendResultView {
                 messages: store
                     .messages(conversation)
@@ -463,13 +463,15 @@ fn snapshot(store: &Store) -> Snapshot {
     }
 }
 
-/// 设置的读与写：目前只有 DeepSeek 的 API key。
+/// 设置的读与写：DeepSeek 的 API key 与工具往返上限。
 #[derive(Debug, Clone, PartialEq, JsObject)]
 pub struct SettingsView {
     /// 是否已经有一把 key。
     pub has_key: bool,
     /// 打码后的样子（`sk-…abcd`），没填是 `null`。
     pub masked: Option<String>,
+    /// 一轮对话里允许的工具往返轮数（1–128）。
+    pub tool_rounds: f64,
     /// 读库失败的原因。
     pub error: Option<String>,
 }
@@ -500,12 +502,37 @@ impl Settings {
     /// 读设置（不返回 key 本身：界面只显示打码后的样子）。
     pub async fn load() -> SettingsView {
         match Store::open_app() {
-            Ok(store) => match store.setting(API_KEY) {
-                Ok(key) => settings_view(key, None),
-                Err(error) => settings_view(None, Some(error.to_string())),
-            },
-            Err(error) => settings_view(None, Some(error.to_string())),
+            Ok(store) => {
+                let rounds = store
+                    .setting(TOOL_ROUNDS)
+                    .ok()
+                    .flatten()
+                    .and_then(|value| value.parse::<usize>().ok())
+                    .unwrap_or(agent::DEFAULT_MAX_ROUNDS);
+                match store.setting(API_KEY) {
+                    Ok(key) => settings_view(key, rounds, None),
+                    Err(error) => settings_view(None, rounds, Some(error.to_string())),
+                }
+            }
+            Err(error) => settings_view(None, agent::DEFAULT_MAX_ROUNDS, Some(error.to_string())),
         }
+    }
+
+    /// 保存工具往返上限：1–128 的整数（没有「无限制」）。
+    pub async fn save_rounds(rounds: f64) -> Option<String> {
+        if !rounds.is_finite() || rounds.fract() != 0.0 {
+            return Some("轮数要是整数。".to_owned());
+        }
+        let rounds = rounds as i64;
+        if !(1..=agent::MAX_ROUNDS_LIMIT as i64).contains(&rounds) {
+            return Some(format!(
+                "轮数要在 1–{} 之间；调太多只会让模型空转。",
+                agent::MAX_ROUNDS_LIMIT
+            ));
+        }
+        save(&Store::open_app(), |store| {
+            store.set_setting(TOOL_ROUNDS, &rounds.to_string())
+        })
     }
 
     /// 保存 key；返回失败原因，成功是 `null`。
@@ -526,11 +553,12 @@ impl Settings {
     }
 }
 
-fn settings_view(key: Option<String>, error: Option<String>) -> SettingsView {
+fn settings_view(key: Option<String>, tool_rounds: usize, error: Option<String>) -> SettingsView {
     let masked = key.as_deref().map(mask_key);
     SettingsView {
         has_key: key.is_some_and(|key| !key.trim().is_empty()),
         masked,
+        tool_rounds: tool_rounds as f64,
         error,
     }
 }
@@ -791,12 +819,8 @@ fn build_training(
     Ok(TrainingContext {
         days_per_week: parse_whole(days_per_week, "每周能练几天", DAYS_PER_WEEK_RANGE)
             .map_err(|error| error.to_string())?,
-        minutes_per_session: parse_whole(
-            minutes_per_session,
-            "每次多久（分钟）",
-            MINUTES_RANGE,
-        )
-        .map_err(|error| error.to_string())?,
+        minutes_per_session: parse_whole(minutes_per_session, "每次多久（分钟）", MINUTES_RANGE)
+            .map_err(|error| error.to_string())?,
         places: places
             .iter()
             .filter_map(|place| Place::from_key(place))
@@ -942,9 +966,7 @@ where
     match raw {
         None => Ok(None),
         Some(value)
-            if value.is_finite()
-                && value.fract() == 0.0
-                && (min..=max).contains(&value) =>
+            if value.is_finite() && value.fract() == 0.0 && (min..=max).contains(&value) =>
         {
             T::try_from(value as u32).map_or_else(
                 |_| {
@@ -986,7 +1008,12 @@ mod tests {
         assert!(!view.ready);
         assert_eq!(
             view.missing,
-            vec!["days-per-week", "minutes-per-session", "places", "equipment"]
+            vec![
+                "days-per-week",
+                "minutes-per-session",
+                "places",
+                "equipment"
+            ]
         );
         assert_eq!(
             view.missing_zh,

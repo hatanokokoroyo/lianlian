@@ -1,19 +1,21 @@
-//! 会话与消息的存储。
+//! 会话与条目的存储。
 //!
 //! 两张表：`conversations`（编号 → Conversation 的 JSON）、`messages`（编号 →
-//! Message 的 JSON）。消息只追加，不修改；删除会话时删它和它的消息正文——依据
-//! 日志与照片不在这两张表里，所以不会被带走（ADR-0005）。
+//! `Entry` 的 JSON，里面既可能是可见消息，也可能是工具往返——见 `domain::item`）。
+//! 条目只追加，不修改；一轮对话的所有条目在同一个事务里落库，中途失败一条都不写。
+//! 删除会话时删它和它的全部条目——依据日志不在这两张表里，所以不会被带走（ADR-0005）。
 
 use redb::{ReadableDatabase, ReadableTable, TableDefinition};
 
-use super::{db_error, Store, StoreError};
+use super::{Store, StoreError, db_error};
 use crate::domain::conversation::UNTITLED;
-use crate::domain::{Conversation, ConversationId, DomainError, Message, MessageId, Role};
+use crate::domain::{
+    Conversation, ConversationId, DomainError, Entry, Message, MessageId, Role, StoredItem,
+};
 
 /// 会话：编号 → Conversation 的 JSON。
-pub(crate) const CONVERSATIONS: TableDefinition<u64, &str> =
-    TableDefinition::new("conversations");
-/// 消息：编号 → Message 的 JSON。
+pub(crate) const CONVERSATIONS: TableDefinition<u64, &str> = TableDefinition::new("conversations");
+/// 条目：编号 → Entry 的 JSON（消息与工具往返共用一张表）。
 pub(crate) const MESSAGES: TableDefinition<u64, &str> = TableDefinition::new("messages");
 
 impl Store {
@@ -39,10 +41,7 @@ impl Store {
     }
 
     /// 一个会话；没有就是 `None`。
-    pub fn conversation(
-        &self,
-        id: ConversationId,
-    ) -> Result<Option<Conversation>, StoreError> {
+    pub fn conversation(&self, id: ConversationId) -> Result<Option<Conversation>, StoreError> {
         let read = self.db().begin_read().map_err(db_error)?;
         let table = read.open_table(CONVERSATIONS).map_err(db_error)?;
         let json = table
@@ -98,7 +97,7 @@ impl Store {
         write.commit().map_err(db_error)
     }
 
-    /// 追加一条消息；会话的标题（若是占位）与更新时间一并推进。
+    /// 追加一条可见消息；会话的标题（若是占位）与更新时间一并推进。
     pub fn append_message(
         &self,
         conversation: ConversationId,
@@ -106,22 +105,73 @@ impl Store {
         text: &str,
         at: i64,
     ) -> Result<Message, StoreError> {
-        let mut record = self.require_conversation(conversation)?;
-        let id = MessageId(self.next_message_id()?);
-        let message = Message::new(id, conversation, role, text, at)?;
-        let json = to_json(&message)?;
+        let items = vec![match role {
+            Role::User => StoredItem::user(text)?,
+            Role::Assistant => StoredItem::assistant(text)?,
+        }];
+        let mut entries = self.append_turn(conversation, items, at)?;
+        let entry = entries.remove(0);
+        Ok(Message {
+            id: entry.id,
+            conversation: entry.conversation,
+            role,
+            text: match entry.item {
+                StoredItem::Message { text, .. } => text,
+                _ => unreachable!("append_message 只写消息"),
+            },
+            at: entry.at,
+        })
+    }
 
-        if role == Role::User && record.title == UNTITLED {
-            record.title = Conversation::title_from(&message.text);
+    /// 追加一轮的全部条目（用户消息、工具往返、回复），同一个事务。
+    ///
+    /// 编号按顺序分配，时间戳在 `at` 上逐条 +1 毫秒：同一轮里的先后顺序不靠
+    /// 时钟分辨率。任何一条校验不过就整轮不写。
+    pub fn append_turn(
+        &self,
+        conversation: ConversationId,
+        items: Vec<StoredItem>,
+        at: i64,
+    ) -> Result<Vec<Entry>, StoreError> {
+        let mut record = self.require_conversation(conversation)?;
+        let mut entries = Vec::with_capacity(items.len());
+        let mut next = self.next_message_id()?;
+        for item in items {
+            item.validate()?;
+            entries.push(Entry {
+                id: MessageId(next),
+                conversation,
+                at: at.saturating_add(entries.len() as i64),
+                item,
+            });
+            next += 1;
+        }
+        if entries.is_empty() {
+            return Ok(entries);
+        }
+
+        // 标题与更新时间跟着这一轮走：标题取这一轮里第一条用户消息。
+        if record.title == UNTITLED {
+            if let Some(text) = entries.iter().find_map(|entry| match &entry.item {
+                StoredItem::Message {
+                    role: Role::User,
+                    text,
+                } => Some(text.clone()),
+                _ => None,
+            }) {
+                record.title = Conversation::title_from(&text);
+            }
         }
         record.updated_at = record.updated_at.max(at);
 
         let write = self.db().begin_write().map_err(db_error)?;
         {
             let mut messages = write.open_table(MESSAGES).map_err(db_error)?;
-            messages
-                .insert(id.0, json.as_str())
-                .map_err(db_error)?;
+            for entry in &entries {
+                messages
+                    .insert(entry.id.0, to_json(entry)?.as_str())
+                    .map_err(db_error)?;
+            }
             drop(messages);
             let mut conversations = write.open_table(CONVERSATIONS).map_err(db_error)?;
             conversations
@@ -129,33 +179,48 @@ impl Store {
                 .map_err(db_error)?;
             drop(conversations);
             let mut meta = write.open_table(super::META).map_err(db_error)?;
-            meta.insert("next_message_id", (id.0 + 1).to_string().as_str())
+            meta.insert("next_message_id", next.to_string().as_str())
                 .map_err(db_error)?;
         }
         write.commit().map_err(db_error)?;
-        Ok(message)
+        Ok(entries)
     }
 
-    /// 一个会话的全部消息，按「时间、编号」升序。
-    pub fn messages(&self, conversation: ConversationId) -> Result<Vec<Message>, StoreError> {
+    /// 一个会话的全部条目（含工具往返），按「时间、编号」升序。
+    pub fn items(&self, conversation: ConversationId) -> Result<Vec<Entry>, StoreError> {
         let read = self.db().begin_read().map_err(db_error)?;
         let table = read.open_table(MESSAGES).map_err(db_error)?;
         let mut all = Vec::new();
         for entry in table.iter().map_err(db_error)? {
             let (_, value) = entry.map_err(db_error)?;
-            let message: Message = from_json(value.value())?;
-            if message.conversation == conversation {
-                all.push(message);
+            let entry: Entry = from_json(value.value())?;
+            if entry.conversation == conversation {
+                all.push(entry);
             }
         }
-        all.sort_by_key(|message| (message.at, message.id));
+        all.sort_by_key(|entry| (entry.at, entry.id));
         Ok(all)
     }
 
-    fn require_conversation(
-        &self,
-        id: ConversationId,
-    ) -> Result<Conversation, StoreError> {
+    /// 一个会话里的可见消息，按「时间、编号」升序（界面与摘要只看这个）。
+    pub fn messages(&self, conversation: ConversationId) -> Result<Vec<Message>, StoreError> {
+        Ok(self
+            .items(conversation)?
+            .into_iter()
+            .filter_map(|entry| match entry.item {
+                StoredItem::Message { role, text } => Some(Message {
+                    id: entry.id,
+                    conversation: entry.conversation,
+                    role,
+                    text,
+                    at: entry.at,
+                }),
+                _ => None,
+            })
+            .collect())
+    }
+
+    fn require_conversation(&self, id: ConversationId) -> Result<Conversation, StoreError> {
         self.conversation(id)?
             .ok_or(StoreError::Domain(DomainError::UnknownConversation(id.0)))
     }
@@ -221,7 +286,9 @@ mod tests {
         assert_eq!(first.title, UNTITLED);
         let all = store.conversations().expect("列表");
         assert_eq!(
-            all.iter().map(|conversation| conversation.id).collect::<Vec<_>>(),
+            all.iter()
+                .map(|conversation| conversation.id)
+                .collect::<Vec<_>>(),
             vec![second.id, first.id]
         );
     }
@@ -265,9 +332,84 @@ mod tests {
             Err(StoreError::Domain(DomainError::EmptyMessage))
         );
         assert!(store.messages(conversation.id).expect("读").is_empty());
+        assert_eq!(store.conversation(ConversationId(99)).expect("读"), None);
+    }
+
+    #[test]
+    fn a_whole_turn_lands_with_its_tool_round_trip_and_comes_back_in_order() {
+        let mut temp = TempStore::new("conversations-turn");
+        let store = temp.store();
+        let conversation = store.create_conversation(100).expect("新会话");
+        let items = vec![
+            StoredItem::user("蹲不下去").expect("用户消息"),
+            StoredItem::FunctionCall {
+                call_id: "call_1".to_owned(),
+                name: "search_evidence".to_owned(),
+                arguments: r#"{"site":"soleus"}"#.to_owned(),
+            },
+            StoredItem::FunctionCallOutput {
+                call_id: "call_1".to_owned(),
+                output: r#"{"found":0,"items":[]}"#.to_owned(),
+            },
+            StoredItem::assistant("先做踝背屈测试").expect("回复"),
+        ];
+        store
+            .append_turn(conversation.id, items.clone(), 200)
+            .expect("落一轮");
+
+        let reopened = temp.reopen();
+        let entries = reopened.items(conversation.id).expect("读条目");
         assert_eq!(
-            store.conversation(ConversationId(99)).expect("读"),
-            None
+            entries
+                .iter()
+                .map(|entry| entry.item.clone())
+                .collect::<Vec<_>>(),
+            items,
+            "工具往返原样重放"
+        );
+        assert!(
+            entries.windows(2).all(|pair| pair[0].at < pair[1].at),
+            "同一轮里时间戳逐条递增"
+        );
+        // 界面只看到两条可见消息。
+        assert_eq!(reopened.messages(conversation.id).expect("消息").len(), 2);
+        // 标题仍然取自这一轮里的用户消息。
+        assert_eq!(
+            reopened
+                .conversation(conversation.id)
+                .expect("读")
+                .expect("存在")
+                .title,
+            "蹲不下去"
+        );
+    }
+
+    #[test]
+    fn a_broken_item_writes_none_of_the_turn() {
+        let temp = TempStore::new("conversations-turn-broken");
+        let store = temp.store();
+        let conversation = store.create_conversation(100).expect("新会话");
+        let items = vec![
+            StoredItem::user("这一句合法").expect("用户消息"),
+            StoredItem::FunctionCall {
+                call_id: String::new(),
+                name: "search_evidence".to_owned(),
+                arguments: "{}".to_owned(),
+            },
+        ];
+        assert_eq!(
+            store.append_turn(conversation.id, items, 200),
+            Err(StoreError::Domain(DomainError::EmptyToolItem))
+        );
+        assert!(store.items(conversation.id).expect("读").is_empty());
+        assert_eq!(
+            store
+                .conversation(conversation.id)
+                .expect("读")
+                .expect("存在")
+                .title,
+            UNTITLED,
+            "失败的一轮连标题都不该动"
         );
     }
 
@@ -314,7 +456,9 @@ mod tests {
 
         assert_eq!(
             store.delete_conversation(doomed.id),
-            Err(StoreError::Domain(DomainError::UnknownConversation(doomed.id.0)))
+            Err(StoreError::Domain(DomainError::UnknownConversation(
+                doomed.id.0
+            )))
         );
     }
 

@@ -1,7 +1,8 @@
-// 设置：目前只有 DeepSeek 的 API key。
+// 设置：DeepSeek 的 API key 与工具往返上限。
 //
 // key 只存在本机（ADR-0001），界面只显示打码后的样子；「填入/更换」才展开输入框。
 // 配置类错误（key 无效、无额度）会把人送到这一屏。
+// 工具往返上限（#9）：默认 6，可填 1–128；没有「无限制」——那是让模型空转烧钱的开关。
 import { resource, signal, Text, token, View } from "nsh";
 import { Settings } from "lianlian/native";
 
@@ -12,6 +13,7 @@ export function SettingsScreen(props: { onBack: () => void }) {
   const editing = signal(false);
   const key = signal("");
   const message = signal<string | null>(null);
+  const rounds = signal("");
 
   const save = async () => {
     message.set(null);
@@ -23,6 +25,23 @@ export function SettingsScreen(props: { onBack: () => void }) {
     key.set("");
     editing.set(false);
     message.set("已保存。key 只存在这台设备上。");
+    settings.refetch();
+  };
+
+  const saveRounds = async () => {
+    message.set(null);
+    const value = Number(rounds().trim() === "" ? "0" : rounds().trim());
+    if (!Number.isFinite(value)) {
+      message.set("轮数要填一个整数。");
+      return;
+    }
+    const error = await Settings.saveRounds(value);
+    if (error) {
+      message.set(error);
+      return;
+    }
+    rounds.set("");
+    message.set("工具往返上限已保存。");
     settings.refetch();
   };
 
@@ -109,6 +128,32 @@ export function SettingsScreen(props: { onBack: () => void }) {
               ) : null}
             </View>
           )}
+        </Card>
+
+        <Card testID="settings-tools">
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <Text style={{ fontSize: 13, fontWeight: "bold", color: token("foreground") }}>
+              工具往返上限
+            </Text>
+            <SectionLabel text={`${settings()?.toolRounds ?? 6} 轮`} />
+          </View>
+          <Note text="一轮对话里 agent 最多调几次工具（先查依据、再写档案都算一次）。默认 6，可填 1–128；调太高只会让它空转。" />
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <View style={{ flex: 1 }}>
+              <TextField
+                testID="tool-rounds"
+                value={rounds()}
+                onChange={(value) => rounds.set(value)}
+                placeholder={String(settings()?.toolRounds ?? 6)}
+              />
+            </View>
+            <PrimaryButton
+              testID="save-tool-rounds"
+              label="保存轮数"
+              disabled={rounds().trim() === ""}
+              onPress={saveRounds}
+            />
+          </View>
         </Card>
 
         <Card>

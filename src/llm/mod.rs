@@ -4,5 +4,7 @@
 //!   装配，纯函数；
 //! - `deepseek`：DeepSeek 的 Responses 实现（无状态、多轮自拼），错误按「出路」分类。
 
+pub mod agent;
 pub mod deepseek;
 pub mod prompt;
+pub mod tools;

@@ -121,7 +121,7 @@ impl Store {
         Ok(Projection::from_events(&self.events()?))
     }
 
-    fn next_finding_id(&self) -> Result<u64, StoreError> {
+    pub(crate) fn next_finding_id(&self) -> Result<u64, StoreError> {
         Ok(self
             .meta("next_finding_id")?
             .and_then(|value| value.parse().ok())

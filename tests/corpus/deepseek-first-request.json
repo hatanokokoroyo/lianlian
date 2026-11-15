@@ -1,7 +1,7 @@
 {
   "input": [
     {
-      "content": "你是「练练」里的训练教练。用中文说话。\n工作顺序：先给用户 2–3 个在家能做的验证动作（做什么、看什么现象），拿到反馈之前不下结论；有了依据才在档案上落判定。\n当前状态在最后一条消息之前给出：那是现在的事实。历史里的判断可能已经过期，不要当成现状。\n你只记得本会话的历史；别的会话只共享档案与依据日志，不共享对话原文。\n回答短、具体、可执行，不要一次给一整套通用课表。\n现在还没有工具可调用：不要声称查过档案之外的记录，也不要假装已经写入了档案。",
+      "content": "你是「练练」里的训练教练。用中文说话。\n工作顺序：先给用户 2–3 个在家能做的验证动作（做什么、看什么现象），拿到反馈之前不下结论；有了依据才在档案上落判定。\n写档案之前先调 search_evidence 查这个部位已有的记录，再调 record_finding 或 correct_finding；没查就写会被拒。写入必须带齐四段依据：用户说法要点 / 验证方案与反馈 / 推理 / 不确定之处。\n当前状态在最后一条消息之前给出：那是现在的事实。历史里的判断可能已经过期，不要当成现状。\n你只记得本会话的历史；别的会话只共享档案与依据日志，不共享对话原文。\n回答短、具体、可执行，不要一次给一整套通用课表。\n工具是唯一的写入通道：没调用工具就不要声称已经写入；部位只能用词表里的 id，拿不准就先问。",
       "role": "system"
     },
     {
@@ -16,5 +16,218 @@
   "model": "deepseek-flash",
   "reasoning": {
     "effort": "none"
-  }
+  },
+  "tool_choice": "auto",
+  "tools": [
+    {
+      "description": "检索依据日志：这个部位以前是怎么判的、当时的原话与验证反馈。写档案之前必须先查这个部位。",
+      "name": "search_evidence",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "axis": {
+            "description": "只看测过这条轴的记录",
+            "enum": [
+              "tension",
+              "symmetry",
+              "mobility",
+              "pain",
+              "stability"
+            ],
+            "type": "string"
+          },
+          "contains": {
+            "description": "关键词，查四段文本与撤回理由",
+            "type": "string"
+          },
+          "from": {
+            "description": "起始日期，YYYY-MM-DD（含）",
+            "type": "string"
+          },
+          "limit": {
+            "description": "最多几条，默认 20，超过 20 也只给 20",
+            "maximum": 20,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "site": {
+            "description": "部位 id（词表里的 kebab-case，如 gluteus-medius）",
+            "type": "string"
+          },
+          "to": {
+            "description": "结束日期，YYYY-MM-DD（含当天）",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "type": "function"
+    },
+    {
+      "description": "在档案上写一条判定（只追加）。用户已经口头确认、置信度高时用；批量或低置信度走提议。写之前必须先 search_evidence 这个词部位。",
+      "name": "record_finding",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "confidence": {
+            "description": "0–100；低于 60 视为推测",
+            "maximum": 100,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "evidence": {
+            "additionalProperties": false,
+            "properties": {
+              "reasoning": {
+                "description": "推理：这两段怎么推出这条判定",
+                "type": "string"
+              },
+              "test_and_feedback": {
+                "description": "验证方案与反馈：让他做了什么、看到什么现象",
+                "type": "string"
+              },
+              "uncertainty": {
+                "description": "不确定之处：还没排除什么；没提到的段写「未涉及」",
+                "type": "string"
+              },
+              "user_said": {
+                "description": "用户说法要点：他自己的原话要点",
+                "type": "string"
+              }
+            },
+            "required": [
+              "user_said",
+              "test_and_feedback",
+              "reasoning",
+              "uncertainty"
+            ],
+            "type": "object"
+          },
+          "side": {
+            "description": "左右成对的部位必填，中线结构不要带",
+            "enum": [
+              "left",
+              "right"
+            ],
+            "type": "string"
+          },
+          "site": {
+            "description": "部位 id，必须在词表里",
+            "type": "string"
+          },
+          "values": {
+            "additionalProperties": false,
+            "description": "至少一条轴的取值",
+            "minProperties": 1,
+            "properties": {
+              "mobility": {
+                "enum": [
+                  "limited",
+                  "normal"
+                ],
+                "type": "string"
+              },
+              "pain": {
+                "description": "0 表示无痛",
+                "maximum": 10,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "stability": {
+                "enum": [
+                  "poor",
+                  "normal"
+                ],
+                "type": "string"
+              },
+              "symmetry": {
+                "enum": [
+                  "left-weak",
+                  "right-weak",
+                  "symmetric"
+                ],
+                "type": "string"
+              },
+              "tension": {
+                "enum": [
+                  "weak",
+                  "normal",
+                  "tight"
+                ],
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        },
+        "required": [
+          "site",
+          "confidence",
+          "values",
+          "evidence"
+        ],
+        "type": "object"
+      },
+      "type": "function"
+    },
+    {
+      "description": "更正一条已有判定：resolve = 追加一条正常判定（已经好了），retract = 撤回（当时判错了，必须写理由）。写之前必须先 search_evidence 那个部位。",
+      "name": "correct_finding",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "enum": [
+              "resolve",
+              "retract"
+            ],
+            "type": "string"
+          },
+          "evidence": {
+            "additionalProperties": false,
+            "properties": {
+              "reasoning": {
+                "description": "推理：这两段怎么推出这条判定",
+                "type": "string"
+              },
+              "test_and_feedback": {
+                "description": "验证方案与反馈：让他做了什么、看到什么现象",
+                "type": "string"
+              },
+              "uncertainty": {
+                "description": "不确定之处：还没排除什么；没提到的段写「未涉及」",
+                "type": "string"
+              },
+              "user_said": {
+                "description": "用户说法要点：他自己的原话要点",
+                "type": "string"
+              }
+            },
+            "required": [
+              "user_said",
+              "test_and_feedback",
+              "reasoning",
+              "uncertainty"
+            ],
+            "type": "object"
+          },
+          "finding": {
+            "description": "要更正的判定编号（search_evidence 或档案里能查到）",
+            "type": "integer"
+          },
+          "reason": {
+            "description": "retract 必填：错在哪一句话",
+            "type": "string"
+          }
+        },
+        "required": [
+          "finding",
+          "action",
+          "evidence"
+        ],
+        "type": "object"
+      },
+      "type": "function"
+    }
+  ]
 }

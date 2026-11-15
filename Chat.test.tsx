@@ -138,16 +138,17 @@ test("请求超长自动裁剪最旧的历史重发一次，并提示开新会�
   const body = (index: number) => JSON.parse(requests[index].body ?? "{}");
   expect(body(0).input.length).toBe(3); // 系统 + 状态 + 本轮
   expect(body(1).input.length).toBe(5); // 系统 + 2 条历史 + 状态 + 本轮
-  expect(body(2).input.length).toBe(4); // 裁掉一半历史后重发
+  expect(body(2).input.length).toBe(3); // 裁掉历史后重发：系统 + 状态 + 本轮
   expect(body(0).input[0].content).toContain("当前状态在最后一条消息之前给出");
   expect(body(0).input[1].content).toContain("【当前状态】");
   expect(body(0).input[2].content).toContain("超长测试");
 
   // 重发成功后在会话里给一句说明；说明记在会话上，重开会话仍看得见。
-  expect(app.texts().some((text) => text.includes("只带了最近 1 条消息"))).toBe(true);
+  // 裁剪按整轮切（#9）：只剩一轮历史时，再裁就是不带历史。
+  expect(app.texts().some((text) => text.includes("这次没带历史"))).toBe(true);
   await app.press("id:back");
   await app.waitFor("id:new-conversation");
   await app.press(`text:${longTitle}`);
   await app.waitFor("id:conv-send-notice");
-  expect(app.texts().some((text) => text.includes("只带了最近 1 条消息"))).toBe(true);
+  expect(app.texts().some((text) => text.includes("这次没带历史"))).toBe(true);
 });

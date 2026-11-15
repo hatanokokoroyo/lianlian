@@ -8,10 +8,11 @@
 //!
 //! 这一层是纯函数：不读库、不读时钟、不联网。
 
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
+use serde_json::Value;
 
 use crate::domain::measurement::Measurement;
-use crate::domain::{Basics, Message, Projection, Side, TrainingContext};
+use crate::domain::{Basics, Entry, Projection, Side, StoredItem, TrainingContext};
 
 /// 不得不删改的一句：它是「状态放在历史之后」这套排列能成立的前提。
 pub const STATUS_AFTER_HISTORY: &str = "当前状态在最后一条消息之前给出";
@@ -21,31 +22,109 @@ pub const SYSTEM_PROMPT: &str = concat!(
     "你是「练练」里的训练教练。用中文说话。\n",
     "工作顺序：先给用户 2–3 个在家能做的验证动作（做什么、看什么现象），拿到反馈之前不下结论；",
     "有了依据才在档案上落判定。\n",
+    "写档案之前先调 search_evidence 查这个部位已有的记录，再调 record_finding 或 correct_finding；",
+    "没查就写会被拒。写入必须带齐四段依据：用户说法要点 / 验证方案与反馈 / 推理 / 不确定之处。\n",
     "当前状态在最后一条消息之前给出：那是现在的事实。历史里的判断可能已经过期，不要当成现状。\n",
     "你只记得本会话的历史；别的会话只共享档案与依据日志，不共享对话原文。\n",
     "回答短、具体、可执行，不要一次给一整套通用课表。\n",
-    "现在还没有工具可调用：不要声称查过档案之外的记录，也不要假装已经写入了档案。"
+    "工具是唯一的写入通道：没调用工具就不要声称已经写入；部位只能用词表里的 id，拿不准就先问。"
 );
 
-/// 一条输入消息（OpenAI Responses 的 `input` 里的 message item）。
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Item {
+/// 一条输入消息（Responses 的 `input` 里的 message item）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct MessageItem {
     pub role: String,
     pub content: String,
 }
 
-impl Item {
-    pub fn system(content: impl Into<String>) -> Item {
-        Item {
+/// 模型要求调用工具（原样回放）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct FunctionCallItem {
+    #[serde(rename = "type")]
+    pub kind: &'static str,
+    pub call_id: String,
+    pub name: String,
+    pub arguments: String,
+}
+
+/// 工具的结果（原样回放）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct FunctionCallOutputItem {
+    #[serde(rename = "type")]
+    pub kind: &'static str,
+    pub call_id: String,
+    pub output: String,
+}
+
+/// 请求 `input` 里的一项。
+///
+/// 消息与工具往返混在一起，顺序就是历史顺序（`domain::item::StoredItem` 的线上
+/// 形状）。`Raw` 兜住认不出来的输出 item：重放时照发，不猜它的含义。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(untagged)]
+pub enum Input {
+    Message(MessageItem),
+    FunctionCall(FunctionCallItem),
+    FunctionCallOutput(FunctionCallOutputItem),
+    Raw(Value),
+}
+
+impl Input {
+    pub fn system(content: impl Into<String>) -> Input {
+        Input::Message(MessageItem {
             role: "system".to_owned(),
             content: content.into(),
+        })
+    }
+
+    pub fn user(content: impl Into<String>) -> Input {
+        Input::Message(MessageItem {
+            role: "user".to_owned(),
+            content: content.into(),
+        })
+    }
+
+    /// 角色（只有消息有）。
+    pub fn role(&self) -> Option<&str> {
+        match self {
+            Input::Message(message) => Some(message.role.as_str()),
+            _ => None,
         }
     }
 
-    pub fn user(content: impl Into<String>) -> Item {
-        Item {
-            role: "user".to_owned(),
-            content: content.into(),
+    /// 可见正文（只有消息有）。
+    pub fn content(&self) -> Option<&str> {
+        match self {
+            Input::Message(message) => Some(message.content.as_str()),
+            _ => None,
+        }
+    }
+
+    /// 库里的一条 → 请求里的一项。
+    pub fn from_stored(item: &StoredItem) -> Input {
+        match item {
+            StoredItem::Message { role, text } => Input::Message(MessageItem {
+                role: role.key().to_owned(),
+                content: text.clone(),
+            }),
+            StoredItem::FunctionCall {
+                call_id,
+                name,
+                arguments,
+            } => Input::FunctionCall(FunctionCallItem {
+                kind: "function_call",
+                call_id: call_id.clone(),
+                name: name.clone(),
+                arguments: arguments.clone(),
+            }),
+            StoredItem::FunctionCallOutput { call_id, output } => {
+                Input::FunctionCallOutput(FunctionCallOutputItem {
+                    kind: "function_call_output",
+                    call_id: call_id.clone(),
+                    output: output.clone(),
+                })
+            }
+            StoredItem::Raw { item } => Input::Raw(item.clone()),
         }
     }
 }
@@ -66,40 +145,65 @@ pub struct Snapshot {
 /// 装配结果。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Assembly {
-    pub items: Vec<Item>,
+    pub items: Vec<Input>,
     /// 为压回上下文上限丢掉的历史条数（正常装配是 0）。
     pub dropped: usize,
 }
 
 /// 正常装配：完整历史。
-pub fn assemble(snapshot: &Snapshot, history: &[Message], turn: &str) -> Assembly {
-    assemble_with_history(snapshot, history, turn, history.len())
+pub fn assemble(snapshot: &Snapshot, history: &[Entry], turn: &str) -> Assembly {
+    assemble_with_turns(snapshot, history, turn, turns(history))
 }
 
-/// 只保留最近 `keep_last` 条历史的装配（超长请求重发时用）。
+/// 只保留最近 `keep_turns` 轮历史的装配（超长请求重发时用）。
 ///
-/// 丢掉的是最旧的几条；剩下的是「仍然成对的最近几轮」，因为截断点可能落在
-/// 一轮中间，这里不做配对修复——模型看到半轮也比看不到现状好。
-pub fn assemble_with_history(
+/// **一轮** = 一条用户消息到下一个用户消息之前的全部条目。按条裁会把
+/// `function_call` 和它的 `function_call_output` 拆开，请求会被网关拒绝，所以
+/// 裁剪点只能落在轮首。
+pub fn assemble_with_turns(
     snapshot: &Snapshot,
-    history: &[Message],
+    history: &[Entry],
     turn: &str,
-    keep_last: usize,
+    keep_turns: usize,
 ) -> Assembly {
-    let keep = keep_last.min(history.len());
-    let dropped = history.len() - keep;
+    let total = turns(history);
+    let keep = keep_turns.min(total);
+    let start = if keep >= total {
+        0
+    } else {
+        user_message_index(history, total - keep)
+    };
 
-    let mut items = Vec::with_capacity(history.len() + 4);
-    items.push(Item::system(SYSTEM_PROMPT));
-    for message in &history[dropped..] {
-        items.push(Item {
-            role: message.role.key().to_owned(),
-            content: message.text.clone(),
-        });
+    let mut items = Vec::with_capacity(history.len() - start + 4);
+    items.push(Input::system(SYSTEM_PROMPT));
+    for entry in &history[start..] {
+        items.push(Input::from_stored(&entry.item));
     }
-    items.push(Item::system(state_block(snapshot)));
-    items.push(Item::user(turn.trim()));
-    Assembly { items, dropped }
+    items.push(Input::system(state_block(snapshot)));
+    items.push(Input::user(turn.trim()));
+    Assembly {
+        items,
+        dropped: start,
+    }
+}
+
+/// 历史里有多少轮（多少条用户消息）。
+pub fn turns(history: &[Entry]) -> usize {
+    history
+        .iter()
+        .filter(|entry| entry.item.is_user_message())
+        .count()
+}
+
+/// 第 `n` 条用户消息在历史里的下标（0 起）。
+fn user_message_index(history: &[Entry], n: usize) -> usize {
+    history
+        .iter()
+        .enumerate()
+        .filter(|(_, entry)| entry.item.is_user_message())
+        .nth(n)
+        .map(|(index, _)| index)
+        .unwrap_or(history.len())
 }
 
 /// 状态块：档案投影 + 训练条件 + 未结提议。
@@ -134,10 +238,18 @@ pub fn state_block(snapshot: &Snapshot) -> String {
 
     let mut measurements = Vec::new();
     if let Some(height) = &snapshot.height {
-        measurements.push(format!("身高 {} cm（{}）", value(height.value), date(height.at)));
+        measurements.push(format!(
+            "身高 {} cm（{}）",
+            value(height.value),
+            date(height.at)
+        ));
     }
     if let Some(weight) = &snapshot.weight {
-        measurements.push(format!("体重 {} kg（{}）", value(weight.value), date(weight.at)));
+        measurements.push(format!(
+            "体重 {} kg（{}）",
+            value(weight.value),
+            date(weight.at)
+        ));
     }
     lines.push(format!(
         "测量：{}",
@@ -280,13 +392,24 @@ mod tests {
     use crate::domain::measurement::{Measurement, MeasurementId, MeasurementKind};
     use crate::domain::{AxisValues, ConversationId, Finding, FindingId, MessageId, Role, Tension};
 
-    fn message(id: u64, role: Role, text: &str) -> Message {
-        Message {
+    fn message(id: u64, role: Role, text: &str) -> Entry {
+        Entry {
             id: MessageId(id),
             conversation: ConversationId(1),
-            role,
-            text: text.to_owned(),
             at: id as i64,
+            item: crate::domain::StoredItem::Message {
+                role,
+                text: text.to_owned(),
+            },
+        }
+    }
+
+    fn tool_entry(id: u64, item: crate::domain::StoredItem) -> Entry {
+        Entry {
+            id: MessageId(id),
+            conversation: ConversationId(1),
+            at: id as i64,
+            item,
         }
     }
 
@@ -345,15 +468,22 @@ mod tests {
         let roles: Vec<&str> = assembly
             .items
             .iter()
-            .map(|item| item.role.as_str())
+            .map(|item| item.role().unwrap_or("-"))
             .collect();
-        assert_eq!(
-            roles,
-            vec!["system", "user", "assistant", "system", "user"]
+        assert_eq!(roles, vec!["system", "user", "assistant", "system", "user"]);
+        assert!(
+            assembly.items[0]
+                .content()
+                .expect("系统提示")
+                .contains(STATUS_AFTER_HISTORY)
         );
-        assert!(assembly.items[0].content.contains(STATUS_AFTER_HISTORY));
-        assert!(assembly.items[3].content.starts_with("【当前状态】"));
-        assert_eq!(assembly.items[4].content, "做完了，脚跟会抬");
+        assert!(
+            assembly.items[3]
+                .content()
+                .expect("状态块")
+                .starts_with("【当前状态】")
+        );
+        assert_eq!(assembly.items[4].content(), Some("做完了，脚跟会抬"));
         assert_eq!(assembly.dropped, 0);
     }
 
@@ -362,7 +492,8 @@ mod tests {
         let state = snapshot();
         let history = vec![message(1, Role::User, "在吗")];
         let first = serde_json::to_string(&assemble(&state, &history, "嗯").items).expect("序列化");
-        let second = serde_json::to_string(&assemble(&state, &history, "嗯").items).expect("序列化");
+        let second =
+            serde_json::to_string(&assemble(&state, &history, "嗯").items).expect("序列化");
         assert_eq!(first, second);
     }
 
@@ -385,22 +516,102 @@ mod tests {
     }
 
     #[test]
-    fn a_trimmed_assembly_drops_the_oldest_messages_and_says_how_many() {
+    fn a_trimmed_assembly_drops_whole_turns_not_single_items() {
         let history = vec![
             message(1, Role::User, "第一句"),
             message(2, Role::Assistant, "第一答"),
             message(3, Role::User, "第二句"),
             message(4, Role::Assistant, "第二答"),
         ];
-        let assembly = assemble_with_history(&snapshot(), &history, "第三句", 2);
-        assert_eq!(assembly.dropped, 2);
+        let assembly = assemble_with_turns(&snapshot(), &history, "第三句", 1);
+        assert_eq!(assembly.dropped, 2, "丢掉的是第一轮的整条");
         let historical: Vec<&str> = assembly
             .items
             .iter()
-            .filter(|item| item.role != "system")
-            .map(|item| item.content.as_str())
+            .filter_map(|item| item.content())
+            .filter(|text| *text != crate::llm::prompt::SYSTEM_PROMPT)
+            .filter(|text| !text.starts_with("【当前状态】"))
             .collect();
         assert_eq!(historical, vec!["第二句", "第二答", "第三句"]);
+    }
+
+    #[test]
+    fn a_tool_round_trip_in_history_is_replayed_in_order() {
+        let history = vec![
+            message(1, Role::User, "蹲不下去"),
+            tool_entry(
+                2,
+                crate::domain::StoredItem::FunctionCall {
+                    call_id: "call_1".to_owned(),
+                    name: "search_evidence".to_owned(),
+                    arguments: r#"{"site":"soleus"}"#.to_owned(),
+                },
+            ),
+            tool_entry(
+                3,
+                crate::domain::StoredItem::FunctionCallOutput {
+                    call_id: "call_1".to_owned(),
+                    output: r#"{"found":0,"items":[]}"#.to_owned(),
+                },
+            ),
+            message(4, Role::Assistant, "先做踝背屈测试"),
+        ];
+        let assembly = assemble(&snapshot(), &history, "做完了");
+        let body = serde_json::to_value(&assembly.items).expect("序列化");
+        let kinds: Vec<&str> = body
+            .as_array()
+            .expect("数组")
+            .iter()
+            .map(|item| item["type"].as_str().unwrap_or("message"))
+            .collect();
+        assert_eq!(
+            kinds,
+            vec![
+                "message",
+                "message",
+                "function_call",
+                "function_call_output",
+                "message",
+                "message",
+                "message"
+            ],
+            "工具往返夹在历史里，按原顺序"
+        );
+        assert_eq!(body[2]["call_id"], "call_1");
+        assert_eq!(body[3]["output"], r#"{"found":0,"items":[]}"#);
+    }
+
+    #[test]
+    fn trimming_never_leaves_a_call_without_its_output() {
+        let history = vec![
+            message(1, Role::User, "第一句"),
+            message(2, Role::Assistant, "第一答"),
+            message(3, Role::User, "第二句"),
+            tool_entry(
+                4,
+                crate::domain::StoredItem::FunctionCall {
+                    call_id: "call_9".to_owned(),
+                    name: "search_evidence".to_owned(),
+                    arguments: "{}".to_owned(),
+                },
+            ),
+            tool_entry(
+                5,
+                crate::domain::StoredItem::FunctionCallOutput {
+                    call_id: "call_9".to_owned(),
+                    output: "{}".to_owned(),
+                },
+            ),
+            message(6, Role::Assistant, "第二答"),
+        ];
+        let assembly = assemble_with_turns(&snapshot(), &history, "第三句", 1);
+        let cut: Vec<String> = assembly
+            .items
+            .iter()
+            .filter_map(|item| serde_json::to_value(item).ok())
+            .filter_map(|value| value["call_id"].as_str().map(str::to_owned))
+            .collect();
+        assert_eq!(cut, vec!["call_9".to_owned(), "call_9".to_owned()]);
     }
 
     #[test]
@@ -430,6 +641,23 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "重录语料时手动跑：REGEN_CORPUS=1 cargo test regenerate"]
+    fn regenerate_the_recorded_request() {
+        if std::env::var("REGEN_CORPUS").is_err() {
+            return;
+        }
+        let body = serde_json::to_string_pretty(&recorded_body()).expect("序列化");
+        std::fs::write(
+            concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/tests/corpus/deepseek-first-request.json"
+            ),
+            format!("{body}\n"),
+        )
+        .expect("写语料");
+    }
+
+    #[test]
     fn the_recorded_request_is_exactly_what_we_assemble_today() {
         let recorded: serde_json::Value = serde_json::from_str(include_str!(
             "../../tests/corpus/deepseek-first-request.json"
@@ -453,4 +681,3 @@ mod tests {
         assert_eq!(date(1_763_000_000_000), "2025-11-13");
     }
 }
-

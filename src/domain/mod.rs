@@ -6,30 +6,29 @@
 pub mod axis;
 pub mod basics;
 pub mod conversation;
+pub mod evidence;
 pub mod finding;
+pub mod item;
 pub mod measurement;
 pub mod projection;
+pub mod tool;
 pub mod training;
 
 #[allow(unused_imports)]
-pub use axis::{
-    Axis, AxisValue, AxisValues, Mobility, Pain, Stability, Symmetry, Tension,
-};
+pub use axis::{Axis, AxisValue, AxisValues, Mobility, Pain, Stability, Symmetry, Tension};
 #[allow(unused_imports)]
 pub use basics::{Basics, Sex};
-pub use conversation::{
-    Conversation, ConversationId, Message, MessageId, Role,
-};
-#[allow(unused_imports)]
-pub use training::{Place, Readiness, TrainingContext, TrainingField};
-pub use finding::{
-    Event, Finding, FindingDraft, FindingId, Retract, Side, Timestamp,
-};
+pub use conversation::{Conversation, ConversationId, Message, MessageId, Role};
+pub use evidence::{Evidence, EvidenceDraft, EvidenceId, EvidenceKind};
+pub use finding::{Event, Finding, FindingDraft, FindingId, Retract, Side, Timestamp};
+pub use item::{Entry, StoredItem};
 pub use measurement::{
-    trend, Measurement, MeasurementDraft, MeasurementId, MeasurementKind, Trend,
+    Measurement, MeasurementDraft, MeasurementId, MeasurementKind, Trend, trend,
 };
 #[allow(unused_imports)]
 pub use projection::{Aggregate, Projection, SiteState};
+#[allow(unused_imports)]
+pub use training::{Place, Readiness, TrainingContext, TrainingField};
 
 use std::fmt;
 
@@ -58,6 +57,10 @@ pub enum DomainError {
     UnknownMeasurement(u64),
     /// 消息正文是空白。
     EmptyMessage,
+    /// 依据日志的某一段是空白。
+    EmptyEvidenceSection(&'static str),
+    /// 工具条目缺了必需字段（call_id / name / output）。
+    EmptyToolItem,
     /// 找不到这个会话。
     UnknownConversation(u64),
     /// 同一条目被撤回了两次。
@@ -100,10 +103,7 @@ impl fmt::Display for DomainError {
                 f,
                 "部位 `{id}` 左右成对，落判定时必须给侧别（left / right）。"
             ),
-            DomainError::SideForbidden(id) => write!(
-                f,
-                "部位 `{id}` 是中线结构，不能带侧别。"
-            ),
+            DomainError::SideForbidden(id) => write!(f, "部位 `{id}` 是中线结构，不能带侧别。"),
             DomainError::UnknownAxisValue { axis, value } => write!(
                 f,
                 "`{axis}` 轴没有取值 `{value}`；{axis} 的可选值是 {}。",
@@ -131,6 +131,14 @@ impl fmt::Display for DomainError {
             DomainError::UnknownFinding(id) => write!(f, "找不到编号 {} 的判定。", id.0),
             DomainError::UnknownMeasurement(id) => write!(f, "找不到编号 {id} 的测量。"),
             DomainError::EmptyMessage => write!(f, "消息不能是空白。"),
+            DomainError::EmptyToolItem => write!(
+                f,
+                "工具条目缺少 call_id、name 或 output；工具往返要原样重放，缺一不可。"
+            ),
+            DomainError::EmptyEvidenceSection(section) => write!(
+                f,
+                "依据日志的「{section}」是空的；四段都要写，用户没提到的段写「未涉及」。"
+            ),
             DomainError::UnknownConversation(id) => write!(f, "找不到编号 {id} 的会话。"),
             DomainError::AlreadyRetracted(id) => {
                 write!(f, "编号 {} 的判定已经被撤回过了。", id.0)

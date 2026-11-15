@@ -4,10 +4,12 @@
 //! `domain::projection`。库结构有版本号，对不上就重建（骨架期不做迁移）。
 //!
 //! 表：`meta`（库自己的标量）、`profile`（基本属性 / 训练条件 / 引导标记）、
-//! `findings` 与 `retracts`（档案条目与撤回）、`measurements`（身高体重的测量序列）、
-//! `conversations` 与 `messages`（会话与消息）、`settings`（本机设置，含 API key）。
+//! `findings` 与 `retracts`（档案条目与撤回）、`evidence`（依据日志，ADR-0005）、
+//! `measurements`（身高体重的测量序列）、`conversations` 与 `messages`（会话与消息）、
+//! `settings`（本机设置，含 API key）。
 
 pub mod conversations;
+pub mod evidence;
 pub mod findings;
 pub mod measurements;
 pub mod profile;
@@ -22,7 +24,7 @@ use redb::{Database, ReadableDatabase, TableDefinition};
 use crate::domain::DomainError;
 
 /// 库结构与值格式的版本；改表或改值的编码都要 +1。
-pub const SCHEMA_VERSION: &str = "7";
+pub const SCHEMA_VERSION: &str = "8";
 
 /// 库自己的标量：`schema_version`、`next_finding_id`。
 pub(crate) const META: TableDefinition<&str, &str> = TableDefinition::new("meta");
@@ -143,11 +145,18 @@ fn initialize(db: &Database) -> Result<(), StoreError> {
             .map_err(db_error)?;
     }
     // 空表也要建出来：读的时候不必判断表在不在。
-    write.open_table(conversations::CONVERSATIONS).map_err(db_error)?;
-    write.open_table(conversations::MESSAGES).map_err(db_error)?;
+    write
+        .open_table(conversations::CONVERSATIONS)
+        .map_err(db_error)?;
+    write
+        .open_table(conversations::MESSAGES)
+        .map_err(db_error)?;
     write.open_table(findings::FINDINGS).map_err(db_error)?;
     write.open_table(findings::RETRACTS).map_err(db_error)?;
-    write.open_table(measurements::MEASUREMENTS).map_err(db_error)?;
+    write.open_table(evidence::EVIDENCE).map_err(db_error)?;
+    write
+        .open_table(measurements::MEASUREMENTS)
+        .map_err(db_error)?;
     write.open_table(profile::PROFILE).map_err(db_error)?;
     write.open_table(settings::SETTINGS).map_err(db_error)?;
     write.commit().map_err(db_error)
@@ -162,6 +171,7 @@ fn reset(db: &Database) -> Result<(), StoreError> {
     drop_table(&write, conversations::CONVERSATIONS)?;
     drop_table(&write, findings::FINDINGS)?;
     drop_table(&write, findings::RETRACTS)?;
+    drop_table(&write, evidence::EVIDENCE)?;
     drop_table(&write, measurements::MEASUREMENTS)?;
     write.commit().map_err(db_error)
 }
@@ -191,10 +201,8 @@ pub(crate) mod tests {
 
     impl TempStore {
         pub(crate) fn new(name: &str) -> TempStore {
-            let dir = std::env::temp_dir().join(format!(
-                "lianlian-store-{}-{name}",
-                std::process::id()
-            ));
+            let dir =
+                std::env::temp_dir().join(format!("lianlian-store-{}-{name}", std::process::id()));
             let _ = std::fs::remove_dir_all(&dir);
             std::fs::create_dir_all(&dir).expect("建临时目录");
             let store = Store::open(&dir.join("lianlian.redb")).expect("打开新库");
