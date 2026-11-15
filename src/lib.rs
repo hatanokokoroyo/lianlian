@@ -16,5 +16,5 @@ use nsh_core::prelude::*;
 /// crate 的 UI 集合（`nsh.json` 的 `"rust"`）。
 #[native_module("lianlian/native")]
 fn native(registry: &mut Registry) {
-    registry.module::<api::Today>();
+    registry.module::<api::Profile>();
 }

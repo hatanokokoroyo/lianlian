@@ -148,13 +148,15 @@ v1 只有一种模式（深色）。全部值放在 `theme` 一节下，`light`/
 
 | 前缀 | testID |
 |---|---|
-| 今日 | `tab-today` `open-calendar` `exercise-{slug}` `checkin` `postpone` `skip-exercise` `view-evidence` |
+| 今日 | `tab-today` `open-calendar` `exercise-{slug}` `checkin` `postpone` `skip-exercise` `view-evidence` `today-ready-title` `today-start-assessment` `today-needs-training-title` `today-fill-training` `today-error` |
 | 日历 | `tab-calendar` `day-{1..31}` `prev-month` `next-month` |
-| 档案 | `tab-profile` `site-{slug}` `evidence-source` `mark-resolved` `retract` `open-timeline` `open-measurements` `edit-training-context` `open-settings` |
+| 档案 | `tab-profile` `site-{slug}` `evidence-source` `mark-resolved` `retract` `open-timeline` `open-measurements` `edit-training-context` `open-settings` `save-basics` `save-training` `profile-training` `profile-training-missing` `profile-error` `profile-saved` |
 | 会话 | `tab-conversations` `new-conversation` `conv-{slug}` `conv-menu` `archive-conv` `delete-conv` `message-input` `pick-photo` `send` `conv-actions` `undo` |
 | 提议 | `accept-proposal` `reject-proposal` `reject-reason` |
 | 体重 | `weight-chart` `add-measurement` `delete-measurement` |
-| 引导 | `onboarding-next` `onboarding-prev` |
+| 引导 | `onboarding-next` `onboarding-prev` `onboarding-step-3` `onboarding-error` |
+| 基本属性 | `basics-sex-{female\|male\|none}` `basics-age` `basics-height` `basics-weight` `condition-input` `condition-add` `condition-remove-{n}` |
+| 训练条件 | `training-days-{2\|3\|4\|5}` `training-minutes-{15\|30\|45}` `training-place-{home\|gym\|office\|outdoor}` `training-equipment-{band\|dumbbell-8kg\|mat\|foam-roller\|nothing}` |
 | 设置 | `api-key` `reveal-key` |
 | 通用 | `back` `open-conversations` |
 

@@ -4,13 +4,19 @@
 //! 存储（`store`）只负责把这层的数据搬进搬出，界面只负责显示。
 
 pub mod axis;
+pub mod basics;
 pub mod finding;
 pub mod projection;
+pub mod training;
 
 #[allow(unused_imports)]
 pub use axis::{
     Axis, AxisValue, AxisValues, Mobility, Pain, Stability, Symmetry, Tension,
 };
+#[allow(unused_imports)]
+pub use basics::{Basics, Sex};
+#[allow(unused_imports)]
+pub use training::{Place, Readiness, TrainingContext, TrainingField};
 pub use finding::{
     Event, Finding, FindingDraft, FindingId, Retract, Side, Timestamp,
 };
@@ -20,7 +26,7 @@ pub use projection::{Aggregate, Projection, SiteState};
 use std::fmt;
 
 /// 领域规则拒绝时的原因。错误文案是给模型看的：它要能照着改。
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum DomainError {
     /// 部位 id 不在词表里。
     UnknownSite(String),
@@ -44,6 +50,28 @@ pub enum DomainError {
     AlreadyRetracted(FindingId),
     /// 撤回一条已经被撤回的条目之后，投影无从恢复（用于提示调用方）。
     NothingToProject(String),
+    /// 某个数值字段超出它的合理区间（含「该是整数却给了小数」）。
+    OutOfRange {
+        /// 显示用的字段名，如「年龄」「体重（千克）」。
+        field: &'static str,
+        min: f64,
+        max: f64,
+        value: f64,
+    },
+    /// 基础疾病条目是空白。
+    EmptyCondition,
+    /// 基础疾病清单里已经有这一条。
+    DuplicateCondition(String),
+    /// 「什么都没有」与其他器械不能同时存在。
+    NoEquipmentExclusive,
+    /// 器械标签是空白。
+    EmptyEquipment,
+    /// 器械清单里已经有这一项。
+    DuplicateEquipment(String),
+    /// 性别取值不认识。
+    UnknownSex(String),
+    /// 训练地点取值不认识。
+    UnknownPlace(String),
 }
 
 impl fmt::Display for DomainError {
@@ -93,6 +121,38 @@ impl fmt::Display for DomainError {
             DomainError::NothingToProject(site) => {
                 write!(f, "`{site}` 撤回后没有任何可用的判定，档案里这条会消失。")
             }
+            DomainError::OutOfRange {
+                field,
+                min,
+                max,
+                value,
+            } => write!(
+                f,
+                "{field}要在 {min}–{max} 之间，收到 {value}。不确定就留空。"
+            ),
+            DomainError::EmptyCondition => write!(f, "基础疾病那一条是空的。"),
+            DomainError::DuplicateCondition(text) => {
+                write!(f, "基础疾病里已经有「{text}」这一条了。")
+            }
+            DomainError::NoEquipmentExclusive => {
+                write!(f, "选了「什么都没有」就不能再选别的器械。")
+            }
+            DomainError::EmptyEquipment => write!(f, "器械那一项是空的。"),
+            DomainError::DuplicateEquipment(label) => {
+                write!(f, "器械里已经有「{label}」了。")
+            }
+            DomainError::UnknownSex(value) => {
+                write!(f, "性别只有 female / male 或不填，收到 `{value}`。")
+            }
+            DomainError::UnknownPlace(value) => write!(
+                f,
+                "训练地点只有 {}，收到 `{value}`。",
+                Place::ALL
+                    .iter()
+                    .map(|place| place.key())
+                    .collect::<Vec<_>>()
+                    .join(" / ")
+            ),
         }
     }
 }

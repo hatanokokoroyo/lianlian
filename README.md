@@ -19,15 +19,20 @@ App.tsx（TSX 屏：今日页） → lianlian/native（自动生成的类型） 
   落库与日状态机是 #14。
 - **#3 领域层**：解剖学部位词表（119 条部位 + 23 个肌群）、五轴枚举、Finding 只追加与撤回、
   投影与聚合（肌群取最差值、骨骼集合子项优先于父项）。档案页/工具层会用到它，界面还没接。
+- **#4 冷启动**：首启引导三步（基本属性 → 训练条件 → 首次评估）；档案页可随时改基本属性与
+  训练条件；训练条件缺项时今日页提示「计划前需要先补训练条件」，齐全时提示「可以开始首次评估」。
+  对话与月历两屏还是占位（#6/#7、#16）。
 
 ```
-App.tsx            今日页（TSX + Tailwind 类 + design/contract.md 的 token）
-App.test.tsx       今日页的 headless 测试（nsh test）
+App.tsx            应用外壳：读档案 → 引导 / 四个 Tab
+screens/           今日、引导、档案三屏（TSX）
+ui/                共用零件（卡片/胶囊/按钮/输入）与表单草稿
+App.test.tsx       冷启动主干与重开持久的 headless 测试（nsh test）
 src/lib.rs         crate 的 UI 集合：注册对 TSX 暴露的 module
-src/api.rs         对 TSX 暴露的类型与入口（JsObject → native.d.ts）
+src/api.rs         对 TSX 暴露的类型与入口（JsObject → native.d.ts，`Profile` 模块）
 src/anatomy/       解剖学词表：mod.rs 放类型与规则，sites.rs 是生成的内容
 src/domain/        五轴取值、Finding/Retract、投影与聚合（纯函数、零 IO）
-src/store/         redb：mod.rs 开库与版本、plan.rs 骨架期示范计划、findings.rs 判定与撤回
+src/store/         redb：mod.rs 开库与版本、profile.rs 基本属性/训练条件、findings.rs 判定与撤回
 scripts/gen-anatomy.py   从词表 markdown 生成 src/anatomy/sites.rs
 nsh.json           app 元信息 + 设计 token（shadcn cssVars 形式）
 design/            OpenDesign 工作区：9 屏原型 + 视觉契约

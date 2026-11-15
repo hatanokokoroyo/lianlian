@@ -2,9 +2,12 @@
 //!
 //! 这一层只负责把领域层的值搬进搬出，不藏规则：校验在 `domain`，聚合在
 //! `domain::projection`。库结构有版本号，对不上就重建（骨架期不做迁移）。
+//!
+//! 表：`meta`（库自己的标量）、`profile`（基本属性 / 训练条件 / 引导标记）、
+//! `findings` 与 `retracts`（档案条目与撤回）。
 
 pub mod findings;
-pub mod plan;
+pub mod profile;
 
 use std::fmt;
 use std::path::Path;
@@ -15,13 +18,13 @@ use redb::{Database, ReadableDatabase, TableDefinition};
 use crate::domain::DomainError;
 
 /// 库结构与值格式的版本；改表或改值的编码都要 +1。
-pub const SCHEMA_VERSION: &str = "3";
+pub const SCHEMA_VERSION: &str = "4";
 
 /// 库自己的标量：`schema_version`、`next_finding_id`。
 pub(crate) const META: TableDefinition<&str, &str> = TableDefinition::new("meta");
 
 /// 库操作的失败：领域规则拒绝，或底层存储出错。
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum StoreError {
     /// 领域规则拒绝（部位不在词表、侧别不对、取值非法……）。
     Domain(DomainError),
@@ -59,9 +62,12 @@ impl Store {
     /// app 私有目录里的库（真机与桌面宿主）。
     ///
     /// 宿主不提供文件目录时（网页宿主、`nsh test` 的 headless 引擎）落到系统临时
-    /// 目录，这样库的行为在测试里是真的；真机上永远走 app 私有目录。
+    /// 目录，进程号入路径：每次测试运行都是干净起点，同一次运行里多个 `open` 仍
+    /// 共享同一个库（这才验得了「重开 app 数据还在」）。真机永远走 app 私有目录。
     pub fn open_app() -> Result<Store, StoreError> {
-        let dir = data_dir().unwrap_or_else(|| std::env::temp_dir().join("lianlian"));
+        let dir = data_dir().unwrap_or_else(|| {
+            std::env::temp_dir().join(format!("lianlian-{}", std::process::id()))
+        });
         std::fs::create_dir_all(&dir).map_err(db_error)?;
         Store::open(&dir.join("lianlian.redb"))
     }
@@ -127,14 +133,14 @@ fn initialize(db: &Database) -> Result<(), StoreError> {
     // 空表也要建出来：读的时候不必判断表在不在。
     write.open_table(findings::FINDINGS).map_err(db_error)?;
     write.open_table(findings::RETRACTS).map_err(db_error)?;
-    write.commit().map_err(db_error)?;
-    plan::seed(db)
+    write.open_table(profile::PROFILE).map_err(db_error)?;
+    write.commit().map_err(db_error)
 }
 
 fn reset(db: &Database) -> Result<(), StoreError> {
     let write = db.begin_write().map_err(db_error)?;
     drop_table(&write, META)?;
-    drop_table(&write, plan::EXERCISES)?;
+    drop_table(&write, profile::PROFILE)?;
     drop_table(&write, findings::FINDINGS)?;
     drop_table(&write, findings::RETRACTS)?;
     write.commit().map_err(db_error)
