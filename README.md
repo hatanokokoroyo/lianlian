@@ -22,17 +22,21 @@ App.tsx（TSX 屏：今日页） → lianlian/native（自动生成的类型） 
 - **#4 冷启动**：首启引导三步（基本属性 → 训练条件 → 首次评估）；档案页可随时改基本属性与
   训练条件；训练条件缺项时今日页提示「计划前需要先补训练条件」，齐全时提示「可以开始首次评估」。
   对话与月历两屏还是占位（#6/#7、#16）。
+- **#5 测量**：身高与体重是**测量**（带时间戳的只追加序列），不再是基本属性里的两个可编辑字段。
+  档案页的「当前身高/体重」永远取最新一条测量；测量页用 `Plot` 画折线（只有一个点也看得见），
+  单条可删（全库唯一允许单条删除的数据）。库结构版本升到 5（旧库按骨架期惯例重建）。
 
 ```
 App.tsx            应用外壳：读档案 → 引导 / 四个 Tab
-screens/           今日、引导、档案三屏（TSX）
+screens/           今日、引导、档案、测量四屏（TSX）
 ui/                共用零件（卡片/胶囊/按钮/输入）与表单草稿
 App.test.tsx       冷启动主干与重开持久的 headless 测试（nsh test）
 src/lib.rs         crate 的 UI 集合：注册对 TSX 暴露的 module
-src/api.rs         对 TSX 暴露的类型与入口（JsObject → native.d.ts，`Profile` 模块）
+src/api.rs         对 TSX 暴露的类型与入口（JsObject → native.d.ts，`Profile` / `Measurements` 模块）
 src/anatomy/       解剖学词表：mod.rs 放类型与规则，sites.rs 是生成的内容
 src/domain/        五轴取值、Finding/Retract、投影与聚合（纯函数、零 IO）
-src/store/         redb：mod.rs 开库与版本、profile.rs 基本属性/训练条件、findings.rs 判定与撤回
+src/store/         redb：mod.rs 开库与版本、profile.rs 基本属性/训练条件、findings.rs 判定与撤回、
+                   measurements.rs 测量序列
 scripts/gen-anatomy.py   从词表 markdown 生成 src/anatomy/sites.rs
 nsh.json           app 元信息 + 设计 token（shadcn cssVars 形式）
 design/            OpenDesign 工作区：9 屏原型 + 视觉契约
@@ -91,7 +95,7 @@ nsh run                     # 本机 Linux 宿主，最快的界面迭代
 - **`Directory not empty (os error 39)`**：上一次 `nsh run` 被 Ctrl-C 打断会留下 `.nsh/android/NshDev.apk-work/`，下一次装宿主时命名冲突。删掉 `.nsh/android` 再来。
 - **`no reactive runtime: signals are used on the engine thread`**：Rust 的普通 `fn`（不带 `cx`、非 `async`）跑在引擎线程，那里没有响应式运行时，读 `data_dir()` 之类的服务会 panic。要碰平台服务就写成 `async fn`（任务里跑）或在 TSX 侧用 `resource()` 消费。
 - **改了 Rust，手机上却还是旧行为**：dev server 有时判定「没变化」而不重装宿主，手机上跑的还是旧 native lib（加 `nsh.json` 的 `build` 也不一定让它重装）。可靠做法是 `adb shell pm clear com.longbridge.nsh.host` 后重开一次 dev server，等日志出现 `installed the Android development host`。代价是 app 私有目录里的库文件也被清掉——开发期无所谓。
-- **库里的值格式变了**：骨架期 `exercises` 的值是手写的竖线分隔串，格式版本写在 `meta` 表的 `schema_version`；版本对不上时 `store` 丢表重播种（真数据迁移随 #3 的词表一起补）。
+- **库里的值格式变了**：库结构与值格式的版本写在 `meta` 表的 `schema_version`；版本对不上时 `store` 丢表重建（骨架期不做迁移，改表就要 +1）。
 - **`nsh.test` 的 headless 宿主不给 app 私有目录**（`data_dir()` 为 `None`），所以 `store` 在没有私有目录时落到系统临时目录，库行为在测试里是真的。
 
 ## 约定

@@ -7,6 +7,7 @@ import type { ProfileView } from "lianlian/native";
 import type { ProfileDrafts } from "../ui/drafts";
 import {
   BasicsFields,
+  BodyMetricFields,
   TrainingFields,
   basicsPayload,
   trainingPayload,
@@ -96,7 +97,16 @@ export function Onboarding(props: {
       />
 
       <View style={{ flex: 1, paddingHorizontal: 16, paddingTop: 16 }}>
-        {step() === 1 ? <BasicsFields draft={basics} /> : null}
+        {step() === 1 ? (
+          <View style={{ gap: 16 }}>
+            <BasicsFields draft={basics} />
+            <View style={{ gap: 6 }}>
+              <SectionLabel text="身高与体重" />
+              <Note text="每次填新值都会追加一条带时间的测量，不覆盖旧值；单条记录可在文档页的「测量」里删除。" />
+              <BodyMetricFields draft={basics} />
+            </View>
+          </View>
+        ) : null}
         {step() === 2 ? <TrainingFields draft={training} /> : null}
         {step() === 3 ? (
           <Card testID="onboarding-step-3">

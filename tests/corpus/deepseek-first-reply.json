@@ -1,0 +1,71 @@
+{
+  "id": "7a7ac147-5005-4c3b-9bca-30305b41892c",
+  "object": "response",
+  "created_at": 1794752330,
+  "status": "completed",
+  "background": false,
+  "completed_at": 1794752333,
+  "content_filters": null,
+  "error": null,
+  "frequency_penalty": 0.0,
+  "incomplete_details": null,
+  "instructions": null,
+  "max_output_tokens": 300,
+  "max_tool_calls": null,
+  "model": "deepseek-flash",
+  "moderation": null,
+  "output": [
+    {
+      "type": "message",
+      "id": "428a0812-bf3b-4416-b6db-c4cc01b87f84",
+      "status": "completed",
+      "content": [
+        {
+          "type": "output_text",
+          "annotations": [],
+          "logprobs": [],
+          "text": "先做这个在家验证动作：\n\n**靠墙踝背屈测试（左右各做）**\n1. 面对墙站立，被测脚的脚尖离墙约 10 厘米。\n2. 膝盖沿脚尖方向往前推，脚跟必须始终贴地。\n3. 看膝盖能不能越过脚尖碰到墙，同时脚跟不抬、膝盖不内扣、脚不往外翻。\n\n再补一个：\n\n**徒手深蹲观察**\n双脚与肩同宽，脚尖略朝外，双手前平举，慢慢下蹲到能控制的最低点。注意三件事：脚跟是否抬起、膝盖是否往内夹、蹲到哪个位置开始觉得“前面卡住”。\n\n把结果告诉我：左右踝能不能碰墙、差多少；深蹲时脚跟抬不抬、卡住的位置大概在大腿平行地面之上还是之下。根据这些我再判断是踝关节活动度、髋控制还是动作模式的问题，并给你对应的 30 分钟居家训练安排。"
+        }
+      ],
+      "phase": "final_answer",
+      "role": "assistant"
+    }
+  ],
+  "parallel_tool_calls": true,
+  "presence_penalty": 0.0,
+  "previous_response_id": null,
+  "prompt_cache_key": null,
+  "prompt_cache_retention": null,
+  "reasoning": {
+    "effort": "none",
+    "summary": null
+  },
+  "safety_identifier": null,
+  "service_tier": "default",
+  "store": false,
+  "temperature": 1.0,
+  "text": {
+    "format": {
+      "type": "text"
+    },
+    "verbosity": null
+  },
+  "tool_choice": "auto",
+  "tools": [],
+  "top_logprobs": 0,
+  "top_p": 1.0,
+  "truncation": "disabled",
+  "usage": {
+    "input_tokens": 120,
+    "input_tokens_details": {
+      "cached_tokens": 0
+    },
+    "output_tokens": 202,
+    "output_tokens_details": {
+      "reasoning_tokens": 0
+    },
+    "total_tokens": 322
+  },
+  "user": null,
+  "metadata": {}
+}

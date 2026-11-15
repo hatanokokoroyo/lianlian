@@ -91,8 +91,6 @@ mod tests {
         Basics {
             sex: Some(Sex::Female),
             age: Some(32),
-            height_cm: Some(168.0),
-            weight_kg: Some(62.4),
             conditions: vec!["右侧踝关节扭伤过两次".to_owned()],
         }
     }

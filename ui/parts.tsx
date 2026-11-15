@@ -4,9 +4,10 @@ import type { JSX } from "nsh";
 import { Input } from "nsh/base";
 
 /** 小标题：10px、字距拉开的灰字。 */
-export function SectionLabel(props: { text: string }) {
+export function SectionLabel(props: { text: string; testID?: string }) {
   return (
     <Text
+      testID={props.testID}
       style={{
         fontSize: 10,
         letterSpacing: 1.4,

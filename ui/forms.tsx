@@ -76,13 +76,13 @@ export function newBasicsDraft(view: BasicsView): BasicsDraft {
   };
 }
 
-/** 草稿 → 传给 Rust 的四个数值 + 疾病清单。 */
-export function basicsPayload(draft: BasicsDraft) {
+/** 草稿 → 传给 Rust 的字段；`withBody` 为假时不动身高体重（档案页的情形）。 */
+export function basicsPayload(draft: BasicsDraft, withBody = true) {
   return {
     sex: draft.sex(),
     age: toNumber(draft.age()),
-    heightCm: toNumber(draft.height()),
-    weightKg: toNumber(draft.weight()),
+    heightCm: withBody ? toNumber(draft.height()) : null,
+    weightKg: withBody ? toNumber(draft.weight()) : null,
     conditions: draft.conditions(),
   };
 }
@@ -120,7 +120,28 @@ function toggle(list: readonly string[], value: string): string[] {
     : [...list, value];
 }
 
-/** 基本属性：性别 + 三个数字 + 基础疾病清单。 */
+/** 首次记录身高体重：只有引导第一步用它，档案页只显示「当前值」（测量决定）。 */
+export function BodyMetricFields(props: { draft: BasicsDraft }) {
+  const draft = props.draft;
+  return (
+    <View style={{ flexDirection: "row", gap: 8 }}>
+      <NumberField
+        testID="basics-height"
+        label="身高 cm（记录）"
+        value={draft.height()}
+        onChange={(value) => draft.height.set(value)}
+      />
+      <NumberField
+        testID="basics-weight"
+        label="体重 kg（记录）"
+        value={draft.weight()}
+        onChange={(value) => draft.weight.set(value)}
+      />
+    </View>
+  );
+}
+
+/** 基本属性：性别 + 年龄 + 基础疾病清单（身高体重不在这里，见 BodyMetricFields）。 */
 export function BasicsFields(props: { draft: BasicsDraft }) {
   const draft = props.draft;
   const addCondition = () => {
@@ -155,18 +176,6 @@ export function BasicsFields(props: { draft: BasicsDraft }) {
           label="年龄"
           value={draft.age()}
           onChange={(value) => draft.age.set(value)}
-        />
-        <NumberField
-          testID="basics-height"
-          label="身高 cm"
-          value={draft.height()}
-          onChange={(value) => draft.height.set(value)}
-        />
-        <NumberField
-          testID="basics-weight"
-          label="体重 kg"
-          value={draft.weight()}
-          onChange={(value) => draft.weight.set(value)}
         />
       </View>
 

@@ -5,6 +5,7 @@ import { Profile } from "lianlian/native";
 
 import { profileDrafts } from "./ui/drafts";
 import { Onboarding } from "./screens/onboarding";
+import { MeasurementsScreen } from "./screens/measurements";
 import { ProfileScreen } from "./screens/profile";
 import { Today } from "./screens/today";
 import { Card, Note, ScreenHeader, TabBar } from "./ui/parts";
@@ -43,6 +44,8 @@ function Loading() {
 function App() {
   const profile = resource(() => Profile.load());
   const tab = signal<Tab>("today");
+  // 档案 Tab 内的页面栈：档案 → 测量（详情页用 push，见 contract §4）。
+  const profilePage = signal<"root" | "measurements">("root");
 
   // 注意：accessor 的读取都写在 JSX 里——NSH 只跟踪渲染期间读到的信号，
   // 在函数体里读会让「读库完成」这件事没人订阅，页面就永远停在加载态。
@@ -67,11 +70,21 @@ function App() {
               />
             ) : null}
             {tab() === "profile" ? (
-              <ProfileScreen
-                state={profile()!}
-                drafts={profileDrafts(profile()!)}
-                onSaved={() => profile.refetch()}
-              />
+              profilePage() === "measurements" ? (
+                <MeasurementsScreen
+                  onBack={() => {
+                    profilePage.set("root");
+                    profile.refetch();
+                  }}
+                />
+              ) : (
+                <ProfileScreen
+                  state={profile()!}
+                  drafts={profileDrafts(profile()!)}
+                  onSaved={() => profile.refetch()}
+                  onGoMeasurements={() => profilePage.set("measurements")}
+                />
+              )
             ) : null}
             {tab() === "calendar" ? <Pending title="月历" ticket="工单 #16" /> : null}
             {tab() === "conversations" ? (

@@ -6,6 +6,7 @@
 pub mod axis;
 pub mod basics;
 pub mod finding;
+pub mod measurement;
 pub mod projection;
 pub mod training;
 
@@ -19,6 +20,9 @@ pub use basics::{Basics, Sex};
 pub use training::{Place, Readiness, TrainingContext, TrainingField};
 pub use finding::{
     Event, Finding, FindingDraft, FindingId, Retract, Side, Timestamp,
+};
+pub use measurement::{
+    trend, Measurement, MeasurementDraft, MeasurementId, MeasurementKind, Trend,
 };
 #[allow(unused_imports)]
 pub use projection::{Aggregate, Projection, SiteState};
@@ -46,6 +50,8 @@ pub enum DomainError {
     EmptyReason,
     /// 撤回一个不存在的条目。
     UnknownFinding(FindingId),
+    /// 删除一条不存在的测量。
+    UnknownMeasurement(u64),
     /// 同一条目被撤回了两次。
     AlreadyRetracted(FindingId),
     /// 撤回一条已经被撤回的条目之后，投影无从恢复（用于提示调用方）。
@@ -115,6 +121,7 @@ impl fmt::Display for DomainError {
             }
             DomainError::EmptyReason => write!(f, "撤回一条判定必须写理由。"),
             DomainError::UnknownFinding(id) => write!(f, "找不到编号 {} 的判定。", id.0),
+            DomainError::UnknownMeasurement(id) => write!(f, "找不到编号 {id} 的测量。"),
             DomainError::AlreadyRetracted(id) => {
                 write!(f, "编号 {} 的判定已经被撤回过了。", id.0)
             }

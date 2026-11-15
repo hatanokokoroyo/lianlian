@@ -12,6 +12,7 @@ export function ProfileScreen(props: {
   state: ProfileView;
   drafts: ProfileDrafts;
   onSaved: () => void;
+  onGoMeasurements: () => void;
 }) {
   const basics = props.drafts.basics;
   const training = props.drafts.training;
@@ -21,7 +22,7 @@ export function ProfileScreen(props: {
   const saveBasics = async () => {
     error.set(null);
     saved.set(null);
-    const payload = basicsPayload(basics);
+    const payload = basicsPayload(basics, false);
     const message = await Profile.saveBasics(
       payload.sex,
       payload.age,
@@ -83,6 +84,24 @@ export function ProfileScreen(props: {
           </Text>
           <BasicsFields draft={basics} />
           <PrimaryButton testID="save-basics" label="保存基本属性" onPress={saveBasics} />
+        </Card>
+
+        <Card testID="profile-measurements">
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <Text style={{ fontSize: 13, fontWeight: "bold", color: token("foreground") }}>
+              测量
+            </Text>
+            <SectionLabel
+              testID="profile-body-metrics"
+              text={`当前 ${props.state.basics.heightCm ?? "—"} cm · ${props.state.basics.weightKg ?? "—"} kg`}
+            />
+          </View>
+          <Note text="每次记录都留一条带时间的值，折线图看变动；单条填错的可以删掉。" />
+          <PrimaryButton
+            testID="open-measurements"
+            label="查看身高体重趋势"
+            onPress={props.onGoMeasurements}
+          />
         </Card>
 
         <Card testID="profile-training">

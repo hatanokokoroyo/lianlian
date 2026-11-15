@@ -6,7 +6,10 @@
 
 use nsh_core::prelude::*;
 
-use crate::domain::basics::{Basics, Sex, AGE_RANGE, HEIGHT_CM_RANGE, WEIGHT_KG_RANGE};
+use crate::domain::basics::{Basics, Sex, AGE_RANGE};
+use crate::domain::measurement::{
+    MeasurementDraft, MeasurementKind, HEIGHT_CM_RANGE, WEIGHT_KG_RANGE,
+};
 use crate::domain::training::{
     Place, Readiness, TrainingContext, DAYS_PER_WEEK_RANGE, MINUTES_RANGE,
 };
@@ -20,9 +23,9 @@ pub struct BasicsView {
     pub sex: Option<String>,
     /// 年龄。
     pub age: Option<f64>,
-    /// 身高，厘米。
+    /// 身高，厘米：最新一条身高测量，不是可编辑的字段。
     pub height_cm: Option<f64>,
-    /// 体重，千克。
+    /// 体重，千克：最新一条体重测量，不是可编辑的字段。
     pub weight_kg: Option<f64>,
     /// 基础疾病或旧伤，自由文本的清单。
     pub conditions: Vec<String>,
@@ -64,6 +67,132 @@ pub struct ProfileView {
     pub error: Option<String>,
 }
 
+/// 一条测量在界面上的样子。
+#[derive(Debug, Clone, PartialEq, JsObject)]
+pub struct MeasurementView {
+    /// 编号：删除时用它。
+    pub id: f64,
+    /// `height` / `weight`。
+    pub kind: String,
+    /// 数值，单位见同一序列的 `unit`。
+    pub value: f64,
+    /// Unix 毫秒；界面按本地时区显示日期。
+    pub at: f64,
+}
+
+/// 一种测量（身高或体重）的序列。
+#[derive(Debug, Clone, PartialEq, JsObject)]
+pub struct SeriesView {
+    /// `height` / `weight`。
+    pub kind: String,
+    /// 显示名：身高 / 体重。
+    pub label: String,
+    /// 单位：cm / kg。
+    pub unit: String,
+    /// 最新一条的值；没有测量时是 `null`。
+    pub current: Option<f64>,
+    /// 最新与最早的差；少于两条时是 `null`（看不出变化不等于没变化）。
+    pub change: Option<f64>,
+    /// 按时间升序，折线图从左到右画它。
+    pub points: Vec<MeasurementView>,
+}
+
+/// 测量页要读的全部状态。
+#[derive(Debug, Clone, PartialEq, JsObject)]
+pub struct MeasurementsView {
+    pub weight: SeriesView,
+    pub height: SeriesView,
+    /// 读库失败的原因；有值时界面要提示而不是装作没有测量。
+    pub error: Option<String>,
+}
+
+/// 测量的读写：追加一条、删掉一条、读两种序列。
+#[module]
+pub struct Measurements;
+
+#[module]
+impl Measurements {
+    /// 读身高与体重的完整序列。
+    pub async fn load() -> MeasurementsView {
+        match Store::open_app() {
+            Ok(store) => measurements_view(&store, None),
+            Err(error) => empty_measurements_view(Some(error.to_string())),
+        }
+    }
+
+    /// 显式记一条测量；返回失败原因，成功是 `null`。
+    ///
+    /// 与保存基本属性不同，这里即使数值和上一条相同也照样追加——用户是
+    /// 主动「记一次」，不是改一个字段。
+    pub async fn record(kind: String, value: f64) -> Option<String> {
+        let Some(kind) = MeasurementKind::from_key(&kind) else {
+            return Some(format!("不认识的测量种类：{kind}"));
+        };
+        let draft = MeasurementDraft {
+            kind,
+            value,
+            at: nsh_core::time::unix_ms() as i64,
+        };
+        save(&Store::open_app(), |store| {
+            store.record_measurement(draft.clone()).map(|_| ())
+        })
+    }
+
+    /// 删掉一条测量；返回失败原因，成功是 `null`。
+    pub async fn delete(id: f64) -> Option<String> {
+        if !id.is_finite() || id < 0.0 {
+            return Some(format!("测量编号不合法：{id}"));
+        }
+        save(&Store::open_app(), |store| {
+            store.delete_measurement(crate::domain::measurement::MeasurementId(id as u64))
+        })
+    }
+}
+
+fn measurements_view(store: &Store, error: Option<String>) -> MeasurementsView {
+    let series = |kind: MeasurementKind| -> SeriesView {
+        let measurements = store.measurements(kind).unwrap_or_default();
+        let trend = crate::domain::trend(measurements.clone());
+        SeriesView {
+            kind: kind.key().to_owned(),
+            label: kind.zh().to_owned(),
+            unit: kind.unit().to_owned(),
+            current: trend.latest,
+            change: trend.change,
+            points: measurements
+                .iter()
+                .map(|measurement| MeasurementView {
+                    id: measurement.id.0 as f64,
+                    kind: kind.key().to_owned(),
+                    value: measurement.value,
+                    at: measurement.at as f64,
+                })
+                .collect(),
+        }
+    };
+    MeasurementsView {
+        weight: series(MeasurementKind::Weight),
+        height: series(MeasurementKind::Height),
+        error,
+    }
+}
+
+fn empty_measurements_view(error: Option<String>) -> MeasurementsView {
+    let empty = |kind: MeasurementKind| SeriesView {
+        kind: kind.key().to_owned(),
+        label: kind.zh().to_owned(),
+        unit: kind.unit().to_owned(),
+        current: None,
+        change: None,
+        points: Vec::new(),
+    };
+    MeasurementsView {
+        weight: empty(MeasurementKind::Weight),
+        height: empty(MeasurementKind::Height),
+        error,
+    }
+}
+
 /// 档案的读写：基本属性、训练条件、引导标记。
 #[module]
 pub struct Profile;
@@ -77,13 +206,13 @@ impl Profile {
                 (Ok(basics), Ok(training), Ok(onboarded)) => ProfileView {
                     onboarded,
                     readiness: readiness_view(&training.readiness()),
-                    basics: basics_view(&basics),
+                    basics: measured_basics_view(&store, &basics),
                     training: training_view(&training),
                     error: None,
                 },
                 (basics, training, onboarded) => ProfileView {
                     onboarded: false,
-                    basics: basics_view(&Basics::new()),
+                    basics: basics_view(&Basics::new(), None, None),
                     training: training_view(&TrainingContext::new()),
                     readiness: readiness_view(&TrainingContext::new().readiness()),
                     error: Some(
@@ -98,7 +227,7 @@ impl Profile {
             },
             Err(error) => ProfileView {
                 onboarded: false,
-                basics: basics_view(&Basics::new()),
+                basics: basics_view(&Basics::new(), None, None),
                 training: training_view(&TrainingContext::new()),
                 readiness: readiness_view(&TrainingContext::new().readiness()),
                 error: Some(error.to_string()),
@@ -114,11 +243,36 @@ impl Profile {
         weight_kg: Option<f64>,
         conditions: Vec<String>,
     ) -> Option<String> {
-        let basics = match build_basics(sex, age, height_cm, weight_kg, conditions) {
+        let basics = match build_basics(sex, age, conditions) {
             Ok(basics) => basics,
             Err(message) => return Some(message),
         };
-        save(&Store::open_app(), |store| store.save_basics(&basics))
+        // 身高体重是测量：填了且与最新一条不同，就追加一条；清空不删历史。
+        let drafts = match body_measurements(height_cm, weight_kg) {
+            Ok(drafts) => drafts,
+            Err(message) => return Some(message),
+        };
+        let store = match Store::open_app() {
+            Ok(store) => store,
+            Err(error) => return Some(error.to_string()),
+        };
+        if let Err(error) = store.save_basics(&basics) {
+            return Some(error.to_string());
+        }
+        for draft in drafts {
+            let unchanged = store
+                .latest_measurement(draft.kind)
+                .ok()
+                .flatten()
+                .is_some_and(|latest| latest.value == draft.value);
+            if unchanged {
+                continue;
+            }
+            if let Err(error) = store.record_measurement(draft) {
+                return Some(error.to_string());
+            }
+        }
+        None
     }
 
     /// 保存训练条件；返回失败原因，成功是 `null`。
@@ -155,17 +309,11 @@ impl Profile {
 fn build_basics(
     sex: Option<String>,
     age: Option<f64>,
-    height_cm: Option<f64>,
-    weight_kg: Option<f64>,
     conditions: Vec<String>,
 ) -> Result<Basics, String> {
     Ok(Basics {
         sex: parse_sex(sex.as_deref()),
         age: parse_age(age).map_err(|error| error.to_string())?,
-        height_cm: parse_metric(height_cm, "身高（厘米）", HEIGHT_CM_RANGE)
-            .map_err(|error| error.to_string())?,
-        weight_kg: parse_metric(weight_kg, "体重（千克）", WEIGHT_KG_RANGE)
-            .map_err(|error| error.to_string())?,
         conditions: conditions
             .into_iter()
             .map(|condition| condition.trim().to_owned())
@@ -211,14 +359,57 @@ fn save(
     }
 }
 
-fn basics_view(basics: &Basics) -> BasicsView {
+fn basics_view(basics: &Basics, height_cm: Option<f64>, weight_kg: Option<f64>) -> BasicsView {
     BasicsView {
         sex: basics.sex.map(|sex| sex.key().to_owned()),
         age: basics.age.map(f64::from),
-        height_cm: basics.height_cm,
-        weight_kg: basics.weight_kg,
+        height_cm,
+        weight_kg,
         conditions: basics.conditions.clone(),
     }
+}
+
+/// 基本属性里的「当前身高/体重」始终来自最新一条测量。
+fn measured_basics_view(store: &Store, basics: &Basics) -> BasicsView {
+    let height = store
+        .latest_measurement(MeasurementKind::Height)
+        .ok()
+        .flatten()
+        .map(|measurement| measurement.value);
+    let weight = store
+        .latest_measurement(MeasurementKind::Weight)
+        .ok()
+        .flatten()
+        .map(|measurement| measurement.value);
+    basics_view(basics, height, weight)
+}
+
+/// 表单里的身高体重 → 待追加的测量；留空就是「这次不记」。
+fn body_measurements(
+    height_cm: Option<f64>,
+    weight_kg: Option<f64>,
+) -> Result<Vec<MeasurementDraft>, String> {
+    let at = nsh_core::time::unix_ms() as i64;
+    let mut drafts = Vec::new();
+    if let Some(value) = parse_metric(height_cm, "身高（厘米）", HEIGHT_CM_RANGE)
+        .map_err(|error| error.to_string())?
+    {
+        drafts.push(MeasurementDraft {
+            kind: MeasurementKind::Height,
+            value,
+            at,
+        });
+    }
+    if let Some(value) = parse_metric(weight_kg, "体重（千克）", WEIGHT_KG_RANGE)
+        .map_err(|error| error.to_string())?
+    {
+        drafts.push(MeasurementDraft {
+            kind: MeasurementKind::Weight,
+            value,
+            at,
+        });
+    }
+    Ok(drafts)
 }
 
 fn training_view(training: &TrainingContext) -> TrainingView {
@@ -322,7 +513,7 @@ mod tests {
 
     #[test]
     fn views_carry_unfilled_fields_as_null_not_zero() {
-        let view = basics_view(&Basics::new());
+        let view = basics_view(&Basics::new(), None, None);
         assert_eq!(view.sex, None);
         assert_eq!(view.age, None);
         assert_eq!(view.height_cm, None);
@@ -370,5 +561,72 @@ mod tests {
         assert_eq!(parse_sex(Some("female")), Some(Sex::Female));
         assert_eq!(parse_sex(Some("")), None);
         assert_eq!(parse_sex(None), None);
+    }
+}
+
+#[cfg(test)]
+mod measurement_tests {
+    use super::*;
+    use crate::domain::{MeasurementDraft, MeasurementKind};
+    use crate::store::tests::TempStore;
+
+    fn record(store: &Store, kind: MeasurementKind, value: f64, at: i64) {
+        store
+            .record_measurement(MeasurementDraft { kind, value, at })
+            .expect("记一条");
+    }
+
+    #[test]
+    fn an_empty_series_is_empty_not_zero_and_has_no_change() {
+        let temp = TempStore::new("api-measurements-empty");
+        let view = measurements_view(temp.store(), None);
+        assert_eq!(view.weight.current, None);
+        assert_eq!(view.height.current, None);
+        assert!(view.weight.points.is_empty());
+        assert_eq!(view.error, None);
+    }
+
+    #[test]
+    fn the_series_carries_points_in_time_order_and_the_change_between_ends() {
+        let temp = TempStore::new("api-measurements-series");
+        let store = temp.store();
+        record(store, MeasurementKind::Weight, 74.6, 200);
+        record(store, MeasurementKind::Weight, 74.2, 300);
+        record(store, MeasurementKind::Weight, 75.0, 100);
+
+        let view = measurements_view(store, None);
+        assert_eq!(view.weight.current, Some(74.2));
+        assert!((view.weight.change.expect("首尾的差") - -0.8).abs() < 1e-9);
+        assert_eq!(
+            view.weight
+                .points
+                .iter()
+                .map(|point| point.at)
+                .collect::<Vec<_>>(),
+            vec![100.0, 200.0, 300.0]
+        );
+        assert!(view.height.points.is_empty());
+    }
+
+    #[test]
+    fn basics_show_the_latest_measurement_as_the_current_value() {
+        let temp = TempStore::new("api-measurements-basics");
+        let store = temp.store();
+        record(store, MeasurementKind::Weight, 62.4, 100);
+        record(store, MeasurementKind::Weight, 63.1, 200);
+        record(store, MeasurementKind::Height, 168.0, 150);
+
+        let view = measured_basics_view(store, &Basics::new());
+        assert_eq!(view.weight_kg, Some(63.1));
+        assert_eq!(view.height_cm, Some(168.0));
+    }
+
+    #[test]
+    fn a_blank_body_field_records_nothing_and_a_value_records_one_measurement() {
+        let drafts = body_measurements(None, Some(62.4)).expect("合法");
+        assert_eq!(drafts.len(), 1);
+        assert_eq!(drafts[0].kind, MeasurementKind::Weight);
+        assert!(body_measurements(None, None).expect("空").is_empty());
+        assert!(body_measurements(Some(9.0), None).is_err());
     }
 }

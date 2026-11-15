@@ -17,4 +17,5 @@ use nsh_core::prelude::*;
 #[native_module("lianlian/native")]
 fn native(registry: &mut Registry) {
     registry.module::<api::Profile>();
+    registry.module::<api::Measurements>();
 }

@@ -44,20 +44,15 @@ impl Sex {
 
 /// 年龄的合理区间。
 pub const AGE_RANGE: (u8, u8) = (1, 120);
-/// 身高的合理区间，厘米。
-pub const HEIGHT_CM_RANGE: (f64, f64) = (50.0, 250.0);
-/// 体重的合理区间，千克。
-pub const WEIGHT_KG_RANGE: (f64, f64) = (20.0, 400.0);
 
-/// 基本属性：年龄、性别、身高体重、基础疾病。
+/// 基本属性：年龄、性别、基础疾病。
+///
+/// 身高与体重不在这里：它们是**测量**（`domain::measurement`），每次记录都
+/// 追加一条带时间的值。界面上的「当前身高/体重」是那条序列里最新的一条。
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Basics {
     pub sex: Option<Sex>,
     pub age: Option<u8>,
-    /// 厘米。
-    pub height_cm: Option<f64>,
-    /// 千克。
-    pub weight_kg: Option<f64>,
     /// 基础疾病或旧伤：自由文本，可增删。
     #[serde(default)]
     pub conditions: Vec<String>,
@@ -69,18 +64,9 @@ impl Basics {
         Basics::default()
     }
 
-    /// 四个字段与疾病清单都空。
+    /// 三个字段与疾病清单都空。
     pub fn is_empty(&self) -> bool {
-        self.sex.is_none()
-            && self.age.is_none()
-            && self.height_cm.is_none()
-            && self.weight_kg.is_none()
-            && self.conditions.is_empty()
-    }
-
-    /// 身高体重都填了（#5 的测量用它判断有没有基线）。
-    pub fn has_body_metrics(&self) -> bool {
-        self.height_cm.is_some() && self.weight_kg.is_some()
+        self.sex.is_none() && self.age.is_none() && self.conditions.is_empty()
     }
 
     /// 落库前的校验：只拦明显的手误。
@@ -93,26 +79,6 @@ impl Basics {
                     min: f64::from(AGE_RANGE.0),
                     max: f64::from(AGE_RANGE.1),
                     value: age,
-                });
-            }
-        }
-        if let Some(height) = self.height_cm {
-            if !height.is_finite() || !(HEIGHT_CM_RANGE.0..=HEIGHT_CM_RANGE.1).contains(&height) {
-                return Err(DomainError::OutOfRange {
-                    field: "身高（厘米）",
-                    min: HEIGHT_CM_RANGE.0,
-                    max: HEIGHT_CM_RANGE.1,
-                    value: height,
-                });
-            }
-        }
-        if let Some(weight) = self.weight_kg {
-            if !weight.is_finite() || !(WEIGHT_KG_RANGE.0..=WEIGHT_KG_RANGE.1).contains(&weight) {
-                return Err(DomainError::OutOfRange {
-                    field: "体重（千克）",
-                    min: WEIGHT_KG_RANGE.0,
-                    max: WEIGHT_KG_RANGE.1,
-                    value: weight,
                 });
             }
         }
@@ -153,8 +119,6 @@ mod tests {
         Basics {
             sex: Some(Sex::Female),
             age: Some(32),
-            height_cm: Some(168.0),
-            weight_kg: Some(62.4),
             conditions: vec!["右侧踝关节扭伤过两次".to_owned()],
         }
     }
@@ -163,7 +127,6 @@ mod tests {
     fn a_fresh_basics_is_empty_and_that_is_not_zero() {
         let empty = Basics::new();
         assert!(empty.is_empty());
-        assert!(!empty.has_body_metrics());
         assert_eq!(empty.sex, None);
         assert_eq!(empty.age, None);
     }
@@ -195,30 +158,6 @@ mod tests {
                     value: 121.0,
                 },
             ),
-            (
-                Basics {
-                    height_cm: Some(9.0),
-                    ..Basics::new()
-                },
-                DomainError::OutOfRange {
-                    field: "身高（厘米）",
-                    min: 50.0,
-                    max: 250.0,
-                    value: 9.0,
-                },
-            ),
-            (
-                Basics {
-                    weight_kg: Some(999.0),
-                    ..Basics::new()
-                },
-                DomainError::OutOfRange {
-                    field: "体重（千克）",
-                    min: 20.0,
-                    max: 400.0,
-                    value: 999.0,
-                },
-            ),
 
         ];
         for (case, expected) in cases {
@@ -226,15 +165,6 @@ mod tests {
             assert_eq!(&error, expected);
             assert!(!error.to_string().is_empty());
         }
-        // NaN 与任何值都不相等，单独断言（它也是一种手误）。
-        let nan = Basics {
-            weight_kg: Some(f64::NAN),
-            ..Basics::new()
-        };
-        assert!(matches!(
-            nan.validate(),
-            Err(DomainError::OutOfRange { field: "体重（千克）", .. })
-        ));
         assert!(basics().validate().is_ok());
     }
 
