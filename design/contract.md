@@ -73,7 +73,7 @@ v1 只有一种模式（深色）。全部值放在 `theme` 一节下，`light`/
 | 底部弹层（推迟/删除确认） | `Sheet`（`nsh/base`） | 不用自绘 overlay |
 | 系统级确认（撤回、删库） | `AlertDialog` | 走平台原生 |
 | 折线图 | `Plot` 的 `Line` + `Dot` | 原型是 SVG polyline；**不要**在实现里手画路径 |
-| 照片缩略图 | `Image` + Blob URL（字节由 Rust 给） | 移动端不能直接加载本地文件路径 |
+| 照片 | `Image` + `data:` URL（字节由 Rust 给） | 移动端不能直接加载本地文件路径；`data:` 由核解码，不必再经 Blob |
 | 勾选框（动作、提议项） | 自绘圆形 `View`（实心=完成/add 边框=未做/add 数字=进行中） | 不用 `Checkbox`——它的指示器形状与原型不符 |
 | 成功反馈 | 自绘卡片 + 一次 `spring` 入场 | 不做长 keyframes 动画 |
 
@@ -151,7 +151,7 @@ v1 只有一种模式（深色）。全部值放在 `theme` 一节下，`light`/
 | 今日 | `tab-today` `open-calendar` `exercise-{slug}` `checkin` `postpone` `skip-exercise` `view-evidence` `today-ready-title` `today-start-assessment` `today-needs-training-title` `today-fill-training` `today-error` |
 | 日历 | `tab-calendar` `day-{1..31}` `prev-month` `next-month` |
 | 档案 | `tab-profile` `site-{slug}` `evidence-source` `mark-resolved` `retract` `open-timeline` `open-measurements` `edit-training-context` `open-settings` `save-basics` `save-training` `profile-training` `profile-training-missing` `profile-error` `profile-saved` |
-| 会话 | `tab-conversations` `new-conversation` `conv-{slug}` `conv-menu` `archive-conv` `delete-conv` `message-input` `pick-photo` `send` `conv-actions` `undo` |
+| 会话 | `tab-conversations` `new-conversation` `conv-{slug}` `conv-menu` `archive-conv` `delete-conv` `message-input` `pick-photo` `photo-pending` `remove-photo` `photo-error` `message-photo-{id}` `photo-preview` `close-photo-preview` `send` `conv-actions` `undo` |
 | 提议 | `accept-proposal` `reject-proposal` `reject-reason` |
 | 体重 | `weight-chart` `add-measurement` `delete-measurement` |
 | 引导 | `onboarding-next` `onboarding-prev` `onboarding-step-3` `onboarding-error` |

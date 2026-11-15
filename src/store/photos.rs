@@ -6,15 +6,26 @@
 use redb::{ReadableDatabase, ReadableTable, TableDefinition};
 
 use super::{db_error, Store, StoreError};
-use crate::domain::{ConversationId, DomainError, Photo, PhotoId};
+#[cfg(test)]
+use crate::domain::DomainError;
+use crate::domain::{ConversationId, Photo, PhotoId};
 
 /// 照片：编号 → Photo 的 JSON。
 pub(crate) const PHOTOS: TableDefinition<u64, &str> = TableDefinition::new("photos");
 
 impl Store {
-    /// 插一条照片元数据（文件已经落盘之后才调）。
-    pub fn insert_photo(&self, mut photo: Photo) -> Result<Photo, StoreError> {
-        photo.id = PhotoId(self.next_photo_id()?);
+    /// 预定一个照片编号（文件要按编号命名，所以先拿号再落盘）。
+    pub fn reserve_photo_id(&self) -> Result<PhotoId, StoreError> {
+        let id = PhotoId(self.next_photo_id()?);
+        self.set_meta("next_photo_id", &(id.0 + 1).to_string())?;
+        Ok(id)
+    }
+
+    /// 插一条照片元数据（文件已经落盘之后才调，编号来自 `reserve_photo_id`）。
+    pub fn insert_photo(&self, photo: Photo) -> Result<Photo, StoreError> {
+        if photo.id.0 == 0 {
+            return Err(StoreError::Db("照片编号还没分配".to_owned()));
+        }
         let photo = Photo::new(photo.id, photo)?;
 
         let write = self.db().begin_write().map_err(db_error)?;
@@ -22,10 +33,6 @@ impl Store {
             let mut photos = write.open_table(PHOTOS).map_err(db_error)?;
             photos
                 .insert(photo.id.0, to_json(&photo)?.as_str())
-                .map_err(db_error)?;
-            drop(photos);
-            let mut meta = write.open_table(super::META).map_err(db_error)?;
-            meta.insert("next_photo_id", (photo.id.0 + 1).to_string().as_str())
                 .map_err(db_error)?;
         }
         write.commit().map_err(db_error)?;
@@ -100,9 +107,9 @@ mod tests {
     use super::*;
     use crate::store::tests::TempStore;
 
-    fn photo(conversation: ConversationId, at: i64) -> Photo {
+    fn photo(id: u64, conversation: ConversationId, at: i64) -> Photo {
         Photo {
-            id: PhotoId(0),
+            id: PhotoId(id),
             conversation,
             file: "0.jpg".to_owned(),
             mime: "image/jpeg".to_owned(),
@@ -118,10 +125,12 @@ mod tests {
         let mut temp = TempStore::new("photos-insert");
         let store = temp.store();
         let conversation = store.create_conversation(100).expect("会话");
+        let id = store.reserve_photo_id().expect("拿号");
+        assert_eq!(id, PhotoId(1), "编号由库分配");
         let saved = store
-            .insert_photo(photo(conversation.id, 110))
+            .insert_photo(photo(id.0, conversation.id, 110))
             .expect("插一条");
-        assert_eq!(saved.id, PhotoId(1), "编号由库分配");
+        assert_eq!(saved.id, id);
 
         let reopened = temp.reopen();
         let read = reopened.photo(saved.id).expect("读").expect("存在");
@@ -138,7 +147,7 @@ mod tests {
         let error = store
             .insert_photo(Photo {
                 mime: "text/plain".to_owned(),
-                ..photo(conversation.id, 110)
+                ..photo(store.reserve_photo_id().expect("拿号").0, conversation.id, 110)
             })
             .unwrap_err();
         assert_eq!(
@@ -154,8 +163,12 @@ mod tests {
         let store = temp.store();
         let keep = store.create_conversation(100).expect("留下的");
         let doomed = store.create_conversation(200).expect("要删的");
-        store.insert_photo(photo(doomed.id, 210)).expect("插");
-        store.insert_photo(photo(keep.id, 220)).expect("插");
+        store
+            .insert_photo(photo(store.reserve_photo_id().expect("号").0, doomed.id, 210))
+            .expect("插");
+        store
+            .insert_photo(photo(store.reserve_photo_id().expect("号").0, keep.id, 220))
+            .expect("插");
 
         let removed = store.delete_photos_of(doomed.id).expect("删");
         assert_eq!(removed.len(), 1);

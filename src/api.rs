@@ -14,7 +14,10 @@ use crate::domain::measurement::{
 use crate::domain::training::{
     DAYS_PER_WEEK_RANGE, MINUTES_RANGE, Place, Readiness, TrainingContext,
 };
+use crate::domain::photo::{MAX_DIMENSION, PER_MESSAGE};
+use crate::domain::{Photo, PhotoId};
 use crate::llm::agent::{self, DeepSeekModel, StoreHost};
+use crate::photos;
 use crate::llm::deepseek::GatewayError;
 use crate::llm::prompt::{Snapshot, assemble, assemble_with_turns, turns};
 use crate::store::Store;
@@ -236,6 +239,8 @@ pub struct MessageView {
     /// `user` / `assistant`。
     pub role: String,
     pub text: String,
+    /// 这条消息带的照片编号（`#8`：最多一张，界面用 `Photos.data` 取图）。
+    pub photos: Vec<f64>,
     /// Unix 毫秒。
     pub at: f64,
 }
@@ -320,7 +325,7 @@ impl Conversations {
     ///
     /// 失败时什么都不写：用户打了一半的字在界面里，重试只会重发这一轮，不会
     /// 在时间线上留下半条对话。三类失败各有出路（见 `ChatErrorView`）。
-    pub async fn send(id: f64, text: String) -> SendResultView {
+    pub async fn send(id: f64, text: String, photo: Option<f64>) -> SendResultView {
         let store = match Store::open_app() {
             Ok(store) => store,
             Err(error) => return failure(GatewayError::Config(error.to_string())),
@@ -331,9 +336,22 @@ impl Conversations {
         if store.conversation(conversation).ok().flatten().is_none() {
             return failure(GatewayError::Request(format!("找不到编号 {id} 的会话。")));
         }
-        if let Err(error) = crate::domain::StoredItem::user(&text) {
-            return failure(GatewayError::Request(error.to_string()));
-        }
+        // 这一轮要发出去的照片：必须存在、且属于这个会话。
+        let attached = match photo {
+            Some(raw) => match attached_photo(&store, &photos::photos_dir(), conversation, raw) {
+                Ok(photo) => Some(photo),
+                Err(message) => return failure(GatewayError::Request(message)),
+            },
+            None => None,
+        };
+        let user_item = match &attached {
+            Some(photo) => crate::domain::StoredItem::user_with_photo(&text, photo.0.id),
+            None => crate::domain::StoredItem::user(&text),
+        };
+        let user_item = match user_item {
+            Ok(item) => item,
+            Err(error) => return failure(GatewayError::Request(error.to_string())),
+        };
 
         // key 缺失是配置问题，连请求都不发。
         let key = store.setting(API_KEY).ok().flatten().unwrap_or_default();
@@ -354,7 +372,10 @@ impl Conversations {
             .unwrap_or(agent::DEFAULT_MAX_ROUNDS);
         let model = DeepSeekModel { key };
 
-        let assembly = assemble(&snapshot, &history, &text);
+        let photo_data_url = attached
+            .as_ref()
+            .map(|(_, url)| url.clone());
+        let assembly = assemble(&snapshot, &history, &text, photo_data_url.as_deref());
         let mut host = StoreHost::new(&store, conversation, at);
         // 这一轮要挂在会话上的说明（裁剪过历史 / 撞上工具轮次上限）。
         let mut notice: Option<String> = None;
@@ -371,7 +392,8 @@ impl Conversations {
                     ));
                 }
                 let keep = total / 2;
-                let trimmed = assemble_with_turns(&snapshot, &history, &text, keep);
+                let trimmed =
+                    assemble_with_turns(&snapshot, &history, &text, keep, photo_data_url.as_deref());
                 let mut retry_host = StoreHost::new(&store, conversation, at);
                 match agent::run_turn(&model, &mut retry_host, trimmed.items, rounds).await {
                     Ok(outcome) => {
@@ -397,11 +419,8 @@ impl Conversations {
         let notice = outcome.notice.clone().or(notice);
         let _ = store.set_conversation_notice(conversation, notice.as_deref());
 
-        // 整轮一次落库：用户那句、工具往返、回复。中途失败一条都不写。
-        let mut items = vec![match crate::domain::StoredItem::user(&text) {
-            Ok(item) => item,
-            Err(error) => return failure(GatewayError::Request(error.to_string())),
-        }];
+        // 整轮一次落库：用户那句（可能带照片）、工具往返、回复。中途失败一条都不写。
+        let mut items = vec![user_item];
         items.extend(outcome.items);
         match store.append_turn(conversation, items, at) {
             Ok(_) => SendResultView {
@@ -425,11 +444,159 @@ impl Conversations {
         })
     }
 
-    /// 删除会话与它的消息正文（依据日志与照片保留，见 ADR-0005）。
+    /// 删除会话、它的消息正文与照片（依据日志保留，照片一起删，见 ADR-0005 修订）。
     pub async fn delete(id: f64) -> Option<String> {
-        save(&Store::open_app(), |store| {
-            store.delete_conversation(crate::domain::ConversationId(id as u64))
-        })
+        match Store::open_app() {
+            Ok(store) => {
+                let conversation = crate::domain::ConversationId(id as u64);
+                let removed = match store.delete_photos_of(conversation) {
+                    Ok(removed) => removed,
+                    Err(error) => return Some(error.to_string()),
+                };
+                if let Err(error) = store.delete_conversation(conversation) {
+                    return Some(error.to_string());
+                }
+                // 文件删不掉就留着：库行已经没了，界面再也看不到它们。
+                let dir = photos::photos_dir();
+                for photo in removed {
+                    let _ = photos::remove(&dir, &photo.file);
+                }
+                None
+            }
+            Err(error) => Some(error.to_string()),
+        }
+    }
+}
+
+/// 这一轮附带的照片：编号合法、属于这个会话、字节读得出来，就给出（行，data URL）。
+fn attached_photo(
+    store: &Store,
+    dir: &std::path::Path,
+    conversation: crate::domain::ConversationId,
+    raw: f64,
+) -> Result<(Photo, String), String> {
+    if !raw.is_finite() || raw < 1.0 {
+        return Err(format!("照片编号不合法：{raw}"));
+    }
+    let id = PhotoId(raw as u64);
+    let photo = store
+        .photo(id)
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| format!("找不到编号 {} 的照片。", id.0))?;
+    if photo.conversation != conversation {
+        return Err("这张照片不属于这个会话。".to_owned());
+    }
+    let bytes =
+        photos::load(dir, &photo.file).map_err(|error| format!("照片文件读不出来：{error}"))?;
+    Ok((photo.clone(), photos::data_url(&photo.mime, &bytes)))
+}
+
+/// 一张照片在界面上的元数据。
+#[derive(Debug, Clone, PartialEq, JsObject)]
+pub struct PhotoView {
+    /// 编号：取图与发送时用它。
+    pub id: f64,
+    pub width: f64,
+    pub height: f64,
+    pub bytes: f64,
+}
+
+/// 选一张照片的结果：取消时 `photo` 是 `null`，不写任何东西。
+#[derive(Debug, Clone, PartialEq, JsObject)]
+pub struct PickResultView {
+    pub photo: Option<PhotoView>,
+    /// 被系统选择器缩小过时的说明。
+    pub notice: Option<String>,
+    pub error: Option<String>,
+}
+
+/// 照片：从系统相册选一张、取回它的字节。
+///
+/// 缩放与 HEIC→JPEG 由系统选择器完成（`max_dimension`），这里只落盘与读回。
+#[module]
+pub struct Photos;
+
+#[module]
+impl Photos {
+    /// 选一张照片，落进这个会话的私有目录；取消时什么都不留。
+    pub async fn pick(conversation: f64) -> PickResultView {
+        let fail = |message: String| PickResultView {
+            photo: None,
+            notice: None,
+            error: Some(message),
+        };
+        let store = match Store::open_app() {
+            Ok(store) => store,
+            Err(error) => return fail(error.to_string()),
+        };
+        let conversation = crate::domain::ConversationId(conversation as u64);
+        if store.conversation(conversation).ok().flatten().is_none() {
+            return fail("找不到这个会话。".to_owned());
+        }
+        let dir = photos::photos_dir();
+
+        // `PickRequest` 是 non_exhaustive：从默认值出发再改。
+        let mut request = nsh_core::picker::PickRequest::new(false, PER_MESSAGE);
+        request.max_dimension = Some(DevicePixels(MAX_DIMENSION as i32));
+        request.quality = Some(Percentage(0.85));
+        request.format = nsh_core::picker::PickFormat::Compatible;
+        let picked = pick_images(request).await;
+        // 取消：不留文件、不落库。
+        let Some(file) = picked.into_iter().next() else {
+            return PickResultView {
+                photo: None,
+                notice: None,
+                error: None,
+            };
+        };
+
+        let id = match store.reserve_photo_id() {
+            Ok(id) => id,
+            Err(error) => return fail(error.to_string()),
+        };
+        let bytes = file.data.bytes();
+        let file_name = match photos::save(&dir, id, &file.mime, bytes) {
+            Ok(name) => name,
+            Err(error) => return fail(format!("照片存不下来：{error}")),
+        };
+        let photo = Photo {
+            id,
+            conversation,
+            file: file_name,
+            mime: file.mime.clone(),
+            width: file.size.width.0.max(1) as u32,
+            height: file.size.height.0.max(1) as u32,
+            bytes: bytes.len() as u64,
+            at: now_ms(),
+        };
+        let saved = match store.insert_photo(photo) {
+            Ok(photo) => photo,
+            Err(error) => return fail(error.to_string()),
+        };
+        let notice = saved
+            .was_scaled()
+            .then(|| format!("照片按长边 {MAX_DIMENSION} 缩小了；原图没有存进设备。"));
+        PickResultView {
+            photo: Some(PhotoView {
+                id: saved.id.0 as f64,
+                width: f64::from(saved.width),
+                height: f64::from(saved.height),
+                bytes: saved.bytes as f64,
+            }),
+            notice,
+            error: None,
+        }
+    }
+
+    /// 取一张照片的 data URL（界面直接给 `Image` 的 `src`）；读不出来是 `null`。
+    pub async fn data(id: f64) -> Option<String> {
+        if !id.is_finite() || id < 1.0 {
+            return None;
+        }
+        let store = Store::open_app().ok()?;
+        let photo = store.photo(PhotoId(id as u64)).ok().flatten()?;
+        let bytes = photos::load(&photos::photos_dir(), &photo.file).ok()?;
+        Some(photos::data_url(&photo.mime, &bytes))
     }
 }
 
@@ -593,6 +760,7 @@ fn message_view(message: &crate::domain::Message) -> MessageView {
         id: message.id.0 as f64,
         role: message.role.key().to_owned(),
         text: message.text.clone(),
+        photos: message.photos.iter().map(|photo| photo.0 as f64).collect(),
         at: message.at as f64,
     }
 }
@@ -1125,6 +1293,48 @@ mod measurement_tests {
         assert_eq!(drafts[0].kind, MeasurementKind::Weight);
         assert!(body_measurements(None, None).expect("空").is_empty());
         assert!(body_measurements(Some(9.0), None).is_err());
+    }
+}
+
+#[cfg(test)]
+mod photo_tests {
+    use super::*;
+    use crate::store::tests::TempStore;
+
+    #[test]
+    fn an_attached_photo_must_exist_and_belong_to_this_conversation() {
+        let temp = TempStore::new("api-photo-guard");
+        let store = temp.store();
+        let mine = store.create_conversation(100).expect("会话");
+        let other = store.create_conversation(200).expect("别的会话");
+        let id = store.reserve_photo_id().expect("拿号");
+        let dir = std::env::temp_dir().join(format!("lianlian-photo-guard-{}", std::process::id()));
+        let file = crate::photos::save(&dir, id, "image/jpeg", b"jpeg").expect("落盘");
+        store
+            .insert_photo(Photo {
+                id,
+                conversation: mine.id,
+                file: file.clone(),
+                mime: "image/jpeg".to_owned(),
+                width: 4,
+                height: 3,
+                bytes: 4,
+                at: 110,
+            })
+            .expect("插");
+
+        let (photo, url) =
+            attached_photo(store, &dir, mine.id, id.0 as f64).expect("自己的照片");
+        assert_eq!(photo.id, id);
+        assert_eq!(url, "data:image/jpeg;base64,anBlZw==");
+
+        let other_side = attached_photo(store, &dir, other.id, id.0 as f64).unwrap_err();
+        assert!(other_side.contains("不属于这个会话"), "{other_side}");
+        let missing = attached_photo(store, &dir, mine.id, 999.0).unwrap_err();
+        assert!(missing.contains("找不到"), "{missing}");
+
+        let _ = crate::photos::remove(&dir, &file);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
 

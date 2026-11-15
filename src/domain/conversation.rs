@@ -93,6 +93,9 @@ pub struct Message {
     pub conversation: ConversationId,
     pub role: Role,
     pub text: String,
+    /// 这条消息带的照片（`#8`：只有用户消息会有，最多一张）。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub photos: Vec<super::PhotoId>,
     pub at: Timestamp,
 }
 
@@ -114,6 +117,7 @@ impl Message {
             conversation,
             role,
             text: text.to_owned(),
+            photos: Vec::new(),
             at,
         })
     }

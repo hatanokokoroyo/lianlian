@@ -10,6 +10,7 @@ mod api;
 pub mod anatomy;
 pub mod domain;
 pub mod llm;
+pub mod photos;
 pub mod store;
 
 use nsh_core::prelude::*;
@@ -20,6 +21,7 @@ fn native(registry: &mut Registry) {
     registry.module::<api::Profile>();
     registry.module::<api::Measurements>();
     registry.module::<api::Conversations>();
+    registry.module::<api::Photos>();
     registry.module::<api::Settings>();
     registry.module::<api::Testing>();
 }

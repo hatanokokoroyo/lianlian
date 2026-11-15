@@ -109,7 +109,7 @@ nsh run                     # 本机 Linux 宿主，最快的界面迭代
 - **`nsh.json` 故意不声明 `capabilities`**：一旦声明，没列出的能力（webview、picker、clipboard……）会一并被关掉；
   不声明时自有 app 保留不受限的 HTTP/取图等能力，而文件系统、裸 socket 仍然要显式声明。接照片（#8）前别加。
 - **库里的值格式变了**：库结构与值格式的版本写在 `meta` 表的 `schema_version`（当前 8）；版本对不上时 `store` 丢表重建（骨架期不做迁移，改表就要 +1）。
-- **`nsh.test` 的 headless 宿主不给 app 私有目录**（`data_dir()` 为 `None`），所以 `store` 在没有私有目录时落到系统临时目录，库行为在测试里是真的。
+- **`nsh.test` 的 headless 宿主不给 app 私有目录**（`data_dir()` 在引擎线程上还会直接 panic），所以 `store::app_dir()` 在没有私有目录时落到系统临时目录，库与照片在测试里都是真的；照片目录跟着它走（`store::app_dir()/photos`），不要在 `cargo test` 里调 `photos_dir()`——它照样会 panic，测试里把目录当参数传进去。
 - **`nsh test` 的多个测试文件共用一个进程，也就共用一个临时库**。每个测试文件用 `beforeAll(freshDatabase)`
   （`test-helpers.ts`）在各文件开头调 `Testing.reset()`，所以文件之间互不影响，文件内仍共享（「重开 app 数据还在」
   才验得了）。`Testing` 是测试入口，不是产品功能；「清空本地数据」属于后续工单的重操作。

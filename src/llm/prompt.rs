@@ -14,6 +14,10 @@ use serde_json::Value;
 use crate::domain::measurement::Measurement;
 use crate::domain::{Basics, Entry, Projection, Side, StoredItem, TrainingContext};
 
+/// 历史里的照片只有这一行占位：不重发原图（吃 token 且历史不需要），也不假装
+/// 没有发生过（模型要知道用户当时发过图）。
+pub const PHOTO_PLACEHOLDER: &str = "[用户发了一张照片]";
+
 /// 不得不删改的一句：它是「状态放在历史之后」这套排列能成立的前提。
 pub const STATUS_AFTER_HISTORY: &str = "当前状态在最后一条消息之前给出";
 
@@ -27,14 +31,31 @@ pub const SYSTEM_PROMPT: &str = concat!(
     "当前状态在最后一条消息之前给出：那是现在的事实。历史里的判断可能已经过期，不要当成现状。\n",
     "你只记得本会话的历史；别的会话只共享档案与依据日志，不共享对话原文。\n",
     "回答短、具体、可执行，不要一次给一整套通用课表。\n",
-    "工具是唯一的写入通道：没调用工具就不要声称已经写入；部位只能用词表里的 id，拿不准就先问。"
+    "工具是唯一的写入通道：没调用工具就不要声称已经写入；部位只能用词表里的 id，拿不准就先问。\n",
+    "照片只在这一轮可见：它是用户发来的图，不是已留存的依据——不要声称档案里存了照片。"
 );
+
+/// 一条消息的内容：纯文本，或者文字 + 照片的若干块。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(untagged)]
+pub enum Content {
+    Text(String),
+    Parts(Vec<ContentPart>),
+}
+
+/// 内容块：文字或一张照片（`#8`：只有当轮这一张，历史里不重发图片）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ContentPart {
+    InputText { text: String },
+    InputImage { image_url: String },
+}
 
 /// 一条输入消息（Responses 的 `input` 里的 message item）。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct MessageItem {
     pub role: String,
-    pub content: String,
+    pub content: Content,
 }
 
 /// 模型要求调用工具（原样回放）。
@@ -73,14 +94,31 @@ impl Input {
     pub fn system(content: impl Into<String>) -> Input {
         Input::Message(MessageItem {
             role: "system".to_owned(),
-            content: content.into(),
+            content: Content::Text(content.into()),
         })
     }
 
     pub fn user(content: impl Into<String>) -> Input {
         Input::Message(MessageItem {
             role: "user".to_owned(),
-            content: content.into(),
+            content: Content::Text(content.into()),
+        })
+    }
+
+    /// 这一轮的用户消息：文字（可能为空）+ 一张照片的 data URL。
+    pub fn user_with_photo(text: &str, data_url: &str) -> Input {
+        let mut parts = Vec::new();
+        if !text.trim().is_empty() {
+            parts.push(ContentPart::InputText {
+                text: text.trim().to_owned(),
+            });
+        }
+        parts.push(ContentPart::InputImage {
+            image_url: data_url.to_owned(),
+        });
+        Input::Message(MessageItem {
+            role: "user".to_owned(),
+            content: Content::Parts(parts),
         })
     }
 
@@ -92,10 +130,13 @@ impl Input {
         }
     }
 
-    /// 可见正文（只有消息有）。
+    /// 可见正文（只有纯文字的消息有）。
     pub fn content(&self) -> Option<&str> {
         match self {
-            Input::Message(message) => Some(message.content.as_str()),
+            Input::Message(MessageItem {
+                content: Content::Text(text),
+                ..
+            }) => Some(text.as_str()),
             _ => None,
         }
     }
@@ -103,9 +144,16 @@ impl Input {
     /// 库里的一条 → 请求里的一项。
     pub fn from_stored(item: &StoredItem) -> Input {
         match item {
-            StoredItem::Message { role, text, .. } => Input::Message(MessageItem {
+            StoredItem::Message { role, text, photos } => Input::Message(MessageItem {
                 role: role.key().to_owned(),
-                content: text.clone(),
+                // 历史里的照片不重发原图：一行占位，前缀仍然逐字节确定。
+                content: if photos.is_empty() {
+                    Content::Text(text.clone())
+                } else if text.trim().is_empty() {
+                    Content::Text(PHOTO_PLACEHOLDER.to_owned())
+                } else {
+                    Content::Text(format!("{text}\n{PHOTO_PLACEHOLDER}"))
+                },
             }),
             StoredItem::FunctionCall {
                 call_id,
@@ -151,8 +199,16 @@ pub struct Assembly {
 }
 
 /// 正常装配：完整历史。
-pub fn assemble(snapshot: &Snapshot, history: &[Entry], turn: &str) -> Assembly {
-    assemble_with_turns(snapshot, history, turn, turns(history))
+///
+/// `photo` 是**这一轮**那张照片的 data URL（没有就是 `None`）。历史轮里的照片只
+/// 留占位（[`PHOTO_PLACEHOLDER`]）。
+pub fn assemble(
+    snapshot: &Snapshot,
+    history: &[Entry],
+    turn: &str,
+    photo: Option<&str>,
+) -> Assembly {
+    assemble_with_turns(snapshot, history, turn, turns(history), photo)
 }
 
 /// 只保留最近 `keep_turns` 轮历史的装配（超长请求重发时用）。
@@ -165,6 +221,7 @@ pub fn assemble_with_turns(
     history: &[Entry],
     turn: &str,
     keep_turns: usize,
+    photo: Option<&str>,
 ) -> Assembly {
     let total = turns(history);
     let keep = keep_turns.min(total);
@@ -180,7 +237,10 @@ pub fn assemble_with_turns(
         items.push(Input::from_stored(&entry.item));
     }
     items.push(Input::system(state_block(snapshot)));
-    items.push(Input::user(turn.trim()));
+    items.push(match photo {
+        Some(data_url) => Input::user_with_photo(turn, data_url),
+        None => Input::user(turn.trim()),
+    });
     Assembly {
         items,
         dropped: start,
@@ -465,7 +525,7 @@ mod tests {
             message(1, Role::User, "蹲不下去"),
             message(2, Role::Assistant, "先做踝背屈测试"),
         ];
-        let assembly = assemble(&snapshot(), &history, "做完了，脚跟会抬");
+        let assembly = assemble(&snapshot(), &history, "做完了，脚跟会抬", None);
         let roles: Vec<&str> = assembly
             .items
             .iter()
@@ -492,9 +552,9 @@ mod tests {
     fn the_state_block_is_byte_identical_for_the_same_state() {
         let state = snapshot();
         let history = vec![message(1, Role::User, "在吗")];
-        let first = serde_json::to_string(&assemble(&state, &history, "嗯").items).expect("序列化");
+        let first = serde_json::to_string(&assemble(&state, &history, "嗯", None).items).expect("序列化");
         let second =
-            serde_json::to_string(&assemble(&state, &history, "嗯").items).expect("序列化");
+            serde_json::to_string(&assemble(&state, &history, "嗯", None).items).expect("序列化");
         assert_eq!(first, second);
     }
 
@@ -504,10 +564,10 @@ mod tests {
             message(1, Role::User, "蹲不下去"),
             message(2, Role::Assistant, "先做测试"),
         ];
-        let before = assemble(&snapshot(), &history, "继续").items;
+        let before = assemble(&snapshot(), &history, "继续", None).items;
         let mut changed = snapshot();
         changed.weight = None;
-        let after = assemble(&changed, &history, "继续").items;
+        let after = assemble(&changed, &history, "继续", None).items;
 
         // 系统提示与历史一个字都不变。
         assert_eq!(&before[..3], &after[..3]);
@@ -524,7 +584,7 @@ mod tests {
             message(3, Role::User, "第二句"),
             message(4, Role::Assistant, "第二答"),
         ];
-        let assembly = assemble_with_turns(&snapshot(), &history, "第三句", 1);
+        let assembly = assemble_with_turns(&snapshot(), &history, "第三句", 1, None);
         assert_eq!(assembly.dropped, 2, "丢掉的是第一轮的整条");
         let historical: Vec<&str> = assembly
             .items
@@ -557,7 +617,7 @@ mod tests {
             ),
             message(4, Role::Assistant, "先做踝背屈测试"),
         ];
-        let assembly = assemble(&snapshot(), &history, "做完了");
+        let assembly = assemble(&snapshot(), &history, "做完了", None);
         let body = serde_json::to_value(&assembly.items).expect("序列化");
         let kinds: Vec<&str> = body
             .as_array()
@@ -583,6 +643,58 @@ mod tests {
     }
 
     #[test]
+    fn only_this_turns_photo_is_sent_earlier_ones_become_a_placeholder() {
+        let history = vec![
+            Entry {
+                id: MessageId(1),
+                conversation: ConversationId(1),
+                at: 1,
+                item: crate::domain::StoredItem::user_with_photo("先看这张", crate::domain::PhotoId(5))
+                    .expect("带照片"),
+            },
+            message(2, Role::Assistant, "看到了"),
+        ];
+        let assembly = assemble(
+            &snapshot(),
+            &history,
+            "现在这张呢",
+            Some("data:image/jpeg;base64,AAAA"),
+        );
+        let body = serde_json::to_value(&assembly.items).expect("序列化");
+
+        // 历史里那张：一行占位，不重发原图。
+        let historical = body[1]["content"].as_str().expect("历史是纯文本");
+        assert!(historical.contains("先看这张"));
+        assert!(historical.contains(PHOTO_PLACEHOLDER));
+        assert!(!historical.contains("base64"));
+
+        // 这一轮（0 系统 / 1-2 历史 / 3 状态 / 4 本轮）：文字 + 照片的块。
+        let turn = body[4]["content"].as_array().expect("这一轮是块");
+        assert_eq!(turn[0]["type"], "input_text");
+        assert_eq!(turn[0]["text"], "现在这张呢");
+        assert_eq!(turn[1]["type"], "input_image");
+        assert_eq!(turn[1]["image_url"], "data:image/jpeg;base64,AAAA");
+    }
+
+    #[test]
+    fn a_photo_without_words_is_still_a_message_and_placeholder_stays_readable() {
+        let history = vec![Entry {
+            id: MessageId(1),
+            conversation: ConversationId(1),
+            at: 1,
+            item: crate::domain::StoredItem::user_with_photo("", crate::domain::PhotoId(5))
+                .expect("只有照片"),
+        }];
+        let assembly = assemble(&snapshot(), &history, "", Some("data:image/jpeg;base64,AA"));
+        let body = serde_json::to_value(&assembly.items).expect("序列化");
+        assert_eq!(body[1]["content"], PHOTO_PLACEHOLDER, "历史占位不空着");
+        // 这一轮只有照片一个块。
+        let turn = body[3]["content"].as_array().expect("块");
+        assert_eq!(turn.len(), 1);
+        assert_eq!(turn[0]["type"], "input_image");
+    }
+
+    #[test]
     fn trimming_never_leaves_a_call_without_its_output() {
         let history = vec![
             message(1, Role::User, "第一句"),
@@ -605,7 +717,7 @@ mod tests {
             ),
             message(6, Role::Assistant, "第二答"),
         ];
-        let assembly = assemble_with_turns(&snapshot(), &history, "第三句", 1);
+        let assembly = assemble_with_turns(&snapshot(), &history, "第三句", 1, None);
         let cut: Vec<String> = assembly
             .items
             .iter()
@@ -638,7 +750,7 @@ mod tests {
     pub(super) const RECORDED_TURN: &str = "我蹲不下去，膝盖前面有点紧，先做什么测试？";
 
     pub(super) fn recorded_body() -> serde_json::Value {
-        crate::llm::deepseek::request_body(&assemble(&snapshot(), &[], RECORDED_TURN).items)
+        crate::llm::deepseek::request_body(&assemble(&snapshot(), &[], RECORDED_TURN, None).items)
     }
 
     #[test]

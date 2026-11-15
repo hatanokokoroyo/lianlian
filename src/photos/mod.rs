@@ -7,9 +7,12 @@ use std::path::{Path, PathBuf};
 
 use crate::domain::PhotoId;
 
-/// app 私有目录里的照片子目录（运行时由宿主给根目录）。
-pub fn photos_dir() -> Option<PathBuf> {
-    nsh_core::prelude::data_dir().map(|dir| dir.join("photos"))
+/// app 私有目录里的照片子目录。
+///
+/// 根目录与库同一个（`store::app_dir`）：宿主不给私有目录时一起落到临时目录，
+/// 否则光是「库能开、照片没处放」这种半边可用最难受。
+pub fn photos_dir() -> PathBuf {
+    crate::store::app_dir().join("photos")
 }
 
 /// 文件名：编号 + 扩展名。目录不存进库里，换机器/换宿主都能用。

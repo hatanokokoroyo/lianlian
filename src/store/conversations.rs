@@ -119,6 +119,7 @@ impl Store {
                 StoredItem::Message { text, .. } => text,
                 _ => unreachable!("append_message 只写消息"),
             },
+            photos: Vec::new(),
             at: entry.at,
         })
     }
@@ -211,11 +212,12 @@ impl Store {
             .items(conversation)?
             .into_iter()
             .filter_map(|entry| match entry.item {
-                StoredItem::Message { role, text, .. } => Some(Message {
+                StoredItem::Message { role, text, photos } => Some(Message {
                     id: entry.id,
                     conversation: entry.conversation,
                     role,
                     text,
+                    photos,
                     at: entry.at,
                 }),
                 _ => None,

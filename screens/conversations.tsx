@@ -2,9 +2,9 @@
 // 归档的折叠在底部；删除只清消息正文（依据日志与照片保留，ADR-0005）。
 //
 // 消息列表用 `List`（长会话靠虚拟化滚动），输入条固定在下沿。
-import { List, resource, signal, Text, token, View } from "nsh";
+import { Image, List, resource, signal, Text, token, View } from "nsh";
 import { Input } from "nsh/base";
-import { Conversations } from "lianlian/native";
+import { Conversations, Photos } from "lianlian/native";
 import type { ChatErrorView, ConversationView, MessageView } from "lianlian/native";
 
 import { Card, ConfirmRow, Note, PrimaryButton, ScreenHeader, SectionLabel, TextButton } from "../ui/parts";
@@ -30,8 +30,36 @@ function clock(at: number): string {
   return `${hour}:${minute}`;
 }
 
+/** 消息里的照片：字节由 Rust 给（data URL），点开看大图。 */
+function MessagePhoto(props: { id: number; onOpen: () => void }) {
+  const data = resource(() => Photos.data(props.id));
+  return (
+    <View
+      testID={`message-photo-${props.id}`}
+      role="button"
+      accessibilityLabel="查看这张照片"
+      onPress={props.onOpen}
+      style={{
+        width: 200,
+        height: 150,
+        borderRadius: 14,
+        overflow: "hidden",
+        backgroundColor: token("muted"),
+        alignItems: "center",
+        justifyContent: "center",
+      }}
+    >
+      {data() ? (
+        <Image src={data()!} style={{ width: 200, height: 150, objectFit: "cover" }} />
+      ) : (
+        <Text style={{ fontSize: 11, color: token("muted-foreground") }}>读照片…</Text>
+      )}
+    </View>
+  );
+}
+
 /** 一行消息：用户贴右（primary 底），agent 贴左（card 底）。 */
-function MessageRow(props: { message: MessageView }) {
+function MessageRow(props: { message: MessageView; onOpenPhoto: (id: number) => void }) {
   const mine = props.message.role === "user";
   return (
     <View
@@ -53,15 +81,20 @@ function MessageRow(props: { message: MessageView }) {
           gap: 4,
         }}
       >
-        <Text
-          style={{
-            fontSize: 13,
-            lineHeight: 20,
-            color: mine ? token("primary-foreground") : token("foreground"),
-          }}
-        >
-          {props.message.text}
-        </Text>
+        {props.message.photos.map((photo) => (
+          <MessagePhoto id={photo} onOpen={() => props.onOpenPhoto(photo)} />
+        ))}
+        {props.message.text.trim() === "" ? null : (
+          <Text
+            style={{
+              fontSize: 13,
+              lineHeight: 20,
+              color: mine ? token("primary-foreground") : token("foreground"),
+            }}
+          >
+            {props.message.text}
+          </Text>
+        )}
         <Text
           style={{
             fontSize: 9,
@@ -93,6 +126,29 @@ function Chat(props: {
   const draft = signal(drafts.get(props.id) ?? "");
   const busy = signal(false);
   const failure = signal<ChatErrorView | null>(null);
+  /** 这一轮待发的照片（选好但还没发出去）。 */
+  const attached = signal<{ id: number; dataUrl: string; notice: string | null } | null>(null);
+  /** 点开看大图的那一张。 */
+  const preview = signal<string | null>(null);
+  const photoError = signal<string | null>(null);
+
+  const pick = async () => {
+    photoError.set(null);
+    const result = await Photos.pick(props.id);
+    if (result.error) {
+      photoError.set(result.error);
+      return;
+    }
+    if (!result.photo) {
+      return;
+    }
+    const dataUrl = await Photos.data(result.photo.id);
+    if (!dataUrl) {
+      photoError.set("照片存下来了，但读不回来看不到预览。");
+      return;
+    }
+    attached.set({ id: result.photo.id, dataUrl, notice: result.notice ?? null });
+  };
 
   const writeDraft = (text: string) => {
     drafts.set(props.id, text);
@@ -101,12 +157,13 @@ function Chat(props: {
 
   const send = async () => {
     const text = draft();
-    if (text.trim() === "" || busy()) {
+    const photo = attached();
+    if ((text.trim() === "" && !photo) || busy()) {
       return;
     }
     busy.set(true);
     failure.set(null);
-    const result = await Conversations.send(props.id, text);
+    const result = await Conversations.send(props.id, text, photo ? photo.id : null);
     busy.set(false);
     if (result.error) {
       // 失败时什么都不落库，打了一半的字留在输入框里：断网重试、去设置换 key
@@ -114,6 +171,7 @@ function Chat(props: {
       failure.set(result.error);
     } else {
       writeDraft("");
+      attached.set(null);
     }
     detail.refetch();
     props.onChanged();
@@ -121,6 +179,33 @@ function Chat(props: {
 
   return (
     <View style={{ flex: 1 }}>
+      {preview() ? (
+        <View
+          testID="photo-preview"
+          style={{
+            position: "absolute",
+            left: 0,
+            right: 0,
+            top: 0,
+            bottom: 0,
+            zIndex: 10,
+            backgroundColor: token("background"),
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 12,
+          }}
+        >
+          <Image
+            src={preview()!}
+            style={{ width: "92%", height: "80%", objectFit: "contain" }}
+          />
+          <PrimaryButton
+            testID="close-photo-preview"
+            label="关闭"
+            onPress={() => preview.set(null)}
+          />
+        </View>
+      ) : null}
       <View
         style={{
           flexDirection: "row",
@@ -167,7 +252,14 @@ function Chat(props: {
             contentStyle={{ paddingTop: 8, paddingBottom: 8 }}
             empty={<Note text="还没有消息。说点什么，它会先把它记下来。" />}
           >
-            {(message: () => MessageView) => <MessageRow message={message()} />}
+            {(message: () => MessageView) => (
+              <MessageRow
+                message={message()}
+                onOpenPhoto={(photoId) => {
+                  Photos.data(photoId).then((url) => preview.set(url));
+                }}
+              />
+            )}
           </List>
 
           {detail()?.notice ? (
@@ -204,6 +296,32 @@ function Chat(props: {
             </View>
           ) : null}
 
+          {photoError() ? (
+            <View style={{ paddingHorizontal: 16, paddingBottom: 6 }}>
+              <Card testID="photo-error">
+                <Note tone="error" text={photoError()!} />
+              </Card>
+            </View>
+          ) : null}
+
+          {attached() ? (
+            <View style={{ paddingHorizontal: 16, paddingBottom: 6, flexDirection: "row", gap: 12, alignItems: "center" }}>
+              <Image
+                testID="photo-pending"
+                src={attached()!.dataUrl}
+                style={{ width: 56, height: 56, borderRadius: 10, objectFit: "cover" }}
+              />
+              <View style={{ flex: 1, gap: 4 }}>
+                {attached()!.notice ? <Note tone="accent" text={attached()!.notice!} /> : null}
+                <TextButton
+                  testID="remove-photo"
+                  label="拿掉这张"
+                  onPress={() => attached.set(null)}
+                />
+              </View>
+            </View>
+          ) : null}
+
           <View
             style={{
               flexDirection: "row",
@@ -216,6 +334,7 @@ function Chat(props: {
               paddingBottom: "env(safe-area-inset-bottom)",
             }}
           >
+            <TextButton testID="pick-photo" label="照片" onPress={pick} />
             <View style={{ flex: 1 }}>
               <Input
                 testID="message-input"
@@ -236,7 +355,7 @@ function Chat(props: {
             <PrimaryButton
               testID="send"
               label={busy() ? "…" : "发送"}
-              disabled={busy() || draft().trim() === ""}
+              disabled={busy() || (draft().trim() === "" && !attached())}
               onPress={send}
             />
           </View>

@@ -5,6 +5,7 @@
 //!
 //! 表：`meta`（库自己的标量）、`profile`（基本属性 / 训练条件 / 引导标记）、
 //! `findings` 与 `retracts`（档案条目与撤回）、`evidence`（依据日志，ADR-0005）、
+//! `photos`（照片元数据，文件在私有目录）、
 //! `measurements`（身高体重的测量序列）、`conversations` 与 `messages`（会话与消息）、
 //! `settings`（本机设置，含 API key）。
 
@@ -12,6 +13,7 @@ pub mod conversations;
 pub mod evidence;
 pub mod findings;
 pub mod measurements;
+pub mod photos;
 pub mod profile;
 pub mod settings;
 
@@ -24,7 +26,7 @@ use redb::{Database, ReadableDatabase, TableDefinition};
 use crate::domain::DomainError;
 
 /// 库结构与值格式的版本；改表或改值的编码都要 +1。
-pub const SCHEMA_VERSION: &str = "8";
+pub const SCHEMA_VERSION: &str = "9";
 
 /// 库自己的标量：`schema_version`、`next_finding_id`。
 pub(crate) const META: TableDefinition<&str, &str> = TableDefinition::new("meta");
@@ -59,6 +61,16 @@ fn db_error(error: impl ToString) -> StoreError {
     StoreError::Db(error.to_string())
 }
 
+/// app 私有目录：库与照片都放这儿。
+///
+/// 宿主不提供文件目录时（网页宿主、`nsh test` 的 headless 引擎）落到系统临时目录，
+/// 进程号入路径：每次测试运行都是干净起点。
+pub fn app_dir() -> std::path::PathBuf {
+    data_dir().unwrap_or_else(|| {
+        std::env::temp_dir().join(format!("lianlian-{}", std::process::id()))
+    })
+}
+
 /// 打开着的本地库。
 pub struct Store {
     db: Database,
@@ -71,9 +83,7 @@ impl Store {
     /// 目录，进程号入路径：每次测试运行都是干净起点，同一次运行里多个 `open` 仍
     /// 共享同一个库（这才验得了「重开 app 数据还在」）。真机永远走 app 私有目录。
     pub fn open_app() -> Result<Store, StoreError> {
-        let dir = data_dir().unwrap_or_else(|| {
-            std::env::temp_dir().join(format!("lianlian-{}", std::process::id()))
-        });
+        let dir = app_dir();
         std::fs::create_dir_all(&dir).map_err(db_error)?;
         Store::open(&dir.join("lianlian.redb"))
     }
@@ -154,6 +164,7 @@ fn initialize(db: &Database) -> Result<(), StoreError> {
     write.open_table(findings::FINDINGS).map_err(db_error)?;
     write.open_table(findings::RETRACTS).map_err(db_error)?;
     write.open_table(evidence::EVIDENCE).map_err(db_error)?;
+    write.open_table(photos::PHOTOS).map_err(db_error)?;
     write
         .open_table(measurements::MEASUREMENTS)
         .map_err(db_error)?;
@@ -172,6 +183,7 @@ fn reset(db: &Database) -> Result<(), StoreError> {
     drop_table(&write, findings::FINDINGS)?;
     drop_table(&write, findings::RETRACTS)?;
     drop_table(&write, evidence::EVIDENCE)?;
+    drop_table(&write, photos::PHOTOS)?;
     drop_table(&write, measurements::MEASUREMENTS)?;
     write.commit().map_err(db_error)
 }
