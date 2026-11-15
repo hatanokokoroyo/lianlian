@@ -11,3 +11,7 @@ issue 存放在 `hatanokokoroyo/lianlian` 的 GitHub Issues，并逐条镜像为
 ### Domain docs
 
 单上下文（single-context）：仓库根目录的 `GLOSSARY.md` 加 `docs/adr/`。详见 `docs/agents/domain.md`。
+
+### 工作流手册
+
+37 个 skill 的场景速查、主流程细讲、阶段边界决策树与本地约定，见 `docs/agent-workflows.md`。

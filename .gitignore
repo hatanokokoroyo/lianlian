@@ -1,2 +1,1 @@
-# 第三方 skill 源码不入库：由 skills-lock.json 记录来源，换机器时 `npx skills add` 重建
-.agents/
+# 已翻译的 skill 随仓库走（换机器不丢）。注意：`npx skills update` 会用英文原文覆盖翻译。
