@@ -1,3 +1,7 @@
 # 第三方 skill 英文原文不入库：由 skills-lock.json 记录来源与 hash，换机器时 npx skills add 重建。
 # 中文译本（供人阅读）在 docs/skills-zh/，入库。
 .agents/
+
+# nsh 生成的声明与运行器（每次 nsh check / run 重建）
+.nsh/
+target/
