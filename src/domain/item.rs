@@ -55,7 +55,7 @@ impl StoredItem {
     fn message(role: Role, text: &str, photos: Vec<PhotoId>) -> Result<StoredItem, DomainError> {
         let text = text.trim();
         if role == Role::Assistant && !photos.is_empty() {
-            return Err(DomainError::SideForbiddenPhotos);
+            return Err(DomainError::PhotoOnlyFromUser);
         }
         if photos.len() > crate::domain::photo::PER_MESSAGE as usize {
             return Err(DomainError::TooManyPhotos(photos.len()));
@@ -150,11 +150,12 @@ mod tests {
         assert_eq!(with_photo.photos(), &[PhotoId(7)]);
         assert_eq!(with_photo.as_message(), Some((Role::User, "")));
 
-        // agent 不会发照片；一条只允许一张。
-        assert!(matches!(
-            StoredItem::assistant("看这张"),
-            Ok(StoredItem::Message { .. })
-        ));
+        // agent 不会发照片。
+        assert_eq!(
+            StoredItem::message(Role::Assistant, "看这张", vec![PhotoId(1)]),
+            Err(DomainError::PhotoOnlyFromUser)
+        );
+        // 一条只允许一张。
         let two = StoredItem::message(Role::User, "x", vec![PhotoId(1), PhotoId(2)]);
         assert_eq!(two, Err(DomainError::TooManyPhotos(2)));
     }

@@ -1,5 +1,5 @@
 // 对话：会话列表 + 单个会话的聊天。列表的默认面只显示未归档的会话，
-// 归档的折叠在底部；删除只清消息正文（依据日志与照片保留，ADR-0005）。
+// 归档的折叠在底部；删除清消息正文与照片，依据日志保留（ADR-0005 修订）。
 //
 // 消息列表用 `List`（长会话靠虚拟化滚动），输入条固定在下沿。
 import { Image, List, resource, signal, Text, token, View } from "nsh";
@@ -758,7 +758,7 @@ function ConversationRow(props: {
       {props.confirmDelete ? (
         <ConfirmRow
           testID={`delete-conv-confirm-row-${conversation.id}`}
-          text="删除这个会话？消息正文会被清掉；它产生的依据日志与照片保留，档案不会因此失忆。"
+          text="删除这个会话？消息正文与照片会被清掉；它产生的依据日志保留（标注来源已删除），档案不会因此失忆。"
           confirmTestID={`delete-conv-confirm-${conversation.id}`}
           cancelTestID={`delete-conv-cancel-${conversation.id}`}
           confirmHint={`确认删除：${conversation.title}`}

@@ -1,4 +1,4 @@
-//! 三个工具的声明（#9）：名字、描述、JSON Schema。
+//! 四个工具的声明（#9 三个 + #10 的 `propose_findings`）：名字、描述、JSON Schema。
 //!
 //! 描述是给模型看的提示词的一部分，改它等于改行为。工具集宁少不多：加第四个
 //! 工具要走 spec（`propose_findings` 在 #10）。
@@ -196,8 +196,20 @@ mod tests {
 
     #[test]
     fn writing_tools_require_all_four_evidence_sections() {
-        for spec in &specs()[1..3] {
-            let required: Vec<&str> = spec["parameters"]["properties"]["evidence"]["required"]
+        // 除了 search_evidence，其余三个都要四段；`propose_findings` 的四段在每一项里。
+        let evidence_of = |spec: &Value| {
+            if spec["name"] == "propose_findings" {
+                spec["parameters"]["properties"]["items"]["items"]["properties"]["evidence"].clone()
+            } else {
+                spec["parameters"]["properties"]["evidence"].clone()
+            }
+        };
+        for spec in specs()
+            .iter()
+            .filter(|spec| spec["name"] != "search_evidence")
+        {
+            let evidence = evidence_of(spec);
+            let required: Vec<&str> = evidence["required"]
                 .as_array()
                 .expect("必填四段")
                 .iter()

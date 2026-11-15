@@ -44,15 +44,9 @@ impl Store {
                 .insert(finding.id.0, to_json(&finding)?.as_str())
                 .map_err(db_error)?;
             drop(findings);
-            let mut log = write.open_table(EVIDENCE).map_err(db_error)?;
-            log.insert(evidence.id.0, to_json(&evidence)?.as_str())
-                .map_err(db_error)?;
-            drop(log);
-            let mut meta = write.open_table(super::META).map_err(db_error)?;
-            meta.insert("next_finding_id", (finding.id.0 + 1).to_string().as_str())
-                .map_err(db_error)?;
-            meta.insert("next_evidence_id", (evidence.id.0 + 1).to_string().as_str())
-                .map_err(db_error)?;
+            super::insert_evidence(&write, &evidence)?;
+            super::bump(&write, "next_finding_id", finding.id.0 + 1)?;
+            super::bump(&write, "next_evidence_id", evidence.id.0 + 1)?;
         }
         write.commit().map_err(db_error)?;
         Ok((finding, evidence))
@@ -87,13 +81,8 @@ impl Store {
                 .insert(finding.0, to_json(&retract)?.as_str())
                 .map_err(db_error)?;
             drop(retracts);
-            let mut log = write.open_table(EVIDENCE).map_err(db_error)?;
-            log.insert(evidence.id.0, to_json(&evidence)?.as_str())
-                .map_err(db_error)?;
-            drop(log);
-            let mut meta = write.open_table(super::META).map_err(db_error)?;
-            meta.insert("next_evidence_id", (evidence.id.0 + 1).to_string().as_str())
-                .map_err(db_error)?;
+            super::insert_evidence(&write, &evidence)?;
+            super::bump(&write, "next_evidence_id", evidence.id.0 + 1)?;
         }
         write.commit().map_err(db_error)?;
         Ok((retract, evidence))
@@ -117,37 +106,12 @@ impl Store {
     /// `axis` 过滤看的是这条日志所服务的那条判定测过哪些轴；没有判定可指的
     /// 日志（比如用户拒绝）在按轴检索时不会出现。
     pub fn search_evidence(&self, query: &EvidenceQuery) -> Result<Vec<Evidence>, StoreError> {
+        // 判断在 `domain::tool::EvidenceQuery::matches`，这里只遍历与截断。
         let findings = self.findings()?;
-        let by_id = |id: FindingId| findings.iter().find(|finding| finding.id == id);
         let mut hits: Vec<Evidence> = self
             .evidence_log()?
             .into_iter()
-            .filter(|evidence| match &query.site {
-                Some(site) => &evidence.site == site,
-                None => true,
-            })
-            .filter(|evidence| match query.from {
-                Some(from) => evidence.at >= from,
-                None => true,
-            })
-            .filter(|evidence| match query.to {
-                Some(to) => evidence.at <= to,
-                None => true,
-            })
-            .filter(|evidence| match &query.contains {
-                Some(needle) => evidence
-                    .sections()
-                    .iter()
-                    .any(|(_, text)| text.contains(needle.as_str())),
-                None => true,
-            })
-            .filter(|evidence| match query.axis {
-                Some(axis) => evidence
-                    .finding
-                    .and_then(&by_id)
-                    .is_some_and(|finding| finding.values.get(axis).is_some()),
-                None => true,
-            })
+            .filter(|evidence| query.matches(evidence, &findings))
             .collect();
         hits.reverse();
         hits.truncate(query.clamped_limit());

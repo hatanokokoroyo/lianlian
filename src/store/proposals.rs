@@ -16,8 +16,13 @@ use crate::domain::{
 pub(crate) const PROPOSALS: TableDefinition<u64, &str> = TableDefinition::new("proposals");
 
 impl Store {
-    /// 开一张待确认的卡。
+    /// 开一张待确认的卡（一个会话同时只能有一张）。
     pub fn create_proposal(&self, proposal: Proposal) -> Result<Proposal, StoreError> {
+        if let Some(pending) = self.pending_proposal(proposal.conversation)? {
+            return Err(StoreError::Domain(DomainError::PendingProposalExists(
+                pending.id,
+            )));
+        }
         let id = ProposalId(self.next_proposal_id()?);
         let proposal = Proposal::new(id, proposal.conversation, proposal.at, proposal.items)?;
         let write = self.db().begin_write().map_err(db_error)?;
@@ -200,18 +205,13 @@ impl Store {
 
         let write = self.db().begin_write().map_err(db_error)?;
         {
-            let mut log = write.open_table(super::evidence::EVIDENCE).map_err(db_error)?;
-            log.insert(evidence.id.0, to_json(&evidence)?.as_str())
-                .map_err(db_error)?;
-            drop(log);
+            super::insert_evidence(&write, &evidence)?;
             let mut table = write.open_table(PROPOSALS).map_err(db_error)?;
             table
                 .insert(proposal.id.0, to_json(&proposal)?.as_str())
                 .map_err(db_error)?;
             drop(table);
-            let mut meta = write.open_table(super::META).map_err(db_error)?;
-            meta.insert("next_evidence_id", (evidence.id.0 + 1).to_string().as_str())
-                .map_err(db_error)?;
+            super::bump(&write, "next_evidence_id", evidence.id.0 + 1)?;
         }
         write.commit().map_err(db_error)?;
         Ok((proposal, evidence))
@@ -230,12 +230,17 @@ impl Store {
         if proposal.status != ProposalStatus::Accepted {
             return Err(StoreError::Domain(DomainError::ProposalNotPending(id)));
         }
+        // 撤销会把这张改回「待确认」；此刻若已经有一张待审的卡，就会变成两张。
+        if let Some(other) = self.pending_proposal(proposal.conversation)? {
+            return Err(StoreError::Domain(DomainError::PendingProposalExists(
+                other.id,
+            )));
+        }
         let mut next_evidence = self.next_evidence_id()?;
 
         let write = self.db().begin_write().map_err(db_error)?;
         {
             let mut retracts = write.open_table(super::findings::RETRACTS).map_err(db_error)?;
-            let mut log = write.open_table(super::evidence::EVIDENCE).map_err(db_error)?;
             for item in &mut proposal.items {
                 let Some(finding) = item.accepted else {
                     continue;
@@ -250,15 +255,13 @@ impl Store {
                 evidence.finding = Some(finding);
                 evidence.at = at;
                 let evidence = Evidence::new(EvidenceId(next_evidence), evidence)?;
-                log.insert(evidence.id.0, to_json(&evidence)?.as_str())
-                    .map_err(db_error)?;
+                super::insert_evidence(&write, &evidence)?;
                 next_evidence += 1;
 
                 item.accepted = None;
                 item.state = ItemState::Pending;
             }
             drop(retracts);
-            drop(log);
 
             proposal.status = ProposalStatus::Pending;
             proposal.decided_at = None;
@@ -267,9 +270,7 @@ impl Store {
                 .insert(proposal.id.0, to_json(&proposal)?.as_str())
                 .map_err(db_error)?;
             drop(table);
-            let mut meta = write.open_table(super::META).map_err(db_error)?;
-            meta.insert("next_evidence_id", next_evidence.to_string().as_str())
-                .map_err(db_error)?;
+            super::bump(&write, "next_evidence_id", next_evidence)?;
         }
         write.commit().map_err(db_error)?;
         Ok(proposal)

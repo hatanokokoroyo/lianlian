@@ -191,6 +191,32 @@ fn reset(db: &Database) -> Result<(), StoreError> {
     write.commit().map_err(db_error)
 }
 
+/// 推进库里的一个单调编号（`next_*`）。
+pub(crate) fn bump(
+    write: &redb::WriteTransaction,
+    key: &str,
+    next: u64,
+) -> Result<(), StoreError> {
+    let mut meta = write.open_table(META).map_err(db_error)?;
+    meta.insert(key, next.to_string().as_str())
+        .map_err(db_error)?;
+    Ok(())
+}
+
+/// 在一个已经开着的事务里写一条依据日志（五处写日志共用这一条路）。
+pub(crate) fn insert_evidence(
+    write: &redb::WriteTransaction,
+    evidence: &crate::domain::Evidence,
+) -> Result<(), StoreError> {
+    let json = serde_json::to_string(evidence)
+        .map_err(|error| StoreError::Db(format!("写库序列化失败：{error}")))?;
+    let mut table = write
+        .open_table(evidence::EVIDENCE)
+        .map_err(db_error)?;
+    table.insert(evidence.id.0, json.as_str()).map_err(db_error)?;
+    Ok(())
+}
+
 /// 删表；表本来就不在也算成功。
 fn drop_table<K: redb::Key, V: redb::Value>(
     write: &redb::WriteTransaction,

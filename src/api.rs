@@ -410,7 +410,7 @@ impl Conversations {
         }
 
         let history = store.items(conversation).unwrap_or_default();
-        let snapshot = snapshot(&store);
+        let snapshot = snapshot(&store, conversation);
         let at = now_ms();
         let rounds = store
             .setting(TOOL_ROUNDS)
@@ -495,25 +495,18 @@ impl Conversations {
     /// 删除会话、它的消息正文与照片（依据日志保留，照片一起删，见 ADR-0005 修订）。
     pub async fn delete(id: f64) -> Option<String> {
         match Store::open_app() {
-            Ok(store) => {
-                let conversation = crate::domain::ConversationId(id as u64);
-                let removed = match store.delete_photos_of(conversation) {
-                    Ok(removed) => removed,
-                    Err(error) => return Some(error.to_string()),
-                };
-                if let Err(error) = store.delete_conversation(conversation) {
-                    return Some(error.to_string());
-                }
-                // 文件删不掉就留着：库行已经没了，界面再也看不到它们。
-                let dir = photos::photos_dir();
-                for photo in removed {
-                    let _ = photos::remove(&dir, &photo.file);
-                }
-                None
-            }
+            Ok(store) => delete_conversation(&store, &photos::photos_dir(), id),
             Err(error) => Some(error.to_string()),
         }
     }
+}
+
+/// 界面上的编号是 `f64`（JsObject 的约定），但只接受非负整数。
+fn whole(value: f64, field: &str) -> Result<u64, String> {
+    if !value.is_finite() || value.fract() != 0.0 || value < 0.0 {
+        return Err(format!("{field} 不合法：{value}"));
+    }
+    Ok(value as u64)
 }
 
 /// 这一轮附带的照片：编号合法、属于这个会话、字节读得出来，就给出（行，data URL）。
@@ -573,13 +566,16 @@ impl Photos {
             notice: None,
             error: Some(message),
         };
-        let store = match Store::open_app() {
-            Ok(store) => store,
-            Err(error) => return fail(error.to_string()),
-        };
         let conversation = crate::domain::ConversationId(conversation as u64);
-        if store.conversation(conversation).ok().flatten().is_none() {
-            return fail("找不到这个会话。".to_owned());
+        // 校验完就关库：选择器可能开很久，别一直占着 redb 的写句柄。
+        {
+            let store = match Store::open_app() {
+                Ok(store) => store,
+                Err(error) => return fail(error.to_string()),
+            };
+            if store.conversation(conversation).ok().flatten().is_none() {
+                return fail("找不到这个会话。".to_owned());
+            }
         }
         let dir = photos::photos_dir();
 
@@ -598,6 +594,11 @@ impl Photos {
             };
         };
 
+        // 选好之后重新开库（此时才需要写）。
+        let store = match Store::open_app() {
+            Ok(store) => store,
+            Err(error) => return fail(error.to_string()),
+        };
         let id = match store.reserve_photo_id() {
             Ok(id) => id,
             Err(error) => return fail(error.to_string()),
@@ -661,7 +662,7 @@ fn failure(error: GatewayError) -> SendResultView {
 }
 
 /// 装配要的当前状态：基本属性、最新测量、档案投影、训练条件、未结提议。
-fn snapshot(store: &Store) -> Snapshot {
+fn snapshot(store: &Store, conversation: crate::domain::ConversationId) -> Snapshot {
     Snapshot {
         basics: store.basics().unwrap_or_default(),
         height: store
@@ -674,8 +675,35 @@ fn snapshot(store: &Store) -> Snapshot {
             .flatten(),
         projection: store.projection().unwrap_or_default(),
         training: store.training().unwrap_or_default(),
-        // 提议表在 #10 才建；现在恒为空，装配里明确写「未结提议：无」。
-        proposals: Vec::new(),
+        // 未结提议要进装配：用户拒绝之后，模型得知道「第 2 项」指的是哪个部位。
+        proposals: store
+            .pending_proposal(conversation)
+            .ok()
+            .flatten()
+            .map(|proposal| {
+                proposal
+                    .items
+                    .iter()
+                    .enumerate()
+                    .map(|(index, item)| {
+                        let site = crate::anatomy::site(&item.draft.site)
+                            .map(|site| site.zh.to_owned())
+                            .unwrap_or_else(|| item.draft.site.clone());
+                        let side = item
+                            .draft
+                            .side
+                            .map(|side| format!(" · {}", side.zh()))
+                            .unwrap_or_default();
+                        format!(
+                            "第 {} 项：{site}{side}｜{}｜置信度 {}",
+                            index + 1,
+                            axis_values_text(&item.draft.values),
+                            item.draft.confidence
+                        )
+                    })
+                    .collect()
+            })
+            .unwrap_or_default(),
     }
 }
 
@@ -881,9 +909,10 @@ fn conversation_detail_view(
                         .iter()
                         .find(|proposal| proposal.is_pending())
                         .map(proposal_view),
+                    // 「已关闭」（全部拒绝）不渲染成已应用：它没有可撤销的东西。
                     proposals
                         .iter()
-                        .filter(|proposal| !proposal.is_pending())
+                        .filter(|proposal| proposal.status == crate::domain::ProposalStatus::Accepted)
                         .map(proposal_view)
                         .collect(),
                 ),
@@ -963,6 +992,26 @@ fn proposal_view(proposal: &crate::domain::Proposal) -> ProposalView {
     }
 }
 
+/// 删除一个会话：照片行与文件、提议，以及会话本身。
+///
+/// 依据日志**不删**（ADR-0005）：日志里会标注「来源会话已删除」。照片不是依据，
+/// 所以连文件一起删（ADR-0005 修订）。
+fn delete_conversation(store: &Store, photos_dir: &std::path::Path, id: f64) -> Option<String> {
+    let conversation = crate::domain::ConversationId(id as u64);
+    let removed = match store.delete_photos_of(conversation) {
+        Ok(removed) => removed,
+        Err(error) => return Some(error.to_string()),
+    };
+    if let Err(error) = store.delete_conversation(conversation) {
+        return Some(error.to_string());
+    }
+    // 文件删不掉就留着：库行已经没了，界面再也看不到它们。
+    for photo in removed {
+        let _ = photos::remove(photos_dir, &photo.file);
+    }
+    None
+}
+
 /// 五轴取值的可读串：`张力 弱；活动度 受限`。
 fn axis_values_text(values: &crate::domain::AxisValues) -> String {
     values
@@ -988,24 +1037,34 @@ pub struct Proposals;
 #[module]
 impl Proposals {
     /// 接受选中的项：落判定 + 依据，卡变已应用。
-    pub async fn accept(_conversation: f64, proposal: f64, selected: Vec<f64>) -> Option<String> {
+    pub async fn accept(conversation: f64, proposal: f64, selected: Vec<f64>) -> Option<String> {
         let store = match Store::open_app() {
             Ok(store) => store,
             Err(error) => return Some(error.to_string()),
         };
-        let indices: Vec<usize> = selected
-            .into_iter()
-            .filter(|index| index.is_finite() && *index >= 0.0)
-            .map(|index| index as usize)
-            .collect();
+        let id = match whole(proposal, "提议编号") {
+            Ok(id) => crate::domain::ProposalId(id),
+            Err(message) => return Some(message),
+        };
+        match store.proposal(id) {
+            Ok(Some(card)) if card.conversation != crate::domain::ConversationId(conversation as u64) => {
+                return Some("这张卡不属于这个会话。".to_owned());
+            }
+            Ok(None) => return Some("找不到这张提议卡。".to_owned()),
+            Ok(Some(_)) => {}
+            Err(error) => return Some(error.to_string()),
+        }
+        let mut indices: Vec<usize> = Vec::with_capacity(selected.len());
+        for index in selected {
+            match whole(index, "第几项") {
+                Ok(index) => indices.push(index as usize),
+                Err(message) => return Some(message),
+            }
+        }
         if indices.is_empty() {
             return Some("至少勾一项再接受；一项都不要就「拒绝」。".to_owned());
         }
-        match store.accept_proposal(
-            crate::domain::ProposalId(proposal as u64),
-            &indices,
-            now_ms(),
-        ) {
+        match store.accept_proposal(id, &indices, now_ms()) {
             // 接受改的是档案，不是会话正文：列表顺序不动。
             Ok(_) => None,
             Err(error) => Some(error.to_string()),
@@ -1019,10 +1078,10 @@ impl Proposals {
         index: f64,
         reason: String,
     ) -> SendResultView {
-        if !index.is_finite() || index < 0.0 {
-            return failure(GatewayError::Request("项编号不合法。".to_owned()));
-        }
-        let index = index as usize;
+        let index = match whole(index, "第几项") {
+            Ok(index) => index as usize,
+            Err(message) => return failure(GatewayError::Request(message)),
+        };
         // 写完就关库：redb 一个文件同时只容一个写句柄，紧接着的 `send` 还要开。
         let rejected = {
             let store = match Store::open_app() {
@@ -1030,7 +1089,10 @@ impl Proposals {
                 Err(error) => return failure(GatewayError::Config(error.to_string())),
             };
             store.reject_item(
-                crate::domain::ProposalId(proposal as u64),
+                match whole(proposal, "提议编号") {
+                    Ok(id) => crate::domain::ProposalId(id),
+                    Err(message) => return failure(GatewayError::Request(message)),
+                },
                 index,
                 &reason,
                 now_ms(),
@@ -1045,7 +1107,20 @@ impl Proposals {
         } else {
             format!("我拒绝了第 {} 项，理由：{reason}", index + 1)
         };
-        Conversations::send(conversation, text, None).await
+        let result = Conversations::send(conversation, text.clone(), None).await;
+        if result.error.is_some() {
+            // 拒绝已经记下了，这句话也说出口了：这一轮没跑成，但不能让用户的话丢掉
+            //（下一轮装配会带上它，模型仍能接上）。
+            if let Ok(store) = Store::open_app() {
+                let _ = store.append_message(
+                    crate::domain::ConversationId(conversation as u64),
+                    crate::domain::Role::User,
+                    &text,
+                    now_ms(),
+                );
+            }
+        }
+        result
     }
 
     /// 撤销一次接受：逐项撤回，卡回到待确认（可以重新勾）。
@@ -1053,14 +1128,12 @@ impl Proposals {
         if reason.trim().is_empty() {
             return Some("撤销要写一句错在哪：历史条目不会删，理由会留在依据日志里。".to_owned());
         }
+        let id = match whole(proposal, "提议编号") {
+            Ok(id) => crate::domain::ProposalId(id),
+            Err(message) => return Some(message),
+        };
         save(&Store::open_app(), |store| {
-            store
-                .undo_proposal(
-                    crate::domain::ProposalId(proposal as u64),
-                    &reason,
-                    now_ms(),
-                )
-                .map(|_| ())
+            store.undo_proposal(id, &reason, now_ms()).map(|_| ())
         })
     }
 }
@@ -1551,6 +1624,81 @@ mod photo_tests {
 
         let _ = crate::photos::remove(&dir, &file);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn deleting_a_conversation_takes_its_photo_files_with_it() {
+        let temp = TempStore::new("api-photo-delete");
+        let store = temp.store();
+        let conversation = store.create_conversation(100).expect("会话");
+        let dir = std::env::temp_dir().join(format!("lianlian-photo-del-{}", std::process::id()));
+        let id = store.reserve_photo_id().expect("拿号");
+        let file = crate::photos::save(&dir, id, "image/jpeg", b"jpeg").expect("落盘");
+        store
+            .insert_photo(Photo {
+                id,
+                conversation: conversation.id,
+                file: file.clone(),
+                mime: "image/jpeg".to_owned(),
+                width: 4,
+                height: 3,
+                bytes: 4,
+                at: 110,
+            })
+            .expect("插");
+
+        assert_eq!(delete_conversation(store, &dir, conversation.id.0 as f64), None);
+        assert!(crate::photos::load(&dir, &file).is_err(), "文件跟着会话走了");
+        assert!(store.photos_of(conversation.id).expect("列表").is_empty());
+        assert_eq!(store.conversation(conversation.id).expect("读"), None);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_snapshot_carries_the_pending_proposal_so_the_model_knows_which_item_is_which() {
+        use crate::domain::{
+            AxisValue, AxisValues, EvidenceDraft, EvidenceKind, FindingDraft, Proposal,
+            ProposalItem, ProposalId, Side, Tension,
+        };
+        let temp = TempStore::new("api-snapshot-proposal");
+        let store = temp.store();
+        let conversation = store.create_conversation(100).expect("会话");
+        let mut values = AxisValues::new();
+        values.set(AxisValue::Tension(Tension::Weak));
+        let item = ProposalItem::new(
+            FindingDraft {
+                site: "gluteus-medius".to_owned(),
+                side: Some(Side::Left),
+                values,
+                confidence: 78,
+                at: 110,
+            },
+            EvidenceDraft {
+                kind: EvidenceKind::Record,
+                site: "gluteus-medius".to_owned(),
+                side: Some(Side::Left),
+                finding: None,
+                conversation: Some(conversation.id),
+                at: 110,
+                user_said: "蹲不下去".to_owned(),
+                test_and_feedback: "靠墙踝背屈差 4 cm".to_owned(),
+                reasoning: "背屈受限".to_owned(),
+                uncertainty: "没排除髋".to_owned(),
+            },
+        );
+        store
+            .create_proposal(
+                Proposal::new(ProposalId(0), conversation.id, 110, vec![item]).expect("卡"),
+            )
+            .expect("开卡");
+
+        let snapshot = snapshot(store, conversation.id);
+        assert_eq!(snapshot.proposals.len(), 1);
+        let line = &snapshot.proposals[0];
+        assert!(line.contains("第 1 项"), "{line}");
+        assert!(line.contains("臀中肌"), "{line}");
+        assert!(line.contains("置信度 78"), "{line}");
     }
 }
 

@@ -73,15 +73,22 @@ impl Store {
         self.write_conversation(&conversation)
     }
 
-    /// 删除一个会话与它的全部消息。
+    /// 删除一个会话与它的全部消息、提议。
     ///
-    /// 只删消息正文：依据日志、照片不在这两张表里，保留语义由 #8/#9 接上。
+    /// 依据日志不在这张表里，所以不会被带走（ADR-0005）；照片行由 `api` 侧先删
+    /// （连文件一起），这里不再管它。
     pub fn delete_conversation(&self, id: ConversationId) -> Result<(), StoreError> {
         self.require_conversation(id)?;
         let doomed: Vec<u64> = self
             .messages(id)?
             .into_iter()
             .map(|message| message.id.0)
+            .collect();
+
+        let proposals: Vec<u64> = self
+            .proposals(id)?
+            .into_iter()
+            .map(|proposal| proposal.id.0)
             .collect();
 
         let write = self.db().begin_write().map_err(db_error)?;
@@ -91,6 +98,11 @@ impl Store {
                 messages.remove(message).map_err(db_error)?;
             }
             drop(messages);
+            let mut cards = write.open_table(super::proposals::PROPOSALS).map_err(db_error)?;
+            for proposal in proposals {
+                cards.remove(proposal).map_err(db_error)?;
+            }
+            drop(cards);
             let mut conversations = write.open_table(CONVERSATIONS).map_err(db_error)?;
             conversations.remove(id.0).map_err(db_error)?;
         }

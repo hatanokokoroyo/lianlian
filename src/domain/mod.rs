@@ -73,14 +73,16 @@ pub enum DomainError {
     NotAnImage(String),
     /// 一条消息只能带一张照片。
     TooManyPhotos(usize),
-    /// agent 不发表情……不，不发表照片。
-    SideForbiddenPhotos,
+    /// agent 的回复不能带照片（只有用户消息能带）。
+    PhotoOnlyFromUser,
     /// 一张提议卡一项都没有。
     EmptyProposal,
     /// 一张提议卡超过 8 项（要分轮）。
     TooManyProposalItems(usize),
     /// 这张提议已经处理过了。
     ProposalNotPending(ProposalId),
+    /// 这个会话已经有一张待审的卡（一次一张）。
+    PendingProposalExists(ProposalId),
     /// 勾选的项里没有这个编号。
     UnknownProposalItem(usize),
     /// 找不到这个会话。
@@ -164,7 +166,7 @@ impl fmt::Display for DomainError {
                 f,
                 "一条消息只能带一张照片，收到 {count} 张；分两条发。"
             ),
-            DomainError::SideForbiddenPhotos => {
+            DomainError::PhotoOnlyFromUser => {
                 write!(f, "只有用户消息能带照片；agent 的回复是文字。")
             }
             DomainError::EmptyProposal => write!(
@@ -174,6 +176,11 @@ impl fmt::Display for DomainError {
             DomainError::TooManyProposalItems(count) => write!(
                 f,
                 "一张卡最多 8 项，收到 {count} 项；分成几轮提，别让用户面对一张审不完的清单。"
+            ),
+            DomainError::PendingProposalExists(id) => write!(
+                f,
+                "这个会话还有一张待审的卡（编号 {}）；先等用户把那张处理完。",
+                id.0
             ),
             DomainError::ProposalNotPending(id) => write!(
                 f,

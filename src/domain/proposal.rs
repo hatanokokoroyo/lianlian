@@ -135,14 +135,6 @@ impl Proposal {
     pub fn is_pending(&self) -> bool {
         self.status == ProposalStatus::Pending
     }
-
-    /// 已经落成判定的项（撤销时要逐项撤回）。
-    pub fn accepted_items(&self) -> impl Iterator<Item = (usize, &ProposalItem)> {
-        self.items
-            .iter()
-            .enumerate()
-            .filter(|(_, item)| item.state == ItemState::Accepted)
-    }
 }
 
 #[cfg(test)]
@@ -226,7 +218,6 @@ mod tests {
         )
         .expect("合法");
         assert!(proposal.is_pending());
-        assert_eq!(proposal.accepted_items().count(), 0);
 
         let json = serde_json::to_string(&proposal).expect("序列化");
         assert!(json.contains("\"pending\""), "{json}");

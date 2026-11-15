@@ -68,12 +68,19 @@ test("照片：选图、发给模型、会话里留着，取消不留垃圾", as
   await app.press(`text:${draft}`);
   await app.waitFor("id:message-photo-1");
 
-  // 取消选择：不留下待发照片，也不新增库里的照片。
+  // 取消选择：待发的照片不被换掉、也不新增库里的照片。
+  app.onPick(() => [{ name: "again.png", type: "image/png", data: PNG }]);
+  await app.press("id:pick-photo");
+  await app.waitFor("id:photo-pending");
   app.onPick(() => null);
   await app.press("id:pick-photo");
   await app.wait(200);
+  expect(app.picks().length).toBe(3);
+  expect(app.shows("id:photo-pending")).toBe(true);
+  // 「拿掉这张」才是清空待发照片的那一下。
+  await app.press("id:remove-photo");
+  await app.wait(100);
   expect(app.shows("id:photo-pending")).toBe(false);
-  expect(app.picks().length).toBe(2);
 });
 
 // 只发照片、不写字也是一条消息（拍照本身就是一句话）。
