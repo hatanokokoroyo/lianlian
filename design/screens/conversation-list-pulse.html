@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>对话 · 节拍</title>
+<link rel="stylesheet" href="pulse.css">
+</head>
+<body class="bg-black/90">
+<div class="mx-auto flex min-h-[800px] w-[360px] flex-col bg-background text-foreground border-x border-border">
+
+  <header class="flex items-center justify-between px-4 pt-4">
+    <h1 class="text-[20px] font-semibold tracking-tight">对话</h1>
+    <a href="conversation-pulse.html" class="rounded-full bg-primary px-3 py-1.5 text-[11px] font-semibold text-primary-foreground" data-testid="new-conversation">新开一个</a>
+  </header>
+  <p class="mt-1 px-4 text-[11px] text-muted-foreground">每个对话独立，但档案与依据是共享的</p>
+
+  <div class="mt-4 flex-1 space-y-2 px-4">
+    <div class="conv rounded-xl bg-card">
+      <div class="flex items-start gap-2 px-4 py-3.5">
+        <a href="conversation-pulse.html" class="min-w-0 flex-1" data-testid="conv-glute">
+          <div class="flex items-baseline justify-between">
+            <p class="text-[14px] font-medium">11月12日 评估</p>
+            <span class="text-[10px] text-muted-foreground">3 天前</span>
+          </div>
+          <p class="mt-1 truncate text-[11px] text-muted-foreground">臀中肌外展耐力不足，先松解髋屈肌</p>
+          <div class="mt-1.5 flex gap-1.5">
+            <span class="rounded-full bg-accent/15 px-1.5 py-0.5 text-[9px] text-accent">3 条档案变化</span>
+          </div>
+        </a>
+        <button class="menu-btn mt-0.5 text-[14px] text-muted-foreground" data-testid="conv-menu">⋯</button>
+      </div>
+      <div class="menu hidden border-t border-border px-4 py-2 text-[11px]">
+        <button class="mr-4 text-muted-foreground" data-testid="archive-conv">归档</button>
+        <button class="text-destructive" data-open-delete data-testid="delete-conv">删除</button>
+        <span class="ml-2 text-[10px] text-muted-foreground">删除只清消息，依据日志保留</span>
+      </div>
+    </div>
+
+    <div class="conv rounded-xl bg-card">
+      <div class="flex items-start gap-2 px-4 py-3.5">
+        <a href="conversation-pulse.html" class="min-w-0 flex-1">
+          <div class="flex items-baseline justify-between">
+            <p class="text-[14px] font-medium">右膝为什么响</p>
+            <span class="text-[10px] text-muted-foreground">2 周前</span>
+          </div>
+          <p class="mt-1 truncate text-[11px] text-muted-foreground">没有明显疼痛，先观察，暂不写档案</p>
+        </a>
+        <button class="menu-btn mt-0.5 text-[14px] text-muted-foreground">⋯</button>
+      </div>
+      <div class="menu hidden border-t border-border px-4 py-2 text-[11px]">
+        <button class="mr-4 text-muted-foreground">归档</button>
+        <button class="text-destructive" data-open-delete>删除</button>
+      </div>
+    </div>
+
+    <div class="conv rounded-xl bg-card">
+      <div class="flex items-start gap-2 px-4 py-3.5">
+        <a href="conversation-pulse.html" class="min-w-0 flex-1">
+          <div class="flex items-baseline justify-between">
+            <p class="text-[14px] font-medium">训练条件改一下</p>
+            <span class="text-[10px] text-muted-foreground">3 周前</span>
+          </div>
+          <p class="mt-1 truncate text-[11px] text-muted-foreground">改成每周 3 次、家里、加了弹力带</p>
+        </a>
+        <button class="menu-btn mt-0.5 text-[14px] text-muted-foreground">⋯</button>
+      </div>
+      <div class="menu hidden border-t border-border px-4 py-2 text-[11px]">
+        <button class="mr-4 text-muted-foreground">归档</button>
+        <button class="text-destructive" data-open-delete>删除</button>
+      </div>
+    </div>
+
+    <button class="mt-1 w-full rounded-xl border border-border py-2.5 text-[11px] text-muted-foreground" data-testid="show-archived">
+      已归档 4 个 · 展开
+    </button>
+  </div>
+
+  <nav class="sticky bottom-0 grid grid-cols-4 border-t border-border bg-background py-2 text-center text-[10px]">
+    <a href="today-pulse.html" class="text-muted-foreground" data-testid="tab-today">今日</a>
+    <a href="calendar-pulse.html" class="text-muted-foreground" data-testid="tab-calendar">日历</a>
+    <a href="conversation-list-pulse.html" class="text-primary" data-testid="tab-conversations">对话</a>
+    <a href="profile-pulse.html" class="text-muted-foreground" data-testid="tab-profile">档案</a>
+  </nav>
+</div>
+
+<div id="del" class="fixed inset-0 hidden items-end justify-center bg-black/60">
+  <div class="w-[360px] rounded-t-xl bg-card p-4">
+    <p class="text-[15px] font-semibold">删除这个对话？</p>
+    <p class="mt-1 text-[11px] text-muted-foreground">消息会被清掉，但这个对话产生的依据日志会保留，档案不会失忆。</p>
+    <div class="mt-4 flex gap-2">
+      <button class="flex-1 rounded-full border border-border py-2.5 text-[12px] text-muted-foreground" data-close-del>取消</button>
+      <button class="flex-1 rounded-full bg-destructive py-2.5 text-[12px] font-semibold text-destructive-foreground" data-close-del>删除</button>
+    </div>
+  </div>
+</div>
+
+<script>
+document.addEventListener('click', (e) => {
+  const m = e.target.closest('.menu-btn');
+  if (m) { m.closest('.conv').querySelector('.menu').classList.toggle('hidden'); }
+  if (e.target.closest('[data-open-delete]')) document.getElementById('del').className = 'fixed inset-0 flex items-end justify-center bg-black/60';
+  if (e.target.closest('[data-close-del]')) document.getElementById('del').className = 'fixed inset-0 hidden items-end justify-center bg-black/60';
+});
+</script>
+</body>
+</html>

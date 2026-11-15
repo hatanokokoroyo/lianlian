@@ -1,6 +1,6 @@
 @import "tailwindcss";
-@source "../screens/today-pulse.html";
-@source "../screens/profile-pulse.html";
+@source "../screens/*-pulse.html";
+
 
 /* 方向 C · 节拍：深石板蓝 + 青柠，进度环、大圆角、教练口吻 */
 @theme {
@@ -15,6 +15,7 @@
   --color-accent: #6ee7f0;
   --color-accent-foreground: #06201f;
   --color-destructive: #ff6b6b;
+  --color-destructive-foreground: #1a0b0b;
   --color-border: #23272e;
   --radius-lg: 20px;
   --radius-xl: 26px;

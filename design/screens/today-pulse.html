@@ -9,80 +9,167 @@
 <body class="bg-black/90">
 <div class="mx-auto flex min-h-[800px] w-[360px] flex-col bg-background text-foreground border-x border-border">
 
-  <header class="px-4 pt-5">
-    <div class="flex items-center justify-between">
-      <p class="text-[11px] text-muted-foreground">11月15日 周六</p>
-      <span class="rounded-full border border-border px-2.5 py-1 text-[10px] text-muted-foreground">本周 2/3</span>
+  <header class="flex items-center justify-between px-4 pt-4">
+    <div>
+      <p class="text-[11px] text-muted-foreground">11月15日 周日</p>
+      <h1 class="mt-0.5 text-[20px] font-semibold tracking-tight">臀腿日</h1>
     </div>
-    <h1 class="mt-3 text-[26px] font-semibold leading-tight tracking-tight">今天练臀腿，<br>只差两项</h1>
+    <a href="calendar-pulse.html" class="rounded-full border border-border px-2.5 py-1 text-[10px] text-muted-foreground" data-testid="open-calendar">本周 2/3</a>
   </header>
 
-  <section class="mx-4 mt-4 rounded-xl bg-card p-4">
-    <div class="flex items-end gap-2">
-      <span class="text-[40px] font-semibold leading-none tracking-tight tabular-nums">25<span class="text-[18px] text-muted-foreground">%</span></span>
-      <span class="pb-1.5 text-[11px] text-muted-foreground">1 / 4 项</span>
+  <section class="mx-4 mt-4 flex items-center gap-4 rounded-xl bg-card p-4">
+    <div class="relative h-24 w-24 shrink-0">
+      <svg viewBox="0 0 96 96" class="h-24 w-24 -rotate-90">
+        <circle cx="48" cy="48" r="40" fill="none" stroke-width="8" class="stroke-muted"></circle>
+        <circle id="ring" cx="48" cy="48" r="40" fill="none" stroke-width="8" stroke-linecap="round"
+                class="stroke-primary transition-[stroke-dashoffset] duration-700 ease-out"
+                stroke-dasharray="251.3" stroke-dashoffset="188.5"></circle>
+      </svg>
+      <div class="absolute inset-0 flex flex-col items-center justify-center">
+        <span id="pct" class="text-[22px] font-semibold leading-none tabular-nums">25<span class="text-[11px] text-muted-foreground">%</span></span>
+        <span id="count" class="mt-1 text-[10px] text-muted-foreground">1/4 项</span>
+      </div>
     </div>
-    <div class="mt-3 flex gap-1.5">
-      <span class="h-1.5 flex-1 rounded-full bg-primary"></span>
-      <span class="h-1.5 flex-1 rounded-full bg-muted"></span>
-      <span class="h-1.5 flex-1 rounded-full bg-muted"></span>
-      <span class="h-1.5 flex-1 rounded-full bg-muted"></span>
+    <div class="min-w-0">
+      <p class="text-[12px] leading-relaxed text-muted-foreground">
+        臀中肌在单腿支撑时会掉髋——<span class="text-foreground">蚌式开合做完再上单腿臀桥，顺序别反。</span>
+      </p>
+      <a href="conversation-pulse.html" class="mt-2 inline-block text-[10px] text-accent" data-testid="view-evidence">看依据 · 11月12日</a>
     </div>
   </section>
 
-  <section class="mx-4 mt-3 rounded-xl bg-card px-4 py-3">
-    <p class="text-[12px] leading-relaxed text-muted-foreground">
-      臀中肌在单腿支撑时会掉髋，今天把蚌式开合做完再上单腿臀桥——<span class="text-foreground">顺序别反。</span>
-    </p>
-    <button class="mt-2 text-[10px] text-accent" data-testid="view-evidence">看依据 · 11月12日</button>
-  </section>
-
-  <ul class="mt-3 flex-1 space-y-2 px-4">
-    <li class="flex items-center gap-3 rounded-xl bg-card px-4 py-3.5" data-testid="exercise-glute-bridge">
-      <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary text-[13px] font-bold text-primary-foreground">✓</div>
-      <div class="min-w-0 flex-1">
-        <p class="text-[15px] font-medium text-muted-foreground line-through decoration-1">臀桥</p>
-        <p class="text-[10px] text-muted-foreground">臀大肌 张力弱 · 左</p>
-      </div>
-      <span class="shrink-0 text-[12px] text-muted-foreground tabular-nums">3×10</span>
+  <ul id="list" class="mt-3 flex-1 space-y-2 px-4">
+    <li class="exercise" data-done="true" data-testid="exercise-glute-bridge">
+      <button class="flex w-full items-center gap-3 rounded-xl bg-card px-4 py-3.5 text-left" data-toggle>
+        <span class="tick flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary text-[13px] font-bold text-primary-foreground">✓</span>
+        <span class="min-w-0 flex-1">
+          <span class="name text-[15px] font-medium text-muted-foreground line-through decoration-1">臀桥</span>
+          <span class="mt-0.5 block text-[10px] text-muted-foreground">臀大肌 张力弱 · 左</span>
+        </span>
+        <span class="shrink-0 text-[12px] text-muted-foreground tabular-nums">3×10</span>
+      </button>
     </li>
-    <li class="flex items-center gap-3 rounded-xl bg-card px-4 py-3.5 ring-1 ring-primary/40" data-testid="exercise-clamshell">
-      <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border-2 border-primary text-[12px] font-semibold text-primary">2</div>
-      <div class="min-w-0 flex-1">
-        <p class="text-[15px] font-medium">蚌式开合</p>
-        <p class="text-[10px] text-muted-foreground">臀中肌 左弱 · 还剩 1 组</p>
-      </div>
-      <span class="shrink-0 text-[12px] text-muted-foreground tabular-nums">3×10</span>
+    <li class="exercise" data-done="false" data-testid="exercise-clamshell">
+      <button class="flex w-full items-center gap-3 rounded-xl bg-card px-4 py-3.5 text-left ring-1 ring-primary/40" data-toggle>
+        <span class="tick flex h-8 w-8 shrink-0 items-center justify-center rounded-full border-2 border-primary text-[12px] font-semibold text-primary">2</span>
+        <span class="min-w-0 flex-1">
+          <span class="name text-[15px] font-medium">蚌式开合</span>
+          <span class="mt-0.5 block text-[10px] text-muted-foreground">臀中肌 左弱 · 还剩 1 组</span>
+        </span>
+        <span class="shrink-0 text-[12px] text-muted-foreground tabular-nums">3×10</span>
+      </button>
     </li>
-    <li class="flex items-center gap-3 rounded-xl bg-card px-4 py-3.5" data-testid="exercise-deadbug">
-      <div class="h-8 w-8 shrink-0 rounded-full border-2 border-border"></div>
-      <div class="min-w-0 flex-1">
-        <p class="text-[15px] font-medium">死虫式</p>
-        <p class="text-[10px] text-muted-foreground">腹横肌 稳定性差</p>
-      </div>
-      <span class="shrink-0 text-[12px] text-muted-foreground tabular-nums">3×10</span>
+    <li class="exercise" data-done="false" data-testid="exercise-deadbug">
+      <button class="flex w-full items-center gap-3 rounded-xl bg-card px-4 py-3.5 text-left" data-toggle>
+        <span class="tick h-8 w-8 shrink-0 rounded-full border-2 border-border"></span>
+        <span class="min-w-0 flex-1">
+          <span class="name text-[15px] font-medium">死虫式</span>
+          <span class="mt-0.5 block text-[10px] text-muted-foreground">腹横肌 稳定性差</span>
+        </span>
+        <span class="shrink-0 text-[12px] text-muted-foreground tabular-nums">3×10</span>
+      </button>
     </li>
-    <li class="flex items-center gap-3 rounded-xl bg-card px-4 py-3.5" data-testid="exercise-sl-glute-bridge">
-      <div class="h-8 w-8 shrink-0 rounded-full border-2 border-border"></div>
-      <div class="min-w-0 flex-1">
-        <p class="text-[15px] font-medium">单腿臀桥</p>
-        <p class="text-[10px] text-muted-foreground">臀中肌 左弱 · 膝不要内扣</p>
-      </div>
-      <span class="shrink-0 text-[12px] text-muted-foreground tabular-nums">2×8</span>
+    <li class="exercise" data-done="false" data-testid="exercise-sl-glute-bridge">
+      <button class="flex w-full items-center gap-3 rounded-xl bg-card px-4 py-3.5 text-left" data-toggle>
+        <span class="tick h-8 w-8 shrink-0 rounded-full border-2 border-border"></span>
+        <span class="min-w-0 flex-1">
+          <span class="name text-[15px] font-medium">单腿臀桥</span>
+          <span class="mt-0.5 block text-[10px] text-muted-foreground">臀中肌 左弱 · 膝不要内扣</span>
+        </span>
+        <span class="shrink-0 text-[12px] text-muted-foreground tabular-nums">2×8</span>
+      </button>
     </li>
   </ul>
 
-  <footer class="px-4 pb-4 pt-3">
-    <button class="w-full rounded-full bg-muted py-3.5 text-[14px] font-semibold text-muted-foreground" disabled data-testid="checkin">
-      还差 2 项 · 约 12 分钟
-    </button>
+  <div id="done" class="mx-4 mb-2 hidden rounded-xl bg-primary px-4 py-3 text-primary-foreground">
+    <p class="text-[13px] font-semibold">打卡成功 · 11月15日</p>
+    <p class="mt-0.5 text-[11px] opacity-80">连续第 2 周达到 3 次 · 已记入月历</p>
+  </div>
+
+  <footer class="px-4 pb-3 pt-2">
+    <button id="checkin" class="w-full rounded-full bg-muted py-3.5 text-[14px] font-semibold text-muted-foreground transition-colors" disabled data-testid="checkin">还差 3 项</button>
     <div class="mt-2.5 flex items-center justify-center gap-6 text-[10px] text-muted-foreground">
-      <button data-testid="postpone">整天推迟</button>
+      <button data-sheet="postpone" data-testid="postpone">整天推迟</button>
       <span class="text-border">·</span>
-      <button data-testid="skip-exercise">跳过一项</button>
+      <button data-sheet="skip" data-testid="skip-exercise">跳过一项</button>
     </div>
   </footer>
 
+  <nav class="sticky bottom-0 grid grid-cols-4 border-t border-border bg-background py-2 text-center text-[10px]">
+    <a href="today-pulse.html" class="text-primary" data-testid="tab-today">今日</a>
+    <a href="calendar-pulse.html" class="text-muted-foreground" data-testid="tab-calendar">日历</a>
+    <a href="conversation-list-pulse.html" class="text-muted-foreground" data-testid="tab-conversations">对话</a>
+    <a href="profile-pulse.html" class="text-muted-foreground" data-testid="tab-profile">档案</a>
+  </nav>
 </div>
+
+<div id="sheet" class="fixed inset-0 hidden items-end justify-center bg-black/60">
+  <div class="w-[360px] rounded-t-xl bg-card p-4 text-foreground">
+    <p id="sheet-title" class="text-[15px] font-semibold">整天推迟</p>
+    <p class="mt-1 text-[11px] text-muted-foreground">顺延到下一个空档训练日：<span class="text-foreground">11月17日 周一</span></p>
+    <div class="mt-4 flex gap-2">
+      <button class="flex-1 rounded-full border border-border py-2.5 text-[12px] text-muted-foreground" data-sheet-close>取消</button>
+      <button class="flex-1 rounded-full bg-primary py-2.5 text-[12px] font-semibold text-primary-foreground" data-sheet-close>确认推迟</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const ring = document.getElementById('ring'), pct = document.getElementById('pct'),
+      count = document.getElementById('count'), btn = document.getElementById('checkin'),
+      done = document.getElementById('done'), items = [...document.querySelectorAll('.exercise')];
+const C = 251.3;
+function sync(){
+  const n = items.filter(i => i.dataset.done === 'true').length, p = n / items.length;
+  ring.setAttribute('stroke-dashoffset', (C * (1 - p)).toFixed(1));
+  pct.innerHTML = Math.round(p * 100) + '<span class="text-[11px] text-muted-foreground">%</span>';
+  count.textContent = n + '/' + items.length + ' 项';
+  btn.disabled = n < items.length;
+  btn.textContent = n < items.length ? '还差 ' + (items.length - n) + ' 项' : '打卡';
+  btn.className = n < items.length
+    ? 'w-full rounded-full bg-muted py-3.5 text-[14px] font-semibold text-muted-foreground transition-colors'
+    : 'w-full rounded-full bg-primary py-3.5 text-[14px] font-semibold text-primary-foreground transition-colors';
+  done.classList.toggle('hidden', !(n === items.length && done.dataset.hit === '1'));
+}
+document.addEventListener('click', (e) => {
+  const t = e.target.closest('[data-toggle]');
+  if (t) {
+    const li = t.closest('.exercise');
+    const on = li.dataset.done === 'true';
+    li.dataset.done = on ? 'false' : 'true';
+    const tick = li.querySelector('.tick'), name = li.querySelector('.name');
+    if (on) {
+      tick.className = 'tick h-8 w-8 shrink-0 rounded-full border-2 border-border';
+      tick.textContent = '';
+      name.classList.remove('line-through','decoration-1','text-muted-foreground');
+      t.classList.remove('ring-1','ring-primary/40');
+    } else {
+      tick.className = 'tick flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary text-[13px] font-bold text-primary-foreground';
+      tick.textContent = '✓';
+      name.classList.add('line-through','decoration-1','text-muted-foreground');
+      t.classList.remove('ring-1','ring-primary/40');
+    }
+    sync();
+  }
+  const s = e.target.closest('[data-sheet]');
+  if (s) {
+    document.getElementById('sheet-title').textContent = s.dataset.sheet === 'postpone' ? '整天推迟' : '跳过一项';
+    document.getElementById('sheet').className = 'fixed inset-0 flex items-end justify-center bg-black/60';
+  }
+  if (e.target.closest('[data-sheet-close]')) document.getElementById('sheet').className = 'fixed inset-0 hidden items-end justify-center bg-black/60';
+});
+btn.addEventListener('click', () => {
+  items.forEach(i => { i.dataset.done = 'true'; });
+  document.querySelectorAll('.exercise .tick').forEach(t => {
+    t.className = 'tick flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary text-[13px] font-bold text-primary-foreground';
+    t.textContent = '✓';
+  });
+  document.querySelectorAll('.exercise .name').forEach(n => n.classList.add('line-through','decoration-1','text-muted-foreground'));
+  document.querySelectorAll('.exercise [data-toggle]').forEach(b => b.classList.remove('ring-1','ring-primary/40'));
+  done.dataset.hit = '1'; sync();
+  setTimeout(() => done.scrollIntoView({behavior:'smooth', block:'nearest'}), 50);
+});
+sync();
+</script>
 </body>
 </html>

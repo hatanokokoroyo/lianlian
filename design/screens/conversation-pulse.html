@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>11月12日 评估 · 节拍</title>
+<link rel="stylesheet" href="pulse.css">
+</head>
+<body class="bg-black/90">
+<div class="mx-auto flex min-h-[800px] w-[360px] flex-col bg-background text-foreground border-x border-border">
+
+  <header class="flex items-center gap-3 border-b border-border px-4 py-3">
+    <a href="conversation-list-pulse.html" class="text-[16px] text-muted-foreground" data-testid="back">&larr;</a>
+    <div class="min-w-0 flex-1">
+      <p class="truncate text-[14px] font-medium">11月12日 评估</p>
+      <p class="text-[10px] text-muted-foreground">42 轮 · 上下文 8%</p>
+    </div>
+    <button class="text-[14px] text-muted-foreground" data-testid="conv-actions">⋯</button>
+  </header>
+
+  <div class="flex-1 space-y-3 overflow-y-auto px-4 py-4">
+    <div class="flex justify-end">
+      <div class="max-w-[78%] rounded-2xl rounded-br-sm bg-primary/15 px-3.5 py-2.5">
+        <p class="text-[12px] leading-relaxed">走路走久了左边胯会往下沉，单腿站也站不稳，帮我看看。</p>
+      </div>
+    </div>
+
+    <div class="flex gap-2">
+      <div class="mt-0.5 h-6 w-6 shrink-0 rounded-full bg-card"></div>
+      <div class="max-w-[84%] rounded-2xl rounded-bl-sm bg-card px-3.5 py-2.5">
+        <p class="text-[12px] leading-relaxed">先做两个测试确认一下，都能在家做：</p>
+        <ol class="mt-1.5 list-inside list-decimal space-y-1 text-[12px] leading-relaxed text-muted-foreground">
+          <li>单腿站 30 秒，看骨盆会不会往下掉</li>
+          <li>侧卧蚌式开合 10 次，感受哪一侧更吃力</li>
+        </ol>
+        <p class="mt-1.5 text-[12px] leading-relaxed">拍一张侧面站姿给我。</p>
+      </div>
+    </div>
+
+    <div class="flex justify-end">
+      <div class="max-w-[78%] space-y-1.5">
+        <div class="flex h-24 w-32 items-center justify-center rounded-xl border border-border bg-muted text-[10px] text-muted-foreground">侧面站姿照</div>
+        <div class="rounded-2xl rounded-br-sm bg-primary/15 px-3.5 py-2.5">
+          <p class="text-[12px] leading-relaxed">单腿站左边掉约 3cm，蚌式左腿到第 7 个就抬不动了。</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="flex items-center gap-1.5 pl-8 text-[10px] text-muted-foreground">
+      <span class="h-1 w-1 rounded-full bg-accent"></span>查询依据 · 臀中肌 2 条 · 腰大肌 1 条
+    </div>
+
+    <div class="flex gap-2">
+      <div class="mt-0.5 h-6 w-6 shrink-0 rounded-full bg-card"></div>
+      <div class="max-w-[84%] rounded-2xl rounded-bl-sm bg-card px-3.5 py-2.5">
+        <p class="text-[12px] leading-relaxed">两条线索指向同一个方向：<span class="text-foreground">臀中肌外展耐力不足</span>，同时髋屈肌可能偏紧，把骨盆往前带。</p>
+      </div>
+    </div>
+
+    <!-- 提议卡片 -->
+    <div id="proposal" class="rounded-xl border border-accent/30 bg-card p-3.5">
+      <p class="text-[12px] font-semibold">想更新 3 个部位 <span class="font-normal text-muted-foreground">· 可逐条勾选</span></p>
+
+      <div class="mt-2.5 space-y-2">
+        <div class="item rounded-lg bg-muted/60 px-3 py-2.5">
+          <div class="flex items-start gap-2">
+            <input type="checkbox" checked class="mt-0.5 h-3.5 w-3.5 accent-primary">
+            <div class="min-w-0 flex-1">
+              <p class="text-[12px] font-medium">臀中肌 · 左</p>
+              <div class="mt-1 flex flex-wrap gap-1">
+                <span class="rounded-full bg-accent/15 px-1.5 py-0.5 text-[9px] text-accent">张力 弱</span>
+                <span class="rounded-full bg-destructive/15 px-1.5 py-0.5 text-[9px] text-destructive">对称 左弱</span>
+              </div>
+              <button class="mt-1.5 text-[9px] text-muted-foreground underline underline-offset-2" data-why>展开依据</button>
+              <p class="why mt-1 hidden text-[10px] leading-relaxed text-muted-foreground">单腿站掉髋 3cm + 蚌式左侧耐力不足 → 外展耐力不足</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="item rounded-lg bg-muted/60 px-3 py-2.5">
+          <div class="flex items-start gap-2">
+            <input type="checkbox" checked class="mt-0.5 h-3.5 w-3.5 accent-primary">
+            <div class="min-w-0 flex-1">
+              <p class="text-[12px] font-medium">腰大肌 · 双侧</p>
+              <div class="mt-1 flex flex-wrap gap-1">
+                <span class="rounded-full bg-destructive/15 px-1.5 py-0.5 text-[9px] text-destructive">张力 紧</span>
+              </div>
+              <button class="mt-1.5 text-[9px] text-muted-foreground underline underline-offset-2" data-why>展开依据</button>
+              <p class="why mt-1 hidden text-[10px] leading-relaxed text-muted-foreground">直腿抬高右侧 65° 受限 + 久坐后腰痛</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="item rounded-lg bg-muted/60 px-3 py-2.5">
+          <div class="flex items-start gap-2">
+            <input type="checkbox" class="mt-0.5 h-3.5 w-3.5 accent-primary">
+            <div class="min-w-0 flex-1">
+              <p class="text-[12px] font-medium text-muted-foreground">臀大肌 · 左 <span class="text-[9px] text-accent">低置信度</span></p>
+              <div class="mt-1 flex flex-wrap gap-1">
+                <span class="rounded-full bg-accent/15 px-1.5 py-0.5 text-[9px] text-accent">张力 弱</span>
+              </div>
+              <button class="mt-1.5 text-[9px] text-muted-foreground underline underline-offset-2" data-why>展开依据</button>
+              <p class="why mt-1 hidden text-[10px] leading-relaxed text-muted-foreground">只有主观感受，未做端坐位伸髋测试 → 默认不勾</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="mt-3 flex gap-2">
+        <button class="flex-1 rounded-full bg-primary py-2.5 text-[11px] font-semibold text-primary-foreground" data-accept data-testid="accept-proposal">接受选中 2 项</button>
+        <button class="rounded-full border border-border px-3 py-2.5 text-[11px] text-muted-foreground" data-reject data-testid="reject-proposal">拒绝</button>
+      </div>
+      <div class="reject-box mt-2 hidden">
+        <input class="w-full rounded-lg bg-muted px-3 py-2 text-[11px] placeholder:text-muted-foreground" placeholder="说说哪里不对，比如：不是臀部，是膝盖疼" data-testid="reject-reason">
+        <div class="mt-1.5 flex gap-2">
+          <button class="flex-1 rounded-full bg-muted py-2 text-[10px] text-muted-foreground" data-close-reject>只是拒绝</button>
+          <button class="flex-1 rounded-full bg-destructive py-2 text-[10px] font-semibold text-destructive-foreground" data-close-reject>拒绝并说明</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="applied" class="hidden rounded-xl bg-primary/10 px-3.5 py-2.5">
+      <p class="text-[11px] font-medium text-primary">已更新 2 个部位 · 11月12日</p>
+      <p class="mt-0.5 text-[10px] text-muted-foreground">臀中肌 张力弱 / 对称左弱、腰大肌 张力紧</p>
+      <button class="mt-1.5 text-[10px] text-muted-foreground underline underline-offset-2" data-undo data-testid="undo">撤销</button>
+    </div>
+  </div>
+
+  <footer class="border-t border-border px-3 py-2.5">
+    <div class="flex items-center gap-2">
+      <button class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted text-[13px] text-muted-foreground" data-testid="pick-photo">＋</button>
+      <input class="min-w-0 flex-1 rounded-full bg-muted px-3.5 py-2 text-[12px] placeholder:text-muted-foreground" placeholder="说说哪里不舒服，或者拍张照" data-testid="message-input">
+      <button class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary text-[12px] font-bold text-primary-foreground" data-testid="send">↑</button>
+    </div>
+  </footer>
+</div>
+
+<script>
+document.addEventListener('click', (e) => {
+  const why = e.target.closest('[data-why]');
+  if (why) { const p = why.parentElement.querySelector('.why'); p.classList.toggle('hidden'); why.textContent = p.classList.contains('hidden') ? '展开依据' : '收起依据'; }
+  if (e.target.closest('[data-accept]')) {
+    const n = document.querySelectorAll('#proposal input:checked').length;
+    document.getElementById('proposal').classList.add('hidden');
+    const a = document.getElementById('applied'); a.classList.remove('hidden');
+    a.querySelector('p').textContent = '已更新 ' + n + ' 个部位 · 11月12日';
+  }
+  if (e.target.closest('[data-reject]')) document.querySelector('.reject-box').classList.remove('hidden');
+  if (e.target.closest('[data-close-reject]')) {
+    document.querySelector('.reject-box').classList.add('hidden');
+    document.getElementById('proposal').classList.add('hidden');
+  }
+  if (e.target.closest('[data-undo]')) {
+    document.getElementById('applied').classList.add('hidden');
+    document.getElementById('proposal').classList.remove('hidden');
+  }
+});
+</script>
+</body>
+</html>

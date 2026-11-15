@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>设置 · 节拍</title>
+<link rel="stylesheet" href="pulse.css">
+</head>
+<body class="bg-black/90">
+<div class="mx-auto flex min-h-[800px] w-[360px] flex-col bg-background text-foreground border-x border-border">
+
+  <header class="flex items-center gap-3 px-4 pt-4">
+    <a href="profile-pulse.html" class="text-[16px] text-muted-foreground" data-testid="back">&larr;</a>
+    <h1 class="text-[20px] font-semibold tracking-tight">设置</h1>
+  </header>
+
+  <section class="mt-5 px-4">
+    <p class="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">DeepSeek Key</p>
+    <div class="mt-2 rounded-xl bg-card px-3.5 py-3">
+      <div class="flex items-center gap-2">
+        <input type="password" value="sk-9f2a1c4e8b7d6a5f3e2d1c0b9a8f7e6d" class="min-w-0 flex-1 bg-transparent text-[12px] tabular-nums" data-testid="api-key">
+        <button class="text-[10px] text-accent" data-toggle-key data-testid="reveal-key">显示</button>
+      </div>
+      <p class="mt-2 text-[10px] text-muted-foreground">明文存在本机数据库里。别人拿到手机就能读到，介意的话别在这台设备上填。</p>
+    </div>
+  </section>
+
+  <section class="mt-5 px-4">
+    <p class="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">模型</p>
+    <div class="mt-2 divide-y divide-border rounded-xl bg-card">
+      <div class="flex items-center justify-between px-3.5 py-3">
+        <span class="text-[12px]">deepseek-flash</span>
+        <span class="text-[10px] text-muted-foreground">自带视觉 · 1M 上下文</span>
+      </div>
+      <div class="flex items-center justify-between px-3.5 py-3">
+        <span class="text-[12px] text-muted-foreground">思考模式</span>
+        <span class="text-[10px] text-primary">开</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="mt-5 px-4">
+    <p class="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">本地数据</p>
+    <div class="mt-2 rounded-xl bg-card px-3.5 py-3">
+      <div class="flex items-baseline justify-between">
+        <span class="text-[12px]">1.2 MB</span>
+        <span class="text-[10px] text-muted-foreground">档案 41 条 · 会话 7 个 · 照片 12 张</span>
+      </div>
+      <div class="mt-2 flex h-1.5 overflow-hidden rounded-full bg-muted">
+        <span class="w-[46%] bg-primary"></span><span class="w-[32%] bg-accent"></span><span class="w-[22%] bg-muted-foreground/40"></span>
+      </div>
+      <div class="mt-1.5 flex justify-between text-[9px] text-muted-foreground">
+        <span>数据库</span><span>照片</span><span>会话</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="mt-5 px-4">
+    <p class="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">会话长度</p>
+    <div class="mt-2 rounded-xl bg-card px-3.5 py-3">
+      <div class="flex items-center justify-between text-[11px]">
+        <span>11月12日 评估</span><span class="text-muted-foreground tabular-nums">8 万 / 20 万</span>
+      </div>
+      <div class="mt-2 h-1.5 rounded-full bg-muted"><div class="h-1.5 w-[40%] rounded-full bg-primary"></div></div>
+      <p class="mt-2 text-[10px] text-muted-foreground">到 20 万会提示新开一个；新会话自动带上完整档案。</p>
+    </div>
+  </section>
+
+  <section class="mt-5 px-4">
+    <p class="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">出问题时的样子</p>
+    <div class="mt-2 space-y-2">
+      <div class="rounded-xl border border-border px-3.5 py-2.5">
+        <p class="text-[11px] text-foreground">连不上模型</p>
+        <p class="mt-0.5 text-[10px] text-muted-foreground">这条消息没发出去，你的输入还在。</p>
+        <button class="mt-1.5 rounded-full bg-muted px-2.5 py-1 text-[10px] text-muted-foreground">重试</button>
+      </div>
+      <div class="rounded-xl border border-border px-3.5 py-2.5">
+        <p class="text-[11px] text-foreground">Key 无效或没有额度</p>
+        <p class="mt-0.5 text-[10px] text-muted-foreground">需要你去 DeepSeek 控制台确认。</p>
+        <a href="settings-pulse.html" class="mt-1.5 inline-block rounded-full bg-muted px-2.5 py-1 text-[10px] text-muted-foreground">去设置</a>
+      </div>
+    </div>
+  </section>
+
+  <div class="flex-1"></div>
+  <p class="px-4 pb-4 text-center text-[9px] text-muted-foreground">lianlian 0.1 · 纯本地 · 无账号 · 无遥测</p>
+</div>
+
+<script>
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-toggle-key]');
+  if (!b) return;
+  const i = document.querySelector('[data-testid="api-key"]');
+  const hidden = i.type === 'password';
+  i.type = hidden ? 'text' : 'password';
+  b.textContent = hidden ? '隐藏' : '显示';
+});
+</script>
+</body>
+</html>
