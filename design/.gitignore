@@ -1,0 +1,6 @@
+# OpenDesign 的内部版本快照目录（只对 .html 生效）：不是版本真源，git 才是。
+.file-versions/
+
+# OD 导出时可能写进项目根的产物
+DESIGN-HANDOFF.md
+DESIGN-MANIFEST.json
