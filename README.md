@@ -108,6 +108,10 @@ nsh run                     # 本机 Linux 宿主，最快的界面迭代
 - **改了 Rust，手机上却还是旧行为**：dev server 有时判定「没变化」而不重装宿主，手机上跑的还是旧 native lib（加 `nsh.json` 的 `build` 也不一定让它重装）。可靠做法是 `adb shell pm clear com.longbridge.nsh.host` 后重开一次 dev server，等日志出现 `installed the Android development host`。代价是 app 私有目录里的库文件也被清掉——开发期无所谓。
 - **`nsh.json` 故意不声明 `capabilities`**：一旦声明，没列出的能力（webview、picker、clipboard……）会一并被关掉；
   不声明时自有 app 保留不受限的 HTTP/取图等能力，而文件系统、裸 socket 仍然要显式声明。接照片（#8）前别加。
+- **`nsh package --target android` 要系统装 libclang**：它要重新编译 nsh 运行时（含 quickjs），
+  `bindgen` 需要 `libclang.so`；没装时报 `Unable to find libclang`。`sudo apt install libclang-dev`
+  之后 `LIBCLANG_PATH=/usr/lib/llvm-18/lib nsh package --target android -o dist`（NDK 里那份 libclang
+  是给 Android 交叉编译的，别指给 host bindgen 用）。
 - **库里的值格式变了**：库结构与值格式的版本写在 `meta` 表的 `schema_version`（当前 10）；版本对不上时 `store` 丢表重建（骨架期不做迁移，改表就要 +1）。
 - **`nsh.test` 的 headless 宿主不给 app 私有目录**（`data_dir()` 在引擎线程上还会直接 panic），所以 `store::app_dir()` 在没有私有目录时落到系统临时目录，库与照片在测试里都是真的；照片目录跟着它走（`store::app_dir()/photos`），不要在 `cargo test` 里调 `photos_dir()`——它照样会 panic，测试里把目录当参数传进去。
 - **`nsh test` 的多个测试文件共用一个进程，也就共用一个临时库**。每个测试文件用 `beforeAll(freshDatabase)`

@@ -5,3 +5,6 @@
 # nsh 生成的声明与运行器（每次 nsh check / run 重建）
 .nsh/
 target/
+
+# 打包产物（nsh package 输出）
+dist/
