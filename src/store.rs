@@ -9,22 +9,27 @@ use std::path::{Path, PathBuf};
 use nsh_core::prelude::data_dir;
 use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
 
-/// 计划本身的几个标量：`plan_title`、`week_done`、`week_total`。
+/// 值格式的版本：`序号|动作名|依据|组数|次数` 是 `"2"`。
+const SCHEMA_VERSION: &str = "2";
+
+/// 计划本身的几个标量：`schema_version`、`plan_title`、`week_done`、`week_total`。
 const META: TableDefinition<&str, &str> = TableDefinition::new("meta");
-/// 动作：slug → `动作名|依据|组数|次数`。
+/// 动作：slug → `序号|动作名|依据|组数|次数`（序号定清单顺序，键只用来查）。
 const EXERCISES: TableDefinition<&str, &str> = TableDefinition::new("exercises");
 
 /// 库里的一条动作。
 #[derive(Debug, Clone, PartialEq)]
 pub struct ExerciseRow {
     pub slug: String,
+    /// 在清单里的位置，从 1 开始。
+    pub order: u32,
     pub name: String,
     pub basis: String,
     pub sets: u32,
     pub reps: u32,
 }
 
-/// 库里的一个训练日（`exercises` 按写入顺序给出）。
+/// 库里的一个训练日（`exercises` 按清单顺序给出）。
 #[derive(Debug, Clone, PartialEq)]
 pub struct PlanRow {
     pub title: String,
@@ -52,30 +57,54 @@ fn open_app_db() -> Result<Database, String> {
     open(&app_db_path()?)
 }
 
-/// 打开（必要时创建并播种）一个库文件。
+/// 打开一个库文件：全新的播种，格式对不上的重建。
 fn open(path: &Path) -> Result<Database, String> {
     let db = Database::create(path).map_err(|e| format!("打开库失败：{e}"))?;
-    if is_empty(&db)? {
-        seed(&db)?;
+    match read_schema_version(&db)?.as_deref() {
+        Some(version) if version == SCHEMA_VERSION => Ok(db),
+        // 骨架期没有迁移：值格式变过就重建（真数据迁移随 #3 的词表一起来）。
+        Some(_) => {
+            reset(&db)?;
+            seed(&db)?;
+            Ok(db)
+        }
+        None => {
+            seed(&db)?;
+            Ok(db)
+        }
     }
-    Ok(db)
 }
 
-fn is_empty(db: &Database) -> Result<bool, String> {
+fn read_schema_version(db: &Database) -> Result<Option<String>, String> {
     let read = db.begin_read().map_err(|e| e.to_string())?;
-    match read.open_table(EXERCISES) {
+    match read.open_table(META) {
         Ok(table) => Ok(table
-            .iter()
+            .get("schema_version")
             .map_err(|e| e.to_string())?
-            .next()
-            .is_none()),
-        // 表还不存在：全新的库。
-        Err(redb::TableError::TableDoesNotExist(_)) => Ok(true),
-        Err(e) => Err(format!("读动作表失败：{e}")),
+            .map(|value| value.value().to_owned())),
+        Err(redb::TableError::TableDoesNotExist(_)) => Ok(None),
+        Err(e) => Err(format!("读 meta 失败：{e}")),
     }
+}
+
+/// 丢掉两张表，让下一次播种从头来。
+fn reset(db: &Database) -> Result<(), String> {
+    let write = db.begin_write().map_err(|e| e.to_string())?;
+    match write.delete_table(EXERCISES) {
+        Ok(_) => {}
+        Err(redb::TableError::TableDoesNotExist(_)) => {}
+        Err(e) => return Err(format!("删动作表失败：{e}")),
+    }
+    match write.delete_table(META) {
+        Ok(_) => {}
+        Err(redb::TableError::TableDoesNotExist(_)) => {}
+        Err(e) => return Err(format!("删 meta 失败：{e}")),
+    }
+    write.commit().map_err(|e| e.to_string())
 }
 
 /// 一份能直接跑起来的示范计划（骨架期用；计划生成在 #12 之后接管）。
+/// 顺序有意义：蚌式开合在单腿臀桥之前。
 const SEED: &[(&str, &str, &str, u32, u32)] = &[
     ("glute-bridge", "臀桥", "臀大肌 张力弱 · 左", 3, 10),
     ("clamshell", "蚌式开合", "臀中肌 左弱 · 还剩 1 组", 3, 10),
@@ -87,15 +116,17 @@ fn seed(db: &Database) -> Result<(), String> {
     let write = db.begin_write().map_err(|e| e.to_string())?;
     {
         let mut meta = write.open_table(META).map_err(|e| e.to_string())?;
-        meta.insert("schema_version", "1").map_err(|e| e.to_string())?;
+        meta.insert("schema_version", SCHEMA_VERSION)
+            .map_err(|e| e.to_string())?;
         meta.insert("plan_title", "臀腿日").map_err(|e| e.to_string())?;
         meta.insert("week_done", "0").map_err(|e| e.to_string())?;
         meta.insert("week_total", "3").map_err(|e| e.to_string())?;
         drop(meta);
 
         let mut exercises = write.open_table(EXERCISES).map_err(|e| e.to_string())?;
-        for (slug, name, basis, sets, reps) in SEED {
-            let value = format!("{name}|{basis}|{sets}|{reps}");
+        for (index, (slug, name, basis, sets, reps)) in SEED.iter().enumerate() {
+            let order = index + 1;
+            let value = format!("{order}|{name}|{basis}|{sets}|{reps}");
             exercises
                 .insert(*slug, value.as_str())
                 .map_err(|e| e.to_string())?;
@@ -138,18 +169,25 @@ fn read_plan(db: &Database) -> Result<PlanRow, String> {
         let slug = slug.value().to_owned();
         let value = value.value().to_owned();
         let mut parts = value.split('|');
+        let order = parts
+            .next()
+            .and_then(|n| n.parse().ok())
+            .ok_or_else(|| format!("{slug} 缺序号，值格式对不上"))?;
         let name = parts.next().unwrap_or_default().to_owned();
         let basis = parts.next().unwrap_or_default().to_owned();
         let sets = parts.next().and_then(|n| n.parse().ok()).unwrap_or(0);
         let reps = parts.next().and_then(|n| n.parse().ok()).unwrap_or(0);
         exercises.push(ExerciseRow {
             slug,
+            order,
             name,
             basis,
             sets,
             reps,
         });
     }
+    // redb 按键给，清单的顺序在值里。
+    exercises.sort_by_key(|row| row.order);
     Ok(PlanRow {
         exercises,
         ..plan
@@ -170,21 +208,18 @@ mod tests {
 
         let mut first = read_plan(&open(&path).expect("打开新库")).expect("读第一次");
         assert_eq!(first.title, "臀腿日");
-        // redb 按键排序给出：slug 字典序。
-        first.exercises.sort_by(|a, b| a.slug.cmp(&b.slug));
         let names: Vec<_> = first.exercises.iter().map(|e| e.name.as_str()).collect();
         assert_eq!(
             names,
-            ["蚌式开合", "死虫式", "臀桥", "单腿臀桥"],
-            "四条动作都在，且各自的内容读得回来"
+            ["臀桥", "蚌式开合", "死虫式", "单腿臀桥"],
+            "四条动作都在，顺序按清单（蚌式开合在单腿臀桥之前）"
         );
         assert_eq!(first.exercises[0].sets, 3);
         assert_eq!(first.exercises[0].reps, 10);
 
-        // 再打开一次：播种只发生一次，数据还在。
+        // 再打开一次：播种只发生一次，数据还在（顺序也一样）。
         let second = read_plan(&open(&path).expect("再打开")).expect("读第二次");
-        assert_eq!(first.title, second.title);
-        assert_eq!(first.exercises.len(), second.exercises.len());
+        assert_eq!(first, second);
 
         std::fs::remove_dir_all(&dir).ok();
     }

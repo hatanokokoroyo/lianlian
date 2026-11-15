@@ -79,6 +79,8 @@ nsh run                     # 本机 Linux 宿主，最快的界面迭代
 - **`adb devices` 空但手机确实连着**：先杀干净多余的 daemon。真机上遇到过 Windows adb 起在 5038、独占 USB 设备，5037 的 daemon 于是一直空；`adb -P 5038 kill-server` 后 5037 立即正常。
 - **`Directory not empty (os error 39)`**：上一次 `nsh run` 被 Ctrl-C 打断会留下 `.nsh/android/NshDev.apk-work/`，下一次装宿主时命名冲突。删掉 `.nsh/android` 再来。
 - **`no reactive runtime: signals are used on the engine thread`**：Rust 的普通 `fn`（不带 `cx`、非 `async`）跑在引擎线程，那里没有响应式运行时，读 `data_dir()` 之类的服务会 panic。要碰平台服务就写成 `async fn`（任务里跑）或在 TSX 侧用 `resource()` 消费。
+- **改了 Rust，手机上却还是旧行为**：宿主按 build 号缓存解包出来的 native lib，`nsh.json` 的 `build` 没变时重装 APK 之后仍可能跑旧 lib。`adb shell pm clear com.longbridge.nsh.host` 再启动一次（会连 app 私有目录里的库文件一起清掉）。改 Rust 逻辑时顺手把 `build` 加 1 更省事。
+- **库里的值格式变了**：骨架期 `exercises` 的值是手写的竖线分隔串，格式版本写在 `meta` 表的 `schema_version`；版本对不上时 `store` 丢表重播种（真数据迁移随 #3 的词表一起补）。
 - **`nsh.test` 的 headless 宿主不给 app 私有目录**（`data_dir()` 为 `None`），所以 `store` 在没有私有目录时落到系统临时目录，库行为在测试里是真的。
 
 ## 约定
