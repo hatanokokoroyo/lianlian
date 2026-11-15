@@ -1,0 +1,2 @@
+# 第三方 skill 源码不入库：由 skills-lock.json 记录来源，换机器时 `npx skills add` 重建
+.agents/
