@@ -3,7 +3,7 @@
 
 use nsh_core::prelude::*;
 
-use crate::store;
+use crate::store::{self, Store};
 
 /// 今日清单里的一个动作。
 #[derive(Debug, Clone, PartialEq, JsObject)]
@@ -45,7 +45,7 @@ impl Today {
     /// `async`：读库要 app 私有目录（`data_dir()`），只有任务里拿得到，
     /// 在 JS 调用里同步跑会撞上「引擎线程没有响应式运行时」。
     pub async fn plan() -> Option<TodayPlan> {
-        let plan = store::today_plan().ok()?;
+        let plan = store::plan::today_plan(&Store::open_app().ok()?).ok()?;
         if plan.exercises.is_empty() {
             return None;
         }

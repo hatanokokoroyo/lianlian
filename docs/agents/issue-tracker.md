@@ -38,6 +38,7 @@ GitHub 标签与本地 `Status:` 行使用同一套字符串：
 | `ready-for-agent` | 已完整定义，可以交给离线 agent |
 | `ready-for-human` | 需要人来实现                  |
 | `wontfix`         | 不予处理                      |
+| `resolved`        | 已交付并关闭（本地镜像的终态）  |
 
 本地文件的 `Status:` 行是**当下** agent 该做什么的权威；GitHub 标签是**外部**看到的权威。两者冲突时，修掉过期的那一个，不要靠猜。
 
@@ -46,6 +47,8 @@ GitHub 标签与本地 `Status:` 行使用同一套字符串：
 - **自己提的 issue** 跳过 `needs-triage` —— 本该 triage 它的人就是刚写下它的人。直接从 `ready-for-agent` 开始。
 - **他人提的 issue** 从 `needs-triage` 开始。一旦需要提报者提供东西就转 `needs-info`；拿到后转回 `ready-for-agent`。
 - `ready-for-human` 表示 agent 不得接手：需要决策、凭证、不可逆操作或主观判断。
+- 关闭一条 issue 时，本地镜像的 `Status:` 写 `resolved`（GitHub 侧以关闭状态为准，标签移除）。留 `ready-for-agent`
+  会让下一个人以为它还能开工；`resolved` 不参与 GitHub 标签，只用于本地镜像。
 - 只保留会改变「下一个执行者做什么」的状态。某个状态若连续两个月未使用，就从两面一起删除，不要为对称性留着。
 
 ## 约定 —— GitHub 侧

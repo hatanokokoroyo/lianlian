@@ -2,7 +2,7 @@
   "name": "练练",
   "id": "com.lianlian.app",
   "version": "0.1.0",
-  "build": 1,
+  "build": 2,
   "rust": ".",
   "theme": {
     "cssVars": {
