@@ -5,11 +5,13 @@
 
 use serde_json::{Value, json};
 
-use crate::domain::tool::{CORRECT_FINDING, RECORD_FINDING, SEARCH_EVIDENCE};
+use crate::domain::tool::{
+    CORRECT_FINDING, PROPOSE_FINDINGS, RECORD_FINDING, SEARCH_EVIDENCE,
+};
 
 /// 请求体里 `tools` 的值。
 pub fn specs() -> Vec<Value> {
-    vec![search_spec(), record_spec(), correct_spec()]
+    vec![search_spec(), record_spec(), correct_spec(), propose_spec()]
 }
 
 fn search_spec() -> Value {
@@ -87,6 +89,50 @@ fn correct_spec() -> Value {
     })
 }
 
+fn propose_spec() -> Value {
+    json!({
+        "type": "function",
+        "name": PROPOSE_FINDINGS,
+        "description": "一次想改多条，或把握不大时用：生成一张待审的卡（最多 8 项），用户逐项勾选、可以展开看依据。写进档案要等用户接受。",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "description": "要改的几项，1–8 项，每项和 record_finding 的参数一样",
+                    "minItems": 1,
+                    "maxItems": 8,
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "site": { "type": "string", "description": "部位 id，必须在词表里" },
+                            "side": { "type": "string", "enum": ["left", "right"] },
+                            "confidence": { "type": "integer", "minimum": 0, "maximum": 100, "description": "低于 60 的项默认不勾" },
+                            "values": {
+                                "type": "object",
+                                "properties": {
+                                    "tension": { "type": "string", "enum": ["weak", "normal", "tight"] },
+                                    "symmetry": { "type": "string", "enum": ["left-weak", "right-weak", "symmetric"] },
+                                    "mobility": { "type": "string", "enum": ["limited", "normal"] },
+                                    "pain": { "type": "integer", "minimum": 0, "maximum": 10 },
+                                    "stability": { "type": "string", "enum": ["poor", "normal"] }
+                                },
+                                "additionalProperties": false,
+                                "minProperties": 1
+                            },
+                            "evidence": evidence_schema()
+                        },
+                        "required": ["site", "confidence", "values", "evidence"],
+                        "additionalProperties": false
+                    }
+                }
+            },
+            "required": ["items"],
+            "additionalProperties": false
+        }
+    })
+}
+
 /// 四段依据的 Schema：写判定时必填，缺一段工具层会拒绝。
 fn evidence_schema() -> Value {
     json!({
@@ -107,14 +153,20 @@ mod tests {
     use super::*;
 
     #[test]
-    fn there_are_exactly_three_tools_and_their_names_match_the_domain() {
+    fn there_are_exactly_four_tools_and_their_names_match_the_domain() {
         let names: Vec<String> = specs()
             .iter()
             .map(|spec| spec["name"].as_str().expect("有名字").to_owned())
             .collect();
+        // 字面量而不是常量自比：模型看到的名字变了，这条测试才该红。
         assert_eq!(
             names,
-            vec![SEARCH_EVIDENCE, RECORD_FINDING, CORRECT_FINDING]
+            vec![
+                "search_evidence",
+                "record_finding",
+                "correct_finding",
+                "propose_findings"
+            ]
         );
     }
 
@@ -144,7 +196,7 @@ mod tests {
 
     #[test]
     fn writing_tools_require_all_four_evidence_sections() {
-        for spec in &specs()[1..] {
+        for spec in &specs()[1..3] {
             let required: Vec<&str> = spec["parameters"]["properties"]["evidence"]["required"]
                 .as_array()
                 .expect("必填四段")

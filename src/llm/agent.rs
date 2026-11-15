@@ -9,10 +9,12 @@
 //! 重放，下一轮请求会被网关拒）。
 
 use crate::domain::tool::{
-    CORRECT_FINDING, CorrectArgs, EvidenceQuery, RECORD_FINDING, RecordArgs, SEARCH_EVIDENCE,
-    ToolError, TurnSearches,
+    CORRECT_FINDING, CorrectArgs, EvidenceQuery, PROPOSE_FINDINGS, ProposeArgs, RECORD_FINDING,
+    RecordArgs, SEARCH_EVIDENCE, ToolError, TurnSearches,
 };
-use crate::domain::{EvidenceKind, FindingDraft, FindingId, StoredItem};
+use crate::domain::{
+    EvidenceKind, FindingDraft, FindingId, Proposal, ProposalId, StoredItem,
+};
 use crate::store::{Store, StoreError};
 
 use super::deepseek::{self, GatewayError, OutputItem};
@@ -248,6 +250,50 @@ impl<'a> StoreHost<'a> {
         Ok(written("record", &finding, evidence.id.0))
     }
 
+    /// 一次想改多条：先攒成一张卡，等用户勾。已有待审的卡就拒绝（一次一张）。
+    fn propose(&mut self, args: &serde_json::Value) -> Result<String, ToolError> {
+        if let Some(pending) = self
+            .store
+            .pending_proposal(self.conversation)
+            .map_err(Self::storage)?
+        {
+            return Err(ToolError::PendingProposal {
+                items: pending.items.len(),
+            });
+        }
+        let parsed = ProposeArgs::parse(args, Some(self.conversation), self.at)?;
+        let proposal = self
+            .store
+            .create_proposal(Proposal::new(
+                ProposalId(0),
+                self.conversation,
+                self.at,
+                parsed.items,
+            )?)
+            .map_err(Self::storage)?;
+        let items: Vec<serde_json::Value> = proposal
+            .items
+            .iter()
+            .enumerate()
+            .map(|(index, item)| {
+                serde_json::json!({
+                    "index": index,
+                    "site": item.draft.site,
+                    "side": item.draft.side.map(|side| side.key()),
+                    "confidence": item.draft.confidence,
+                    "default_selected": item.default_selected(),
+                })
+            })
+            .collect();
+        Ok(serde_json::json!({
+            "ok": true,
+            "proposal": proposal.id.0,
+            "items": items,
+            "notice": "卡已经生成，等用户勾选；不要声称已经写进档案。",
+        })
+        .to_string())
+    }
+
     fn correct(&mut self, args: &serde_json::Value) -> Result<String, ToolError> {
         let id = args
             .get("finding")
@@ -311,7 +357,13 @@ fn written(action: &str, finding: &crate::domain::Finding, evidence: u64) -> Str
 
 impl ToolHost for StoreHost<'_> {
     fn call(&mut self, name: &str, arguments: &str) -> String {
-        let known = matches!(name, SEARCH_EVIDENCE | RECORD_FINDING | CORRECT_FINDING);
+        let known = [
+            SEARCH_EVIDENCE,
+            RECORD_FINDING,
+            CORRECT_FINDING,
+            PROPOSE_FINDINGS,
+        ]
+        .contains(&name);
         if !known {
             return ToolError::UnknownTool(name.to_owned()).to_json();
         }
@@ -322,7 +374,8 @@ impl ToolHost for StoreHost<'_> {
         let result = match name {
             SEARCH_EVIDENCE => self.search(&args),
             RECORD_FINDING => self.record(&args),
-            _ => self.correct(&args),
+            CORRECT_FINDING => self.correct(&args),
+            _ => self.propose(&args),
         };
         match result {
             Ok(output) => output,
@@ -665,6 +718,89 @@ mod tests {
         assert!(output.contains("\"source\":\"deleted\""), "{output}");
         // 日志还在（ADR-0005）。
         assert_eq!(store.evidence_log().expect("日志").len(), 1);
+    }
+
+    fn proposal_item(site: &str, side: &str, confidence: u8) -> serde_json::Value {
+        json!({
+            "site": site,
+            "side": side,
+            "confidence": confidence,
+            "values": { "tension": "weak" },
+            "evidence": evidence()
+        })
+    }
+
+    #[test]
+    fn proposing_three_items_makes_one_card_and_writes_nothing_yet() {
+        let model = Scripted::new(vec![
+            vec![call(
+                PROPOSE_FINDINGS,
+                json!({ "items": [
+                    proposal_item("gluteus-medius", "left", 78),
+                    proposal_item("soleus", "left", 52),
+                    proposal_item("soleus", "right", 64),
+                ]}),
+            )],
+            vec![OutputItem::Message("先看看我这几条判断。".to_owned())],
+        ]);
+        let temp = TempStore::new("agent-propose");
+        let store = temp.store();
+        let conversation = store.create_conversation(1).expect("会话");
+        let mut host = StoreHost::new(store, conversation.id, 100);
+        let outcome =
+            futures_join(|| run_turn(&model, &mut host, vec![Input::user("蹲不下去")], 6)).expect("跑完");
+
+        // 结果里告诉模型：卡生成了，等用户勾。
+        let output = match &outcome.items[1] {
+            StoredItem::FunctionCallOutput { output, .. } => output.clone(),
+            other => panic!("应该是工具结果，收到 {other:?}"),
+        };
+        assert!(output.contains("\"proposal\":1"), "{output}");
+        assert!(output.contains("\"default_selected\":false"), "低置信度默认不勾：{output}");
+
+        // 一张卡、三项、一条判定都没写。
+        let pending = store
+            .pending_proposal(conversation.id)
+            .expect("读")
+            .expect("有一张");
+        assert_eq!(pending.items.len(), 3);
+        assert!(store.findings().expect("判定").is_empty());
+        assert!(store.evidence_log().expect("依据").is_empty());
+    }
+
+    #[test]
+    fn proposing_again_while_a_card_is_pending_is_refused() {
+        let temp = TempStore::new("agent-propose-pending");
+        let store = temp.store();
+        let conversation = store.create_conversation(1).expect("会话");
+        let mut host = StoreHost::new(store, conversation.id, 100);
+        let first = host.call(
+            PROPOSE_FINDINGS,
+            &json!({ "items": [proposal_item("soleus", "left", 70)] }).to_string(),
+        );
+        assert!(first.contains("\"ok\":true"), "{first}");
+
+        let second = host.call(
+            PROPOSE_FINDINGS,
+            &json!({ "items": [proposal_item("soleus", "right", 70)] }).to_string(),
+        );
+        assert!(second.contains("pending_proposal"), "{second}");
+        assert!(second.contains("还有 1 项"), "告诉它卡在哪：{second}");
+    }
+
+    #[test]
+    fn more_than_eight_items_is_refused_with_an_instruction_to_split() {
+        let temp = TempStore::new("agent-propose-too-many");
+        let store = temp.store();
+        let conversation = store.create_conversation(1).expect("会话");
+        let mut host = StoreHost::new(store, conversation.id, 100);
+        let items: Vec<serde_json::Value> = (0..9)
+            .map(|_| proposal_item("soleus", "left", 70))
+            .collect();
+        let output = host.call(PROPOSE_FINDINGS, &json!({ "items": items }).to_string());
+        assert!(output.contains("too_many_items"), "{output}");
+        assert!(output.contains("分几轮"), "给出下一步：{output}");
+        assert!(store.proposals(conversation.id).expect("列表").is_empty());
     }
 
     #[test]

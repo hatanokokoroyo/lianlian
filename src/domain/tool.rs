@@ -25,6 +25,7 @@ pub const SECTION_PREVIEW_CHARS: usize = 200;
 pub const SEARCH_EVIDENCE: &str = "search_evidence";
 pub const RECORD_FINDING: &str = "record_finding";
 pub const CORRECT_FINDING: &str = "correct_finding";
+pub const PROPOSE_FINDINGS: &str = "propose_findings";
 
 /// 一次检索的条件。
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -174,6 +175,42 @@ impl RecordArgs {
             },
             evidence,
         })
+    }
+}
+
+/// `propose_findings` 的参数：一次想改的多条（1–8）。
+#[derive(Debug, Clone, PartialEq)]
+pub struct ProposeArgs {
+    pub items: Vec<super::ProposalItem>,
+}
+
+impl ProposeArgs {
+    /// 从工具参数解析：每项都按 `record_finding` 的规则解析，再装进卡里。
+    pub fn parse(
+        args: &Value,
+        conversation: Option<super::ConversationId>,
+        at: Timestamp,
+    ) -> Result<ProposeArgs, ToolError> {
+        let items = args
+            .get("items")
+            .and_then(Value::as_array)
+            .ok_or_else(|| {
+                ToolError::invalid_arguments(
+                    "缺少 items（要改的那几条，1–8 项，每项和 record_finding 一样）。".to_owned(),
+                )
+            })?;
+        if items.len() > super::proposal::MAX_ITEMS {
+            return Err(ToolError::TooManyItems {
+                count: items.len(),
+                max: super::proposal::MAX_ITEMS,
+            });
+        }
+        let mut parsed = Vec::with_capacity(items.len());
+        for item in items {
+            let args = RecordArgs::parse(item, conversation, at)?;
+            parsed.push(super::ProposalItem::new(args.draft, args.evidence));
+        }
+        Ok(ProposeArgs { items: parsed })
     }
 }
 
@@ -387,6 +424,10 @@ pub enum ToolError {
     UnknownTool(String),
     /// 目标判定不存在。
     UnknownFinding(u64),
+    /// 一张卡超过 8 项。
+    TooManyItems { count: usize, max: usize },
+    /// 上一张卡还没审完，不能再开一张。
+    PendingProposal { items: usize },
     /// 本地库出错（不是模型的错，但要让它知道这次没写成）。
     Storage(String),
     /// 域规则拒绝（部位、侧别、四段缺段……）。
@@ -407,6 +448,8 @@ impl ToolError {
             ToolError::InvalidArguments(_) => "invalid_arguments",
             ToolError::UnknownTool(_) => "unknown_tool",
             ToolError::UnknownFinding(_) => "unknown_finding",
+            ToolError::TooManyItems { .. } => "too_many_items",
+            ToolError::PendingProposal { .. } => "pending_proposal",
             ToolError::Storage(_) => "storage_error",
             ToolError::Domain(super::DomainError::EmptyEvidenceSection(_)) => "missing_evidence",
             ToolError::Domain(_) => "invalid_finding",
@@ -425,9 +468,15 @@ impl ToolError {
             ),
             ToolError::InvalidArguments(message) => message.clone(),
             ToolError::UnknownTool(name) => format!(
-                "没有叫 `{name}` 的工具；可用的是 {SEARCH_EVIDENCE} / {RECORD_FINDING} / {CORRECT_FINDING}。"
+                "没有叫 `{name}` 的工具；可用的是 {SEARCH_EVIDENCE} / {RECORD_FINDING} / {CORRECT_FINDING} / {PROPOSE_FINDINGS}。"
             ),
             ToolError::UnknownFinding(id) => format!("找不到编号 {id} 的判定；先查档案再改。"),
+            ToolError::TooManyItems { count, max } => format!(
+                "一张卡最多 {max} 项，收到 {count} 项；分几轮提。"
+            ),
+            ToolError::PendingProposal { items } => format!(
+                "上一张卡还有 {items} 项等用户审；先等用户处理完，别再开新卡。"
+            ),
             ToolError::Storage(message) => format!("本地库出错，这次没写成：{message}"),
             ToolError::Domain(error) => error.to_string(),
         }
@@ -447,6 +496,12 @@ impl ToolError {
             }
             ToolError::UnknownTool(_) => "只能用工具列表里有的工具。".to_owned(),
             ToolError::UnknownFinding(_) => "先用 search_evidence 查到那条判定的编号。".to_owned(),
+            ToolError::TooManyItems { .. } => {
+                "先提最要紧的 8 项（或更少）；剩下的等这一轮审完再说。".to_owned()
+            }
+            ToolError::PendingProposal { .. } => {
+                "用一句话告诉用户卡在哪，等他勾；不要重新提一遍。".to_owned()
+            }
             ToolError::Storage(_) => "把错误说给用户听，别假装写成功了；用户可以重试。".to_owned(),
             ToolError::Domain(super::DomainError::EmptyEvidenceSection(section)) => {
                 format!("把「{section}」写出来；这条依据没写清就不该落库。")

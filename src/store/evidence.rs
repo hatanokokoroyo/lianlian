@@ -167,7 +167,7 @@ impl Store {
         json.map(|json| from_json(&json)).transpose()
     }
 
-    fn next_evidence_id(&self) -> Result<u64, StoreError> {
+    pub(crate) fn next_evidence_id(&self) -> Result<u64, StoreError> {
         Ok(self
             .meta("next_evidence_id")?
             .and_then(|value| value.parse().ok())

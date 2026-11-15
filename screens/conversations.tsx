@@ -4,10 +4,25 @@
 // 消息列表用 `List`（长会话靠虚拟化滚动），输入条固定在下沿。
 import { Image, List, resource, signal, Text, token, View } from "nsh";
 import { Input } from "nsh/base";
-import { Conversations, Photos } from "lianlian/native";
-import type { ChatErrorView, ConversationView, MessageView } from "lianlian/native";
+import { Conversations, Photos, Proposals } from "lianlian/native";
+import type {
+  ChatErrorView,
+  ConversationView,
+  MessageView,
+  ProposalItemView,
+  ProposalView,
+} from "lianlian/native";
 
-import { Card, ConfirmRow, Note, PrimaryButton, ScreenHeader, SectionLabel, TextButton } from "../ui/parts";
+import {
+  Card,
+  ConfirmRow,
+  Note,
+  PrimaryButton,
+  ScreenHeader,
+  SectionLabel,
+  TextButton,
+  TextField,
+} from "../ui/parts";
 
 /** 相对时间：今天 / 昨天 / N 天前 / 月-日。 */
 function relativeDay(at: number): string {
@@ -131,6 +146,53 @@ function Chat(props: {
   /** 点开看大图的那一张。 */
   const preview = signal<string | null>(null);
   const photoError = signal<string | null>(null);
+  const proposalError = signal<string | null>(null);
+
+  const acceptProposal = async (selected: number[]) => {
+    const proposal = detail()?.pendingProposal;
+    if (!proposal) {
+      return;
+    }
+    busy.set(true);
+    proposalError.set(null);
+    const error = await Proposals.accept(props.id, proposal.id, selected);
+    busy.set(false);
+    if (error) {
+      proposalError.set(error);
+    }
+    detail.refetch();
+    props.onChanged();
+  };
+
+  const rejectItem = async (index: number, reason: string) => {
+    const proposal = detail()?.pendingProposal;
+    if (!proposal) {
+      return;
+    }
+    busy.set(true);
+    proposalError.set(null);
+    failure.set(null);
+    // 拒绝会自动发起一轮（#10）：模型必须在下一轮给出下一步。
+    const result = await Proposals.reject(props.id, proposal.id, index, reason);
+    busy.set(false);
+    if (result.error) {
+      failure.set(result.error);
+    }
+    detail.refetch();
+    props.onChanged();
+  };
+
+  const undoProposal = async (proposalId: number, reason: string) => {
+    busy.set(true);
+    proposalError.set(null);
+    const error = await Proposals.undo(proposalId, reason);
+    busy.set(false);
+    if (error) {
+      proposalError.set(error);
+    }
+    detail.refetch();
+    props.onChanged();
+  };
 
   const pick = async () => {
     photoError.set(null);
@@ -262,6 +324,31 @@ function Chat(props: {
             )}
           </List>
 
+          {proposalError() ? (
+            <View style={{ paddingHorizontal: 16, paddingBottom: 6 }}>
+              <Card testID="proposal-error">
+                <Note tone="error" text={proposalError()!} />
+              </Card>
+            </View>
+          ) : null}
+
+          {detail()?.pendingProposal ? (
+            <ProposalCard
+              proposal={detail()!.pendingProposal!}
+              busy={busy()}
+              onAccept={acceptProposal}
+              onReject={rejectItem}
+            />
+          ) : null}
+
+          {(detail()?.acceptedProposals ?? []).map((proposal) => (
+            <AcceptedProposal
+              proposal={proposal}
+              busy={busy()}
+              onUndo={(reason) => undoProposal(proposal.id, reason)}
+            />
+          ))}
+
           {detail()?.notice ? (
             <View style={{ paddingHorizontal: 16, paddingBottom: 6 }}>
               <Card testID="conv-send-notice">
@@ -361,6 +448,235 @@ function Chat(props: {
           </View>
         </View>
       )}
+    </View>
+  );
+}
+
+/** 一项的勾选圆圈：实心=已勾。 */
+function CheckBubble(props: { checked: boolean }) {
+  return (
+    <View
+      style={{
+        width: 20,
+        height: 20,
+        borderRadius: 10,
+        borderWidth: props.checked ? 0 : 1,
+        borderColor: token("muted-foreground"),
+        backgroundColor: props.checked ? token("primary") : token("card"),
+      }}
+    />
+  );
+}
+
+/** 提议卡：默认勾选按置信度，逐项可展开看依据，接受 / 拒绝 / 撤销。 */
+function ProposalCard(props: {
+  proposal: ProposalView;
+  busy: boolean;
+  onAccept: (selected: number[]) => void;
+  onReject: (index: number, reason: string) => void;
+}) {
+  const selected = signal<number[] | null>(null);
+  const expanded = signal<number[]>([]);
+  const rejecting = signal<number | null>(null);
+  const rejectReason = signal("");
+  const undoOpen = signal(false);
+  const undoReason = signal("");
+
+  const defaults = () =>
+    props.proposal.items
+      .filter((item) => item.selectedByDefault && item.state === "pending")
+      .map((item) => item.index);
+  const current = () => selected() ?? defaults();
+  const checked = (item: ProposalItemView) => current().includes(item.index);
+  const toggle = (item: ProposalItemView) => {
+    const next = current().filter((index) => index !== item.index);
+    if (!checked(item)) {
+      next.push(item.index);
+    }
+    selected.set(next.sort((a, b) => a - b));
+  };
+
+  const pending = props.proposal.items.filter((item) => item.state === "pending");
+
+  return (
+    <View style={{ paddingHorizontal: 16, paddingBottom: 8 }}>
+      <Card testID="proposal-card">
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+          <Text style={{ flex: 1, fontSize: 13, fontWeight: "bold", color: token("foreground") }}>
+            它想改这 {props.proposal.items.length} 处
+          </Text>
+          <SectionLabel text="逐项审" />
+        </View>
+
+        {props.proposal.items.map((item) => {
+          const open = expanded().includes(item.index);
+          const isRejecting = rejecting() === item.index;
+          const decided = item.state !== "pending";
+          return (
+            <View style={{ gap: 6 }}>
+              <View
+                testID={`proposal-item-${item.index}`}
+                role="button"
+                accessibilityLabel={`${item.siteZh}${item.sideZh ?? ""}`}
+                onPress={() => {
+                  if (!decided) {
+                    toggle(item);
+                  }
+                }}
+                style={{ flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 4 }}
+              >
+                <CheckBubble checked={decided ? item.state === "accepted" : checked(item)} />
+                <View style={{ flex: 1, gap: 2 }}>
+                  <Text style={{ fontSize: 13, color: token("foreground") }}>
+                    {item.siteZh}
+                    {item.sideZh ?? ""}：{item.values}
+                  </Text>
+                  <SectionLabel
+                    text={`置信度 ${Math.round(item.confidence)}${item.lowConfidence ? " · 低置信度" : ""}${
+                      item.state === "rejected" ? " · 已拒绝" : item.state === "accepted" ? " · 已接受" : ""
+                    }`}
+                  />
+                </View>
+                <TextButton
+                  testID={`proposal-evidence-${item.index}`}
+                  label={open ? "收起依据" : "看依据"}
+                  onPress={() =>
+                    expanded.set(
+                      open
+                        ? expanded().filter((index) => index !== item.index)
+                        : [...expanded(), item.index],
+                    )
+                  }
+                />
+              </View>
+
+              {open ? (
+                <View style={{ paddingLeft: 30, gap: 4 }}>
+                  {item.evidence.map((section) => (
+                    <Text style={{ fontSize: 11, lineHeight: 16, color: token("muted-foreground") }}>
+                      {section.name}：{section.text}
+                    </Text>
+                  ))}
+                </View>
+              ) : null}
+
+              {!decided && !isRejecting ? (
+                <View style={{ flexDirection: "row", paddingLeft: 30 }}>
+                  <TextButton
+                    testID={`reject-item-${item.index}`}
+                    label="拒绝这一项"
+                    onPress={() => {
+                      rejecting.set(item.index);
+                      rejectReason.set("");
+                    }}
+                  />
+                </View>
+              ) : null}
+
+              {isRejecting ? (
+                <View style={{ paddingLeft: 30, gap: 6 }}>
+                  <Input
+                    testID="reject-reason"
+                    value={rejectReason()}
+                    multiline
+                    placeholder="为什么不对？（可选，会作为证据留下）"
+                    onChange={(event) => rejectReason.set(event.value)}
+                    style={{
+                      backgroundColor: token("muted"),
+                      borderRadius: token("radius"),
+                      paddingHorizontal: 12,
+                      paddingVertical: 8,
+                      fontSize: 12,
+                      color: token("foreground"),
+                    }}
+                  />
+                  <View style={{ flexDirection: "row", gap: 12 }}>
+                    <PrimaryButton
+                      testID="reject-proposal"
+                      label="拒绝这一项"
+                      disabled={props.busy}
+                      onPress={() => {
+                        const index = rejecting();
+                        if (index !== null) {
+                          rejecting.set(null);
+                          props.onReject(index, rejectReason());
+                        }
+                      }}
+                    />
+                    <TextButton
+                      testID="cancel-reject"
+                      label="取消"
+                      onPress={() => rejecting.set(null)}
+                    />
+                  </View>
+                </View>
+              ) : null}
+            </View>
+          );
+        })}
+
+        {pending.length > 0 ? (
+          <PrimaryButton
+            testID="accept-proposal"
+            label={
+              current().length === 0
+                ? "接受选中"
+                : current().length === pending.length
+                  ? "全部接受"
+                  : `接受选中 ${current().length} 项`
+            }
+            disabled={props.busy || current().length === 0}
+            onPress={() => props.onAccept(current())}
+          />
+        ) : null}
+      </Card>
+    </View>
+  );
+}
+
+/** 已应用的卡：一句摘要 + 撤销。 */
+function AcceptedProposal(props: {
+  proposal: ProposalView;
+  busy: boolean;
+  onUndo: (reason: string) => void;
+}) {
+  const open = signal(false);
+  const reason = signal("");
+  const accepted = props.proposal.items.filter((item) => item.state === "accepted");
+  return (
+    <View style={{ paddingHorizontal: 16, paddingBottom: 8 }}>
+      <Card testID={`accepted-proposal-${props.proposal.id}`}>
+        <Text style={{ fontSize: 12, color: token("foreground") }}>
+          已写进档案 {accepted.length} 项：
+          {accepted.map((item) => `${item.siteZh}${item.sideZh ?? ""}`).join("、")}
+        </Text>
+        {open() ? (
+          <View style={{ gap: 6 }}>
+            <TextField
+              testID="undo-reason"
+              value={reason()}
+              onChange={(value: string) => reason.set(value)}
+              placeholder="错在哪？（必须写，历史不会删）"
+            />
+            <View style={{ flexDirection: "row", gap: 12 }}>
+              <PrimaryButton
+                testID="undo-confirm"
+                label="撤销"
+                disabled={props.busy || reason().trim() === ""}
+                onPress={() => {
+                  open.set(false);
+                  props.onUndo(reason());
+                }}
+              />
+              <TextButton testID="cancel-undo" label="算了" onPress={() => open.set(false)} />
+            </View>
+          </View>
+        ) : (
+          <View style={{ flexDirection: "row" }}>
+            <TextButton testID="undo" label="撤销这一批" onPress={() => open.set(true)} />
+          </View>
+        )}
+      </Card>
     </View>
   );
 }

@@ -12,6 +12,7 @@ pub mod item;
 pub mod measurement;
 pub mod photo;
 pub mod projection;
+pub mod proposal;
 pub mod tool;
 pub mod training;
 
@@ -28,6 +29,9 @@ pub use measurement::{
 };
 #[allow(unused_imports)]
 pub use photo::{Photo, PhotoId};
+pub use proposal::{
+    ItemState, Proposal, ProposalId, ProposalItem, ProposalStatus,
+};
 pub use projection::{Aggregate, Projection, SiteState};
 #[allow(unused_imports)]
 pub use training::{Place, Readiness, TrainingContext, TrainingField};
@@ -71,6 +75,14 @@ pub enum DomainError {
     TooManyPhotos(usize),
     /// agent 不发表情……不，不发表照片。
     SideForbiddenPhotos,
+    /// 一张提议卡一项都没有。
+    EmptyProposal,
+    /// 一张提议卡超过 8 项（要分轮）。
+    TooManyProposalItems(usize),
+    /// 这张提议已经处理过了。
+    ProposalNotPending(ProposalId),
+    /// 勾选的项里没有这个编号。
+    UnknownProposalItem(usize),
     /// 找不到这个会话。
     UnknownConversation(u64),
     /// 同一条目被撤回了两次。
@@ -155,6 +167,23 @@ impl fmt::Display for DomainError {
             DomainError::SideForbiddenPhotos => {
                 write!(f, "只有用户消息能带照片；agent 的回复是文字。")
             }
+            DomainError::EmptyProposal => write!(
+                f,
+                "一张提议卡至少要有一项；没东西要改就直接说话，不用开卡。"
+            ),
+            DomainError::TooManyProposalItems(count) => write!(
+                f,
+                "一张卡最多 8 项，收到 {count} 项；分成几轮提，别让用户面对一张审不完的清单。"
+            ),
+            DomainError::ProposalNotPending(id) => write!(
+                f,
+                "编号 {} 的提议已经处理过了，不能再改；等用户把它们看完。",
+                id.0
+            ),
+            DomainError::UnknownProposalItem(index) => write!(
+                f,
+                "这张卡没有第 {index} 项；看一遍卡的项数再勾。"
+            ),
             DomainError::NotAnImage(mime) => write!(
                 f,
                 "`{mime}` 不是图片；照片只收选择器给的 image/* 文件。"

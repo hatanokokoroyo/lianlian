@@ -260,9 +260,57 @@ pub struct ConversationDetailView {
     pub title: String,
     /// 按时间升序；界面从下往上读。
     pub messages: Vec<MessageView>,
-    /// 这个会话的说明（目前只有「自动裁剪过历史」）；没有就是 `null`。
+    /// 这个会话的说明（裁剪过历史 / 撞上工具轮次上限）；没有就是 `null`。
     pub notice: Option<String>,
+    /// 等用户审的那张提议卡；没有就是 `null`。
+    pub pending_proposal: Option<ProposalView>,
+    /// 已应用的提议（可撤销）。
+    pub accepted_proposals: Vec<ProposalView>,
     pub error: Option<String>,
+}
+
+/// 依据日志的一段。
+#[derive(Debug, Clone, PartialEq, JsObject)]
+pub struct EvidenceSectionView {
+    pub name: String,
+    pub text: String,
+}
+
+/// 提议卡里的一项（界面照着它渲染一行）。
+#[derive(Debug, Clone, PartialEq, JsObject)]
+pub struct ProposalItemView {
+    /// 第几项（0 起）；接受、拒绝时用它。
+    pub index: f64,
+    /// 部位 id。
+    pub site: String,
+    /// 部位中文名。
+    pub site_zh: String,
+    /// 侧别（`left` / `right`），中线结构是 `null`。
+    pub side: Option<String>,
+    /// 侧别中文（左 / 右）。
+    pub side_zh: Option<String>,
+    /// 五轴取值的可读串（「张力 弱；活动度 受限」）。
+    pub values: String,
+    /// 置信度 0–100。
+    pub confidence: f64,
+    /// 低于阈值：标题旁标「低置信度」。
+    pub low_confidence: bool,
+    /// 默认勾选吗。
+    pub selected_by_default: bool,
+    /// `pending` / `accepted` / `rejected`。
+    pub state: String,
+    /// 四段依据（可展开）。
+    pub evidence: Vec<EvidenceSectionView>,
+}
+
+/// 一张提议卡。
+#[derive(Debug, Clone, PartialEq, JsObject)]
+pub struct ProposalView {
+    pub id: f64,
+    pub at: f64,
+    /// `pending` / `accepted` / `dismissed`。
+    pub status: String,
+    pub items: Vec<ProposalItemView>,
 }
 
 /// 一轮对话的失败，按「出路」分类（ADR-0001：错误处理自己来）。
@@ -827,11 +875,30 @@ fn conversation_detail_view(
                     Vec::new()
                 }
             };
+            let (pending_proposal, accepted_proposals) = match store.proposals(conversation.id) {
+                Ok(proposals) => (
+                    proposals
+                        .iter()
+                        .find(|proposal| proposal.is_pending())
+                        .map(proposal_view),
+                    proposals
+                        .iter()
+                        .filter(|proposal| !proposal.is_pending())
+                        .map(proposal_view)
+                        .collect(),
+                ),
+                Err(error) => {
+                    errors.push(error.to_string());
+                    (None, Vec::new())
+                }
+            };
             ConversationDetailView {
                 id,
                 title: conversation.title.clone(),
                 messages: messages.iter().map(message_view).collect(),
                 notice: conversation.notice.clone(),
+                pending_proposal,
+                accepted_proposals,
                 error: join_errors(errors),
             }
         }
@@ -845,7 +912,156 @@ fn empty_detail_view(id: f64, error: Option<String>) -> ConversationDetailView {
         title: "新会话".to_owned(),
         messages: Vec::new(),
         notice: None,
+        pending_proposal: None,
+        accepted_proposals: Vec::new(),
         error,
+    }
+}
+
+/// 一张卡在界面上的样子。
+fn proposal_view(proposal: &crate::domain::Proposal) -> ProposalView {
+    ProposalView {
+        id: proposal.id.0 as f64,
+        at: proposal.at as f64,
+        status: proposal.status.key().to_owned(),
+        items: proposal
+            .items
+            .iter()
+            .enumerate()
+            .map(|(index, item)| {
+                let site = crate::anatomy::site(&item.draft.site);
+                ProposalItemView {
+                    index: index as f64,
+                    site: item.draft.site.clone(),
+                    site_zh: site.map(|site| site.zh.to_owned()).unwrap_or_else(|| {
+                        item.draft.site.clone()
+                    }),
+                    side: item.draft.side.map(|side| side.key().to_owned()),
+                    side_zh: item.draft.side.map(|side| side.zh().to_owned()),
+                    values: axis_values_text(&item.draft.values),
+                    confidence: f64::from(item.draft.confidence),
+                    low_confidence: item.draft.confidence < crate::domain::proposal::LOW_CONFIDENCE,
+                    selected_by_default: item.default_selected(),
+                    state: match item.state {
+                        crate::domain::ItemState::Pending => "pending",
+                        crate::domain::ItemState::Accepted => "accepted",
+                        crate::domain::ItemState::Rejected => "rejected",
+                    }
+                    .to_owned(),
+                    evidence: item
+                        .evidence
+                        .sections()
+                        .iter()
+                        .map(|(name, text)| EvidenceSectionView {
+                            name: (*name).to_owned(),
+                            text: (*text).to_owned(),
+                        })
+                        .collect(),
+                }
+            })
+            .collect(),
+    }
+}
+
+/// 五轴取值的可读串：`张力 弱；活动度 受限`。
+fn axis_values_text(values: &crate::domain::AxisValues) -> String {
+    values
+        .measured()
+        .map(|axis| {
+            format!(
+                "{} {}",
+                axis.zh(),
+                values.get(axis).expect("measured 说有值").zh()
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("；")
+}
+
+/// 提议卡的三个动作：接受选中、拒绝一项、撤销一次接受。
+///
+/// 拒绝会**自动发起一轮**（`#10` 的决策）：把「我拒绝了第 N 项（理由：…）」作为
+/// 真实用户消息落库，模型必须在下一轮给出下一步。
+#[module]
+pub struct Proposals;
+
+#[module]
+impl Proposals {
+    /// 接受选中的项：落判定 + 依据，卡变已应用。
+    pub async fn accept(_conversation: f64, proposal: f64, selected: Vec<f64>) -> Option<String> {
+        let store = match Store::open_app() {
+            Ok(store) => store,
+            Err(error) => return Some(error.to_string()),
+        };
+        let indices: Vec<usize> = selected
+            .into_iter()
+            .filter(|index| index.is_finite() && *index >= 0.0)
+            .map(|index| index as usize)
+            .collect();
+        if indices.is_empty() {
+            return Some("至少勾一项再接受；一项都不要就「拒绝」。".to_owned());
+        }
+        match store.accept_proposal(
+            crate::domain::ProposalId(proposal as u64),
+            &indices,
+            now_ms(),
+        ) {
+            // 接受改的是档案，不是会话正文：列表顺序不动。
+            Ok(_) => None,
+            Err(error) => Some(error.to_string()),
+        }
+    }
+
+    /// 拒绝一项并说明理由：落 `rejection` 证据，然后把这句话作为用户消息发出去。
+    pub async fn reject(
+        conversation: f64,
+        proposal: f64,
+        index: f64,
+        reason: String,
+    ) -> SendResultView {
+        if !index.is_finite() || index < 0.0 {
+            return failure(GatewayError::Request("项编号不合法。".to_owned()));
+        }
+        let index = index as usize;
+        // 写完就关库：redb 一个文件同时只容一个写句柄，紧接着的 `send` 还要开。
+        let rejected = {
+            let store = match Store::open_app() {
+                Ok(store) => store,
+                Err(error) => return failure(GatewayError::Config(error.to_string())),
+            };
+            store.reject_item(
+                crate::domain::ProposalId(proposal as u64),
+                index,
+                &reason,
+                now_ms(),
+            )
+        };
+        if let Err(error) = rejected {
+            return failure(GatewayError::Request(error.to_string()));
+        }
+        let reason = reason.trim();
+        let text = if reason.is_empty() {
+            format!("我拒绝了第 {} 项。", index + 1)
+        } else {
+            format!("我拒绝了第 {} 项，理由：{reason}", index + 1)
+        };
+        Conversations::send(conversation, text, None).await
+    }
+
+    /// 撤销一次接受：逐项撤回，卡回到待确认（可以重新勾）。
+    pub async fn undo(proposal: f64, reason: String) -> Option<String> {
+        if reason.trim().is_empty() {
+            return Some("撤销要写一句错在哪：历史条目不会删，理由会留在依据日志里。".to_owned());
+        }
+        save(&Store::open_app(), |store| {
+            store
+                .undo_proposal(
+                    crate::domain::ProposalId(proposal as u64),
+                    &reason,
+                    now_ms(),
+                )
+                .map(|_| ())
+        })
     }
 }
 

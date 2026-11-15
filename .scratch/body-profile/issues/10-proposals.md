@@ -1,5 +1,5 @@
 GitHub: #10
-Status: ready-for-agent
+Status: resolved
 Type: task
 Blocked by: 2, 6
 
@@ -9,14 +9,22 @@ Blocked by: 2, 6
 
 **Blocked by:** #2, #6
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] 一轮返回 3 条判定时只出现一张卡，而不是三张
-- [ ] 每项可单独勾选/取消，低置信度默认不勾，可展开看依据
-- [ ] "全部接受"与"接受选中"结果一致且幂等
-- [ ] "拒绝并说明"可输入理由，理由作为证据入库且不产生 Finding
-- [ ] 一次超过 8 项时被拒，模型被告知分轮
-- [ ] 撤销后该条不再出现在档案投影里，历史可查
+- [x] 一轮返回 3 条判定时只出现一张卡，而不是三张
+- [x] 每项可单独勾选/取消，低置信度默认不勾，可展开看依据
+- [x] "全部接受"与"接受选中"结果一致且幂等
+- [x] "拒绝并说明"可输入理由，理由作为证据入库且不产生 Finding
+- [x] 一次超过 8 项时被拒，模型被告知分轮
+- [x] 撤销后该条不再出现在档案投影里，历史可查
+
+## 交付记录（#10）
+
+- `domain/proposal.rs`（卡与项、阈值 60、1–8 项校验）、`store/proposals.rs`（开卡 / 待审查询 / 接受 / 拒绝一项 / 撤销，各自单事务）、`domain::tool::ProposeArgs`、`llm::agent` 的 `propose` 分支。
+- `api::Proposals`：`accept(conversation, proposal, selected)`、`reject(conversation, proposal, index, reason)`（写库后**关库**再发起新一轮，redb 一个文件同时只容一个写句柄）、`undo(proposal, reason)`。
+- 会话详情多带 `pending_proposal` 与 `accepted_proposals`；界面是一张卡（逐项勾选、低置信度标出来、展开四段依据、接受选中 / 逐项拒绝并说明 / 已应用摘要 + 撤销）。
+- 测试：`cargo test` 175 项、`nsh test` 186 项；新增 `Proposals.test.tsx` 覆盖「一轮 3 项一张卡」「低置信度默认不勾」「接受→已应用→撤销回到待确认」「拒绝→证据 + 自动发起下一轮」。
+- schema 版本 9 → 10。
 
 ## 实施要点（已确认，等 #9、#8 落地后开工）
 

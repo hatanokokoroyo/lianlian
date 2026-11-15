@@ -5,7 +5,7 @@
 //!
 //! 表：`meta`（库自己的标量）、`profile`（基本属性 / 训练条件 / 引导标记）、
 //! `findings` 与 `retracts`（档案条目与撤回）、`evidence`（依据日志，ADR-0005）、
-//! `photos`（照片元数据，文件在私有目录）、
+//! `photos`（照片元数据，文件在私有目录）、`proposals`（档案更新提议，`#10`）、
 //! `measurements`（身高体重的测量序列）、`conversations` 与 `messages`（会话与消息）、
 //! `settings`（本机设置，含 API key）。
 
@@ -15,6 +15,7 @@ pub mod findings;
 pub mod measurements;
 pub mod photos;
 pub mod profile;
+pub mod proposals;
 pub mod settings;
 
 use std::fmt;
@@ -26,7 +27,7 @@ use redb::{Database, ReadableDatabase, TableDefinition};
 use crate::domain::DomainError;
 
 /// 库结构与值格式的版本；改表或改值的编码都要 +1。
-pub const SCHEMA_VERSION: &str = "9";
+pub const SCHEMA_VERSION: &str = "10";
 
 /// 库自己的标量：`schema_version`、`next_finding_id`。
 pub(crate) const META: TableDefinition<&str, &str> = TableDefinition::new("meta");
@@ -165,6 +166,7 @@ fn initialize(db: &Database) -> Result<(), StoreError> {
     write.open_table(findings::RETRACTS).map_err(db_error)?;
     write.open_table(evidence::EVIDENCE).map_err(db_error)?;
     write.open_table(photos::PHOTOS).map_err(db_error)?;
+    write.open_table(proposals::PROPOSALS).map_err(db_error)?;
     write
         .open_table(measurements::MEASUREMENTS)
         .map_err(db_error)?;
@@ -184,6 +186,7 @@ fn reset(db: &Database) -> Result<(), StoreError> {
     drop_table(&write, findings::RETRACTS)?;
     drop_table(&write, evidence::EVIDENCE)?;
     drop_table(&write, photos::PHOTOS)?;
+    drop_table(&write, proposals::PROPOSALS)?;
     drop_table(&write, measurements::MEASUREMENTS)?;
     write.commit().map_err(db_error)
 }

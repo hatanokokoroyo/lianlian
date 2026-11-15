@@ -152,7 +152,7 @@ v1 只有一种模式（深色）。全部值放在 `theme` 一节下，`light`/
 | 日历 | `tab-calendar` `day-{1..31}` `prev-month` `next-month` |
 | 档案 | `tab-profile` `site-{slug}` `evidence-source` `mark-resolved` `retract` `open-timeline` `open-measurements` `edit-training-context` `open-settings` `save-basics` `save-training` `profile-training` `profile-training-missing` `profile-error` `profile-saved` |
 | 会话 | `tab-conversations` `new-conversation` `conv-{slug}` `conv-menu` `archive-conv` `delete-conv` `message-input` `pick-photo` `photo-pending` `remove-photo` `photo-error` `message-photo-{id}` `photo-preview` `close-photo-preview` `send` `conv-actions` `undo` |
-| 提议 | `accept-proposal` `reject-proposal` `reject-reason` |
+| 提议 | `proposal-card` `proposal-item-{n}` `proposal-evidence-{n}` `reject-item-{n}` `reject-proposal` `reject-reason` `cancel-reject` `accept-proposal` `accepted-proposal-{id}` `undo` `undo-reason` `undo-confirm` `cancel-undo` `proposal-error` |
 | 体重 | `weight-chart` `add-measurement` `delete-measurement` |
 | 引导 | `onboarding-next` `onboarding-prev` `onboarding-step-3` `onboarding-error` |
 | 基本属性 | `basics-sex-{female\|male\|none}` `basics-age` `basics-height` `basics-weight` `condition-input` `condition-add` `condition-remove-{n}` |

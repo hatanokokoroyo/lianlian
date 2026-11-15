@@ -228,6 +228,125 @@
         "type": "object"
       },
       "type": "function"
+    },
+    {
+      "description": "一次想改多条，或把握不大时用：生成一张待审的卡（最多 8 项），用户逐项勾选、可以展开看依据。写进档案要等用户接受。",
+      "name": "propose_findings",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "description": "要改的几项，1–8 项，每项和 record_finding 的参数一样",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "confidence": {
+                  "description": "低于 60 的项默认不勾",
+                  "maximum": 100,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "evidence": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "reasoning": {
+                      "description": "推理：这两段怎么推出这条判定",
+                      "type": "string"
+                    },
+                    "test_and_feedback": {
+                      "description": "验证方案与反馈：让他做了什么、看到什么现象",
+                      "type": "string"
+                    },
+                    "uncertainty": {
+                      "description": "不确定之处：还没排除什么；没提到的段写「未涉及」",
+                      "type": "string"
+                    },
+                    "user_said": {
+                      "description": "用户说法要点：他自己的原话要点",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "user_said",
+                    "test_and_feedback",
+                    "reasoning",
+                    "uncertainty"
+                  ],
+                  "type": "object"
+                },
+                "side": {
+                  "enum": [
+                    "left",
+                    "right"
+                  ],
+                  "type": "string"
+                },
+                "site": {
+                  "description": "部位 id，必须在词表里",
+                  "type": "string"
+                },
+                "values": {
+                  "additionalProperties": false,
+                  "minProperties": 1,
+                  "properties": {
+                    "mobility": {
+                      "enum": [
+                        "limited",
+                        "normal"
+                      ],
+                      "type": "string"
+                    },
+                    "pain": {
+                      "maximum": 10,
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "stability": {
+                      "enum": [
+                        "poor",
+                        "normal"
+                      ],
+                      "type": "string"
+                    },
+                    "symmetry": {
+                      "enum": [
+                        "left-weak",
+                        "right-weak",
+                        "symmetric"
+                      ],
+                      "type": "string"
+                    },
+                    "tension": {
+                      "enum": [
+                        "weak",
+                        "normal",
+                        "tight"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              },
+              "required": [
+                "site",
+                "confidence",
+                "values",
+                "evidence"
+              ],
+              "type": "object"
+            },
+            "maxItems": 8,
+            "minItems": 1,
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "type": "object"
+      },
+      "type": "function"
     }
   ]
 }
