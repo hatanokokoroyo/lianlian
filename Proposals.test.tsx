@@ -83,18 +83,26 @@ test("提议卡：一张卡、默认不勾低置信度、接受后撤销回到�
   await app.waitFor("id:proposal-evidence-1");
   expect(app.texts().some((text) => text.includes("靠墙踝背屈"))).toBe(true);
 
-  // 接受选中：卡变成「已应用」，可以撤销。
+  // 接受选中：卡上剩下的项还能继续审（不是进摘要就消失了）。
   await app.press("id:accept-proposal");
-  await app.waitFor("id:accepted-proposal-1");
-  expect(app.texts().some((text) => text.includes("已写进档案 2 项"))).toBe(true);
-  expect(app.shows("id:proposal-card")).toBe(false);
+  await app.waitUntil(() =>
+    app.texts().some((text) => text.includes("已写进 2 项，还剩 1 项可审")),
+  );
+  expect(app.shows("id:accepted-proposal-1")).toBe(false);
 
-  // 撤销要写理由，撤销后卡回到待确认（可以重新勾）。
+  // 撤销要写理由，撤销后回到待确认（可以重新勾）。
   await app.press("id:undo");
   await app.waitFor("id:undo-reason");
   await app.type("id:undo-reason", "这两条记得不对");
   await app.press("id:undo-confirm");
   await app.waitFor("id:proposal-card");
+
+  // 继续勾剩下那项（低置信度，手动勾上），三项全部审完。
+  await app.press("id:proposal-item-1");
+  await app.press("id:accept-proposal");
+  await app.waitFor("id:accepted-proposal-1");
+  expect(app.texts().some((text) => text.includes("已写进档案 3 项"))).toBe(true);
+  expect(app.shows("id:proposal-card")).toBe(false);
 });
 
 // 拒绝一项：理由进证据，模型在下一轮给出下一步（不是一句「好的」）。

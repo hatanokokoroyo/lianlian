@@ -131,9 +131,93 @@ impl Proposal {
         })
     }
 
-    /// 还在等用户审吗。
+    /// 还在等用户审吗（整张卡的状态）。
     pub fn is_pending(&self) -> bool {
         self.status == ProposalStatus::Pending
+    }
+
+    /// 还有没审的项吗——**界面据此决定要不要把卡摆出来**。
+    ///
+    /// 接受了一部分之后，剩下的项仍然要能勾，所以「有卡可审」看的是项，不是整张
+    /// 卡的状态；被关闭的卡（全部拒绝）不再出现在这一列里。
+    pub fn has_pending_items(&self) -> bool {
+        self.status != ProposalStatus::Dismissed
+            && self
+                .items
+                .iter()
+                .any(|item| item.state == ItemState::Pending)
+    }
+
+    /// 已经落成判定的项数。
+    pub fn accepted_count(&self) -> usize {
+        self.items
+            .iter()
+            .filter(|item| item.state == ItemState::Accepted)
+            .count()
+    }
+
+    /// 校验一次勾选：排序去重，每一项都必须是待定的（已接受/已拒绝的不能再勾）。
+    pub fn selection(&self, selected: &[usize]) -> Result<Vec<usize>, DomainError> {
+        if selected.is_empty() {
+            return Err(DomainError::EmptyProposal);
+        }
+        let mut indices = selected.to_vec();
+        indices.sort_unstable();
+        indices.dedup();
+        for index in &indices {
+            match self.items.get(*index) {
+                Some(item) if item.state == ItemState::Pending => {}
+                _ => return Err(DomainError::UnknownProposalItem(*index)),
+            }
+        }
+        Ok(indices)
+    }
+
+    /// 记下一项落成的那条判定。
+    pub fn mark_accepted(&mut self, index: usize, finding: super::FindingId) {
+        if let Some(item) = self.items.get_mut(index) {
+            item.state = ItemState::Accepted;
+            item.accepted = Some(finding);
+        }
+    }
+
+    /// 收尾：这张卡已经应用（还有没审的项时也照样是「已应用」，界面按项渲染）。
+    pub fn mark_applied(&mut self, at: Timestamp) {
+        self.status = ProposalStatus::Accepted;
+        self.decided_at = Some(at);
+    }
+
+    /// 拒绝一项；全部拒完之后卡关闭。
+    pub fn reject(&mut self, index: usize, at: Timestamp) -> Result<(), DomainError> {
+        match self.items.get_mut(index) {
+            Some(item) if item.state == ItemState::Pending => item.state = ItemState::Rejected,
+            _ => return Err(DomainError::UnknownProposalItem(index)),
+        }
+        if self
+            .items
+            .iter()
+            .all(|item| item.state == ItemState::Rejected)
+        {
+            self.status = ProposalStatus::Dismissed;
+            self.decided_at = Some(at);
+        }
+        Ok(())
+    }
+
+    /// 撤销：已接受的项清回待定，卡回到待确认（至少得有一项被接受过）。
+    pub fn undo(&mut self) -> Result<(), DomainError> {
+        if self.accepted_count() == 0 {
+            return Err(DomainError::NothingAccepted(self.id));
+        }
+        for item in &mut self.items {
+            if item.state == ItemState::Accepted {
+                item.state = ItemState::Pending;
+                item.accepted = None;
+            }
+        }
+        self.status = ProposalStatus::Pending;
+        self.decided_at = None;
+        Ok(())
     }
 }
 
@@ -206,6 +290,87 @@ mod tests {
             Proposal::new(ProposalId(1), ConversationId(1), 100, vec![unknown]),
             Err(DomainError::UnknownSite("gluteus".to_owned()))
         );
+    }
+
+    #[test]
+    fn accepting_part_of_a_card_leaves_the_rest_auditable() {
+        let mut proposal = Proposal::new(
+            ProposalId(1),
+            ConversationId(1),
+            100,
+            vec![
+                item("soleus", Some(Side::Left), 70, 100),
+                item("soleus", Some(Side::Right), 70, 100),
+                item("gluteus-medius", Some(Side::Left), 70, 100),
+            ],
+        )
+        .expect("合法");
+
+        let chosen = proposal.selection(&[2, 0, 0]).expect("排序去重");
+        assert_eq!(chosen, vec![0, 2]);
+        for index in &chosen {
+            proposal.mark_accepted(*index, crate::domain::FindingId(*index as u64 + 1));
+        }
+        proposal.mark_applied(200);
+
+        assert_eq!(proposal.status, ProposalStatus::Accepted);
+        assert_eq!(proposal.accepted_count(), 2);
+        assert!(proposal.has_pending_items(), "第 2 项还等用户审");
+        // 已接受的项不能再勾，越界也不行。
+        assert_eq!(
+            proposal.selection(&[0]),
+            Err(DomainError::UnknownProposalItem(0))
+        );
+        assert_eq!(proposal.selection(&[9]), Err(DomainError::UnknownProposalItem(9)));
+        assert_eq!(proposal.selection(&[]), Err(DomainError::EmptyProposal));
+    }
+
+    #[test]
+    fn rejecting_every_item_closes_the_card_and_undo_needs_something_accepted() {
+        let mut proposal = Proposal::new(
+            ProposalId(1),
+            ConversationId(1),
+            100,
+            vec![
+                item("soleus", Some(Side::Left), 70, 100),
+                item("soleus", Some(Side::Right), 70, 100),
+            ],
+        )
+        .expect("合法");
+
+        proposal.reject(0, 200).expect("拒绝第一项");
+        assert!(proposal.has_pending_items());
+        proposal.reject(1, 210).expect("拒绝第二项");
+        assert_eq!(proposal.status, ProposalStatus::Dismissed);
+        assert!(!proposal.has_pending_items(), "关闭的卡不再摆出来");
+        assert_eq!(
+            proposal.reject(0, 220),
+            Err(DomainError::UnknownProposalItem(0))
+        );
+
+        assert_eq!(
+            proposal.undo(),
+            Err(DomainError::NothingAccepted(ProposalId(1)))
+        );
+    }
+
+    #[test]
+    fn undo_puts_accepted_items_back_to_pending() {
+        let mut proposal = Proposal::new(
+            ProposalId(1),
+            ConversationId(1),
+            100,
+            vec![item("soleus", Some(Side::Left), 70, 100)],
+        )
+        .expect("合法");
+        proposal.mark_accepted(0, crate::domain::FindingId(3));
+        proposal.mark_applied(200);
+
+        proposal.undo().expect("撤销");
+        assert_eq!(proposal.status, ProposalStatus::Pending);
+        assert_eq!(proposal.items[0].state, ItemState::Pending);
+        assert_eq!(proposal.items[0].accepted, None);
+        assert_eq!(proposal.decided_at, None);
     }
 
     #[test]

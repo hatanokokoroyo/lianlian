@@ -83,6 +83,8 @@ pub enum DomainError {
     ProposalNotPending(ProposalId),
     /// 这个会话已经有一张待审的卡（一次一张）。
     PendingProposalExists(ProposalId),
+    /// 这张卡没有已接受的项，没得撤销。
+    NothingAccepted(ProposalId),
     /// 勾选的项里没有这个编号。
     UnknownProposalItem(usize),
     /// 找不到这个会话。
@@ -176,6 +178,11 @@ impl fmt::Display for DomainError {
             DomainError::TooManyProposalItems(count) => write!(
                 f,
                 "一张卡最多 8 项，收到 {count} 项；分成几轮提，别让用户面对一张审不完的清单。"
+            ),
+            DomainError::NothingAccepted(id) => write!(
+                f,
+                "编号 {} 的提议还没有被接受的项，没有可撤销的东西。",
+                id.0
             ),
             DomainError::PendingProposalExists(id) => write!(
                 f,

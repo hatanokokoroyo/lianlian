@@ -338,6 +338,7 @@ function Chat(props: {
               busy={busy()}
               onAccept={acceptProposal}
               onReject={rejectItem}
+              onUndo={(reason) => undoProposal(detail()!.pendingProposal!.id, reason)}
             />
           ) : null}
 
@@ -474,6 +475,7 @@ function ProposalCard(props: {
   busy: boolean;
   onAccept: (selected: number[]) => void;
   onReject: (index: number, reason: string) => void;
+  onUndo: (reason: string) => void;
 }) {
   const selected = signal<number[] | null>(null);
   const expanded = signal<number[]>([]);
@@ -486,7 +488,11 @@ function ProposalCard(props: {
     props.proposal.items
       .filter((item) => item.selectedByDefault && item.state === "pending")
       .map((item) => item.index);
-  const current = () => selected() ?? defaults();
+  // 只有还待定的项才能勾：接受过之后，之前记住的勾选自然失效。
+  const current = () =>
+    (selected() ?? defaults()).filter(
+      (index) => props.proposal.items.find((item) => item.index === index)?.state === "pending",
+    );
   const checked = (item: ProposalItemView) => current().includes(item.index);
   const toggle = (item: ProposalItemView) => {
     const next = current().filter((index) => index !== item.index);
@@ -503,7 +509,9 @@ function ProposalCard(props: {
       <Card testID="proposal-card">
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
           <Text style={{ flex: 1, fontSize: 13, fontWeight: "bold", color: token("foreground") }}>
-            它想改这 {props.proposal.items.length} 处
+            {props.proposal.items.some((item) => item.state === "accepted")
+              ? `已写进 ${props.proposal.items.filter((item) => item.state === "accepted").length} 项，还剩 ${pending.length} 项可审`
+              : `它想改这 ${props.proposal.items.length} 处`}
           </Text>
           <SectionLabel text="逐项审" />
         </View>
@@ -628,6 +636,36 @@ function ProposalCard(props: {
             disabled={props.busy || current().length === 0}
             onPress={() => props.onAccept(current())}
           />
+        ) : null}
+
+        {/* 有接受过的项就还能撤销；撤销回到待确认，可以重新勾。 */}
+        {props.proposal.items.some((item) => item.state === "accepted") ? (
+          undoOpen() ? (
+            <View style={{ gap: 6 }}>
+              <TextField
+                testID="undo-reason"
+                value={undoReason()}
+                onChange={(value: string) => undoReason.set(value)}
+                placeholder="错在哪？（必须写，历史不会删）"
+              />
+              <View style={{ flexDirection: "row", gap: 12 }}>
+                <PrimaryButton
+                  testID="undo-confirm"
+                  label="撤销这一批"
+                  disabled={props.busy || undoReason().trim() === ""}
+                  onPress={() => {
+                    undoOpen.set(false);
+                    props.onUndo(undoReason());
+                  }}
+                />
+                <TextButton testID="cancel-undo" label="算了" onPress={() => undoOpen.set(false)} />
+              </View>
+            </View>
+          ) : (
+            <View style={{ flexDirection: "row" }}>
+              <TextButton testID="undo" label="撤销已接受的" onPress={() => undoOpen.set(true)} />
+            </View>
+          )
         ) : null}
       </Card>
     </View>

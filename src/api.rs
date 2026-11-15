@@ -905,14 +905,19 @@ fn conversation_detail_view(
             };
             let (pending_proposal, accepted_proposals) = match store.proposals(conversation.id) {
                 Ok(proposals) => (
+                    // 有没审的项就摆在卡里（接受过一部分的也一样）。
                     proposals
                         .iter()
-                        .find(|proposal| proposal.is_pending())
+                        .find(|proposal| proposal.has_pending_items())
                         .map(proposal_view),
-                    // 「已关闭」（全部拒绝）不渲染成已应用：它没有可撤销的东西。
+                    // 「已关闭」不渲染成已应用；还有待审项的卡留在卡里（能继续勾），
+                    // 只有审完了的才进摘要。
                     proposals
                         .iter()
-                        .filter(|proposal| proposal.status == crate::domain::ProposalStatus::Accepted)
+                        .filter(|proposal| {
+                            proposal.status == crate::domain::ProposalStatus::Accepted
+                                && !proposal.has_pending_items()
+                        })
                         .map(proposal_view)
                         .collect(),
                 ),

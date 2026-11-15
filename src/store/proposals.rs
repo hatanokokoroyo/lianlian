@@ -9,7 +9,7 @@ use redb::{ReadableDatabase, ReadableTable, TableDefinition};
 use super::{db_error, Store, StoreError};
 use crate::domain::{
     DomainError, Evidence, EvidenceDraft, EvidenceId, EvidenceKind, Finding, FindingId,
-    ItemState, Proposal, ProposalId, ProposalStatus, Retract, Timestamp,
+    Proposal, ProposalId, ProposalStatus, Retract, Timestamp,
 };
 
 /// 提议：编号 → Proposal 的 JSON。
@@ -51,7 +51,10 @@ impl Store {
         json.map(|json| from_json(&json)).transpose()
     }
 
-    /// 这个会话里还没审完的那张卡（一张会话同时最多一张）。
+    /// 这个会话里还有没审的项的卡（一张会话同时最多一张）。
+    ///
+    /// 接受了一部分之后剩下的项仍要能勾，所以看的是「有没有待定的项」，不是整张
+    /// 卡的状态；已关闭（全拒）的卡不算。
     pub fn pending_proposal(
         &self,
         conversation: crate::domain::ConversationId,
@@ -59,7 +62,7 @@ impl Store {
         Ok(self
             .proposals(conversation)?
             .into_iter()
-            .find(|proposal| proposal.is_pending()))
+            .find(|proposal| proposal.has_pending_items()))
     }
 
     /// 这个会话的全部提议，按（时间、编号）升序。
@@ -82,30 +85,17 @@ impl Store {
     }
 
     /// 接受选中的项：逐条落判定 + 依据日志，卡变成已应用（同一个事务）。
+    ///
+    /// 已经应用过的卡还能继续接受**待定**的项（用户先勾了两项、后来又勾了第三项），
+    /// 已接受/已拒绝的项不能再动。
     pub fn accept_proposal(
         &self,
         id: ProposalId,
         selected: &[usize],
         at: Timestamp,
     ) -> Result<(Proposal, Vec<Finding>), StoreError> {
-        let mut proposal = self.require_pending(id)?;
-        if selected.is_empty() {
-            return Err(StoreError::Domain(DomainError::EmptyProposal));
-        }
-        let mut indices = selected.to_vec();
-        indices.sort_unstable();
-        indices.dedup();
-        for index in &indices {
-            match proposal.items.get(*index) {
-                Some(item) if item.state == ItemState::Pending => {}
-                Some(_) => {
-                    return Err(StoreError::Domain(DomainError::UnknownProposalItem(*index)))
-                }
-                None => {
-                    return Err(StoreError::Domain(DomainError::UnknownProposalItem(*index)))
-                }
-            }
-        }
+        let mut proposal = self.require_open(id)?;
+        let indices = proposal.selection(selected)?;
 
         let mut findings = Vec::with_capacity(indices.len());
         let mut next_finding = self.next_finding_id()?;
@@ -113,10 +103,11 @@ impl Store {
 
         let write = self.db().begin_write().map_err(db_error)?;
         {
-            let mut finding_table = write.open_table(super::findings::FINDINGS).map_err(db_error)?;
-            let mut evidence_table = write.open_table(super::evidence::EVIDENCE).map_err(db_error)?;
+            let mut finding_table = write
+                .open_table(super::findings::FINDINGS)
+                .map_err(db_error)?;
             for index in &indices {
-                let item = &mut proposal.items[*index];
+                let item = &proposal.items[*index];
                 let finding = Finding::new(FindingId(next_finding), item.draft.clone())?;
                 let mut evidence = item.evidence.clone();
                 evidence.kind = EvidenceKind::Record;
@@ -126,31 +117,23 @@ impl Store {
                 finding_table
                     .insert(finding.id.0, to_json(&finding)?.as_str())
                     .map_err(db_error)?;
-                evidence_table
-                    .insert(evidence.id.0, to_json(&evidence)?.as_str())
-                    .map_err(db_error)?;
+                super::insert_evidence(&write, &evidence)?;
 
-                item.state = ItemState::Accepted;
-                item.accepted = Some(finding.id);
+                proposal.mark_accepted(*index, finding.id);
                 findings.push(finding);
                 next_finding += 1;
                 next_evidence += 1;
             }
             drop(finding_table);
-            drop(evidence_table);
 
-            proposal.status = ProposalStatus::Accepted;
-            proposal.decided_at = Some(at);
+            proposal.mark_applied(at);
             let mut table = write.open_table(PROPOSALS).map_err(db_error)?;
             table
                 .insert(proposal.id.0, to_json(&proposal)?.as_str())
                 .map_err(db_error)?;
             drop(table);
-            let mut meta = write.open_table(super::META).map_err(db_error)?;
-            meta.insert("next_finding_id", next_finding.to_string().as_str())
-                .map_err(db_error)?;
-            meta.insert("next_evidence_id", next_evidence.to_string().as_str())
-                .map_err(db_error)?;
+            super::bump(&write, "next_finding_id", next_finding)?;
+            super::bump(&write, "next_evidence_id", next_evidence)?;
         }
         write.commit().map_err(db_error)?;
         Ok((proposal, findings))
@@ -164,21 +147,20 @@ impl Store {
         reason: &str,
         at: Timestamp,
     ) -> Result<(Proposal, Evidence), StoreError> {
-        let mut proposal = self.require_pending(id)?;
+        let mut proposal = self.require_open(id)?;
         let item = proposal
             .items
-            .get_mut(index)
+            .get(index)
             .ok_or(StoreError::Domain(DomainError::UnknownProposalItem(index)))?;
-        if item.state != ItemState::Pending {
-            return Err(StoreError::Domain(DomainError::UnknownProposalItem(index)));
-        }
+        let site = item.draft.site.clone();
+        let side = item.draft.side;
         let reason = reason.trim();
         let evidence = Evidence::new(
             EvidenceId(self.next_evidence_id()?),
             EvidenceDraft {
                 kind: EvidenceKind::Rejection,
-                site: item.draft.site.clone(),
-                side: item.draft.side,
+                site,
+                side,
                 finding: None,
                 conversation: Some(proposal.conversation),
                 at,
@@ -192,16 +174,7 @@ impl Store {
                 uncertainty: String::new(),
             },
         )?;
-        item.state = ItemState::Rejected;
-
-        if proposal
-            .items
-            .iter()
-            .all(|item| item.state == ItemState::Rejected)
-        {
-            proposal.status = ProposalStatus::Dismissed;
-            proposal.decided_at = Some(at);
-        }
+        proposal.reject(index, at)?;
 
         let write = self.db().begin_write().map_err(db_error)?;
         {
@@ -227,14 +200,16 @@ impl Store {
         let mut proposal = self
             .proposal(id)?
             .ok_or(StoreError::Domain(DomainError::ProposalNotPending(id)))?;
-        if proposal.status != ProposalStatus::Accepted {
-            return Err(StoreError::Domain(DomainError::ProposalNotPending(id)));
+        if proposal.accepted_count() == 0 {
+            return Err(StoreError::Domain(DomainError::NothingAccepted(id)));
         }
-        // 撤销会把这张改回「待确认」；此刻若已经有一张待审的卡，就会变成两张。
+        // 撤销会把这张改回「待确认」；若**别的**卡还有待审的项，就会变成两张。
         if let Some(other) = self.pending_proposal(proposal.conversation)? {
-            return Err(StoreError::Domain(DomainError::PendingProposalExists(
-                other.id,
-            )));
+            if other.id != proposal.id {
+                return Err(StoreError::Domain(DomainError::PendingProposalExists(
+                    other.id,
+                )));
+            }
         }
         let mut next_evidence = self.next_evidence_id()?;
 
@@ -257,14 +232,10 @@ impl Store {
                 let evidence = Evidence::new(EvidenceId(next_evidence), evidence)?;
                 super::insert_evidence(&write, &evidence)?;
                 next_evidence += 1;
-
-                item.accepted = None;
-                item.state = ItemState::Pending;
             }
             drop(retracts);
 
-            proposal.status = ProposalStatus::Pending;
-            proposal.decided_at = None;
+            proposal.undo()?;
             let mut table = write.open_table(PROPOSALS).map_err(db_error)?;
             table
                 .insert(proposal.id.0, to_json(&proposal)?.as_str())
@@ -276,11 +247,17 @@ impl Store {
         Ok(proposal)
     }
 
-    fn require_pending(&self, id: ProposalId) -> Result<Proposal, StoreError> {
+    /// 还能改的卡：待确认，或已经应用但还有项待定；关闭的不行。
+    fn require_open(&self, id: ProposalId) -> Result<Proposal, StoreError> {
         let proposal = self
             .proposal(id)?
             .ok_or(StoreError::Domain(DomainError::ProposalNotPending(id)))?;
-        if !proposal.is_pending() {
+        let open = match proposal.status {
+            ProposalStatus::Pending => true,
+            ProposalStatus::Accepted => proposal.has_pending_items(),
+            ProposalStatus::Dismissed => false,
+        };
+        if !open {
             return Err(StoreError::Domain(DomainError::ProposalNotPending(id)));
         }
         Ok(proposal)
@@ -306,7 +283,8 @@ fn from_json<T: serde::de::DeserializeOwned>(json: &str) -> Result<T, StoreError
 mod tests {
     use super::*;
     use crate::domain::{
-        AxisValue, AxisValues, ConversationId, FindingDraft, ProposalItem, Side, Tension,
+        AxisValue, AxisValues, ConversationId, FindingDraft, ItemState, ProposalItem, Side,
+        Tension,
     };
     use crate::store::tests::TempStore;
 
@@ -386,16 +364,28 @@ mod tests {
             store.evidence_log().expect("依据")[0].finding,
             Some(findings[0].id)
         );
-        // 卡不再待审。
-        assert!(store.pending_proposal(conversation.id).expect("待审").is_none());
+        // 剩下的两项仍然能审（#10 的「继续勾剩下」）。
+        let still = store
+            .pending_proposal(conversation.id)
+            .expect("读")
+            .expect("还有项没审");
+        assert_eq!(still.items.iter().filter(|item| item.state == ItemState::Pending).count(), 2);
 
-        // 处理过的卡不能再接受（幂等的落点是「已经是这个结果」，不是再写一遍）。
-        let again = store.accept_proposal(saved.id, &[1], 210).unwrap_err();
+        // 已经接受的那项不能再勾；再接受剩下的项会追加判定，不会重写旧的。
+        let again = store.accept_proposal(saved.id, &[0], 210).unwrap_err();
         assert_eq!(
             again,
-            StoreError::Domain(DomainError::ProposalNotPending(saved.id))
+            StoreError::Domain(DomainError::UnknownProposalItem(0))
         );
-        assert_eq!(store.findings().expect("判定").len(), 1);
+        let (done, more) = store.accept_proposal(saved.id, &[1], 220).expect("继续接受");
+        assert_eq!(more.len(), 1);
+        assert!(done.has_pending_items(), "第 3 项还没审");
+        assert_eq!(store.findings().expect("判定").len(), 2);
+
+        let (done, _) = store.accept_proposal(saved.id, &[2], 230).expect("吃完最后一项");
+        assert!(!done.has_pending_items());
+        assert_eq!(store.findings().expect("判定").len(), 3);
+        assert!(store.pending_proposal(conversation.id).expect("读").is_none());
     }
 
     #[test]
