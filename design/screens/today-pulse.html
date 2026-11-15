@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>今日 · 节拍</title>
+<link rel="stylesheet" href="pulse.css">
+</head>
+<body class="bg-black/90">
+<div class="mx-auto flex min-h-[800px] w-[360px] flex-col bg-background text-foreground border-x border-border">
+
+  <header class="px-4 pt-5">
+    <div class="flex items-center justify-between">
+      <p class="text-[11px] text-muted-foreground">11月15日 周六</p>
+      <span class="rounded-full border border-border px-2.5 py-1 text-[10px] text-muted-foreground">本周 2/3</span>
+    </div>
+    <h1 class="mt-3 text-[26px] font-semibold leading-tight tracking-tight">今天练臀腿，<br>只差两项</h1>
+  </header>
+
+  <section class="mx-4 mt-4 rounded-xl bg-card p-4">
+    <div class="flex items-end gap-2">
+      <span class="text-[40px] font-semibold leading-none tracking-tight tabular-nums">25<span class="text-[18px] text-muted-foreground">%</span></span>
+      <span class="pb-1.5 text-[11px] text-muted-foreground">1 / 4 项</span>
+    </div>
+    <div class="mt-3 flex gap-1.5">
+      <span class="h-1.5 flex-1 rounded-full bg-primary"></span>
+      <span class="h-1.5 flex-1 rounded-full bg-muted"></span>
+      <span class="h-1.5 flex-1 rounded-full bg-muted"></span>
+      <span class="h-1.5 flex-1 rounded-full bg-muted"></span>
+    </div>
+  </section>
+
+  <section class="mx-4 mt-3 rounded-xl bg-card px-4 py-3">
+    <p class="text-[12px] leading-relaxed text-muted-foreground">
+      臀中肌在单腿支撑时会掉髋，今天把蚌式开合做完再上单腿臀桥——<span class="text-foreground">顺序别反。</span>
+    </p>
+    <button class="mt-2 text-[10px] text-accent" data-testid="view-evidence">看依据 · 11月12日</button>
+  </section>
+
+  <ul class="mt-3 flex-1 space-y-2 px-4">
+    <li class="flex items-center gap-3 rounded-xl bg-card px-4 py-3.5" data-testid="exercise-glute-bridge">
+      <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary text-[13px] font-bold text-primary-foreground">✓</div>
+      <div class="min-w-0 flex-1">
+        <p class="text-[15px] font-medium text-muted-foreground line-through decoration-1">臀桥</p>
+        <p class="text-[10px] text-muted-foreground">臀大肌 张力弱 · 左</p>
+      </div>
+      <span class="shrink-0 text-[12px] text-muted-foreground tabular-nums">3×10</span>
+    </li>
+    <li class="flex items-center gap-3 rounded-xl bg-card px-4 py-3.5 ring-1 ring-primary/40" data-testid="exercise-clamshell">
+      <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border-2 border-primary text-[12px] font-semibold text-primary">2</div>
+      <div class="min-w-0 flex-1">
+        <p class="text-[15px] font-medium">蚌式开合</p>
+        <p class="text-[10px] text-muted-foreground">臀中肌 左弱 · 还剩 1 组</p>
+      </div>
+      <span class="shrink-0 text-[12px] text-muted-foreground tabular-nums">3×10</span>
+    </li>
+    <li class="flex items-center gap-3 rounded-xl bg-card px-4 py-3.5" data-testid="exercise-deadbug">
+      <div class="h-8 w-8 shrink-0 rounded-full border-2 border-border"></div>
+      <div class="min-w-0 flex-1">
+        <p class="text-[15px] font-medium">死虫式</p>
+        <p class="text-[10px] text-muted-foreground">腹横肌 稳定性差</p>
+      </div>
+      <span class="shrink-0 text-[12px] text-muted-foreground tabular-nums">3×10</span>
+    </li>
+    <li class="flex items-center gap-3 rounded-xl bg-card px-4 py-3.5" data-testid="exercise-sl-glute-bridge">
+      <div class="h-8 w-8 shrink-0 rounded-full border-2 border-border"></div>
+      <div class="min-w-0 flex-1">
+        <p class="text-[15px] font-medium">单腿臀桥</p>
+        <p class="text-[10px] text-muted-foreground">臀中肌 左弱 · 膝不要内扣</p>
+      </div>
+      <span class="shrink-0 text-[12px] text-muted-foreground tabular-nums">2×8</span>
+    </li>
+  </ul>
+
+  <footer class="px-4 pb-4 pt-3">
+    <button class="w-full rounded-full bg-muted py-3.5 text-[14px] font-semibold text-muted-foreground" disabled data-testid="checkin">
+      还差 2 项 · 约 12 分钟
+    </button>
+    <div class="mt-2.5 flex items-center justify-center gap-6 text-[10px] text-muted-foreground">
+      <button data-testid="postpone">整天推迟</button>
+      <span class="text-border">·</span>
+      <button data-testid="skip-exercise">跳过一项</button>
+    </div>
+  </footer>
+
+</div>
+</body>
+</html>

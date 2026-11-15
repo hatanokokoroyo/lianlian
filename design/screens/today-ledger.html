@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>今日 · 台账</title>
+<link rel="stylesheet" href="ledger.css">
+</head>
+<body class="bg-background">
+<div class="mx-auto flex min-h-[800px] w-[360px] flex-col border-x border-border bg-background text-foreground">
+
+  <header class="border-b-2 border-foreground px-4 pb-3 pt-5">
+    <div class="flex items-baseline justify-between font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
+      <span>TODAY · 231115</span>
+      <span>WEEK 2 / 3</span>
+    </div>
+    <h1 class="mt-2 text-[27px] font-semibold leading-none tracking-tight">臀腿日</h1>
+    <p class="mt-2 text-[11px] text-muted-foreground">评估 11-12 · 复查 12-10 · 计划 v3</p>
+  </header>
+
+  <div class="flex items-end justify-between border-b border-border px-4 py-3">
+    <div class="flex items-baseline gap-1.5">
+      <span class="font-mono text-[34px] font-semibold leading-none tabular-nums">1</span>
+      <span class="text-[11px] text-muted-foreground">/ 4 项</span>
+    </div>
+    <div class="flex gap-[3px] pb-1">
+      <span class="h-[6px] w-6 bg-primary"></span>
+      <span class="h-[6px] w-6 bg-muted"></span>
+      <span class="h-[6px] w-6 bg-muted"></span>
+      <span class="h-[6px] w-6 bg-muted"></span>
+    </div>
+  </div>
+
+  <table class="w-full border-collapse">
+    <thead>
+      <tr class="border-b border-border font-mono text-[9px] uppercase tracking-[0.14em] text-muted-foreground">
+        <th class="w-8 px-2 py-1.5 text-left font-normal">#</th>
+        <th class="px-1 py-1.5 text-left font-normal">动作</th>
+        <th class="w-14 px-1 py-1.5 text-right font-normal">处方</th>
+        <th class="w-8 px-2 py-1.5 text-right font-normal">✓</th>
+      </tr>
+    </thead>
+    <tbody class="font-mono text-[12px]">
+      <tr class="border-b border-border bg-muted/60 text-muted-foreground" data-testid="exercise-glute-bridge">
+        <td class="px-2 py-3">01</td>
+        <td class="px-1 py-3">
+          <span class="font-sans text-[14px] font-medium line-through decoration-1">臀桥</span>
+          <span class="mt-0.5 block font-sans text-[10px] text-muted-foreground">臀大肌 张力弱 · 左</span>
+        </td>
+        <td class="px-1 py-3 text-right tabular-nums">3×10</td>
+        <td class="px-2 py-3 text-right text-primary">■</td>
+      </tr>
+      <tr class="border-b border-border" data-testid="exercise-clamshell">
+        <td class="px-2 py-3">02</td>
+        <td class="px-1 py-3">
+          <span class="font-sans text-[14px] font-medium">蚌式开合</span>
+          <span class="mt-0.5 block font-sans text-[10px] text-muted-foreground">臀中肌 对称·左弱 · 2/3 组</span>
+        </td>
+        <td class="px-1 py-3 text-right tabular-nums">3×10</td>
+        <td class="px-2 py-3 text-right text-accent">2</td>
+      </tr>
+      <tr class="border-b border-border" data-testid="exercise-deadbug">
+        <td class="px-2 py-3">03</td>
+        <td class="px-1 py-3">
+          <span class="font-sans text-[14px] font-medium">死虫式</span>
+          <span class="mt-0.5 block font-sans text-[10px] text-muted-foreground">腹横肌 稳定性差</span>
+        </td>
+        <td class="px-1 py-3 text-right tabular-nums">3×10</td>
+        <td class="px-2 py-3 text-right text-border">□</td>
+      </tr>
+      <tr class="border-b border-border" data-testid="exercise-sl-glute-bridge">
+        <td class="px-2 py-3">04</td>
+        <td class="px-1 py-3">
+          <span class="font-sans text-[14px] font-medium">单腿臀桥</span>
+          <span class="mt-0.5 block font-sans text-[10px] text-muted-foreground">臀中肌 左弱 · 膝不要内扣</span>
+        </td>
+        <td class="px-1 py-3 text-right tabular-nums">2×8</td>
+        <td class="px-2 py-3 text-right text-border">□</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="flex-1"></div>
+
+  <footer class="border-t-2 border-foreground px-4 py-3">
+    <div class="flex items-center justify-between">
+      <p class="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">差 2 项 · 约 12 分钟</p>
+      <button class="border border-border px-4 py-2 text-[12px] font-medium text-muted-foreground" disabled data-testid="checkin">打卡</button>
+    </div>
+    <div class="mt-3 flex items-center justify-between font-mono text-[10px] text-muted-foreground">
+      <button class="underline underline-offset-4" data-testid="postpone">推迟整天</button>
+      <button class="underline underline-offset-4" data-testid="skip-exercise">跳过一项</button>
+    </div>
+  </footer>
+
+</div>
+</body>
+</html>

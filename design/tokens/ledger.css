@@ -1,0 +1,22 @@
+@import "tailwindcss";
+@source "../screens/today-ledger.html";
+@source "../screens/profile-ledger.html";
+
+/* 方向 B · 台账：纸感浅色 + 墨绿，表格化、直角、等宽数字 */
+@theme {
+  --color-background: #f6f5f0;
+  --color-foreground: #1b1c19;
+  --color-card: #ffffff;
+  --color-card-foreground: #1b1c19;
+  --color-muted: #ecebe3;
+  --color-muted-foreground: #6d6f66;
+  --color-primary: #1f5f4a;
+  --color-primary-foreground: #f6f5f0;
+  --color-accent: #8a6a1f;
+  --color-accent-foreground: #fbf7ec;
+  --color-destructive: #a3341f;
+  --color-border: #d8d6cb;
+  --radius-lg: 2px;
+  --radius-xl: 2px;
+  --font-mono: "SF Mono", ui-monospace, Menlo, monospace;
+}

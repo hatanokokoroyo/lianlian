@@ -1,0 +1,21 @@
+@import "tailwindcss";
+@source "../screens/today-iron.html";
+@source "../screens/profile-iron.html";
+
+/* 方向 A · 铁馆：深色近黑 + 单一电光橙，密度高，粗体数字 */
+@theme {
+  --color-background: #0b0c0e;
+  --color-foreground: #f2f3f5;
+  --color-card: #141518;
+  --color-card-foreground: #f2f3f5;
+  --color-muted: #1c1e22;
+  --color-muted-foreground: #8b8f98;
+  --color-primary: #ff5a1f;
+  --color-primary-foreground: #0b0c0e;
+  --color-accent: #ffb020;
+  --color-accent-foreground: #1a1206;
+  --color-destructive: #ff3b30;
+  --color-border: #24262b;
+  --radius-lg: 14px;
+  --radius-xl: 18px;
+}

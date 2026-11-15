@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>档案 · 台账</title>
+<link rel="stylesheet" href="ledger.css">
+</head>
+<body class="bg-background">
+<div class="mx-auto flex min-h-[800px] w-[360px] flex-col border-x border-border bg-background text-foreground">
+
+  <header class="border-b-2 border-foreground px-4 pb-3 pt-5">
+    <div class="font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground">PROFILE · 评估 11-12</div>
+    <h1 class="mt-2 text-[27px] font-semibold leading-none tracking-tight">身体档案</h1>
+  </header>
+
+  <div class="grid grid-cols-3 border-b border-border">
+    <div class="border-r border-border px-3 py-2.5">
+      <p class="font-mono text-[9px] uppercase tracking-[0.12em] text-muted-foreground">身高</p>
+      <p class="mt-1 font-mono text-[15px] tabular-nums">178<span class="text-[10px] text-muted-foreground"> cm</span></p>
+    </div>
+    <div class="border-r border-border px-3 py-2.5">
+      <p class="font-mono text-[9px] uppercase tracking-[0.12em] text-muted-foreground">体重</p>
+      <p class="mt-1 font-mono text-[15px] tabular-nums">74.2<span class="text-[10px] text-muted-foreground"> kg</span></p>
+    </div>
+    <div class="px-3 py-2.5">
+      <p class="font-mono text-[9px] uppercase tracking-[0.12em] text-muted-foreground">频次</p>
+      <p class="mt-1 font-mono text-[15px] tabular-nums">3<span class="text-[10px] text-muted-foreground"> /周</span></p>
+    </div>
+  </div>
+
+  <div class="px-4 pt-4">
+    <p class="font-mono text-[9px] uppercase tracking-[0.16em] text-muted-foreground">髋 · 3 条</p>
+  </div>
+  <table class="mt-1 w-full border-collapse">
+    <tbody class="font-mono text-[11px]">
+      <tr class="border-b border-border" data-testid="site-gluteus-maximus">
+        <td class="px-4 py-2.5">
+          <span class="font-sans text-[14px] font-medium">臀大肌</span>
+          <span class="ml-1 font-sans text-[10px] text-muted-foreground">左</span>
+        </td>
+        <td class="px-1 py-2.5 text-right">
+          <span class="bg-accent/15 px-1.5 py-0.5 text-[10px] text-accent">张力 弱</span>
+        </td>
+        <td class="w-12 px-4 py-2.5 text-right text-[10px] text-muted-foreground">11-12</td>
+      </tr>
+      <tr class="border-b border-border" data-testid="site-gluteus-medius">
+        <td class="px-4 py-2.5">
+          <span class="font-sans text-[14px] font-medium">臀中肌</span>
+          <span class="ml-1 font-sans text-[10px] text-muted-foreground">左</span>
+        </td>
+        <td class="px-1 py-2.5 text-right">
+          <span class="bg-accent/15 px-1.5 py-0.5 text-[10px] text-accent">张力 弱</span>
+          <span class="bg-destructive/12 px-1.5 py-0.5 text-[10px] text-destructive">对称 左弱</span>
+        </td>
+        <td class="w-12 px-4 py-2.5 text-right text-[10px] text-muted-foreground">11-12</td>
+      </tr>
+      <tr class="border-b border-border" data-testid="site-psoas-major">
+        <td class="px-4 py-2.5">
+          <span class="font-sans text-[14px] font-medium">腰大肌</span>
+          <span class="ml-1 font-sans text-[10px] text-muted-foreground">双侧</span>
+        </td>
+        <td class="px-1 py-2.5 text-right">
+          <span class="bg-destructive/12 px-1.5 py-0.5 text-[10px] text-destructive">张力 紧</span>
+        </td>
+        <td class="w-12 px-4 py-2.5 text-right text-[10px] text-muted-foreground">11-12</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="px-4 pt-5">
+    <p class="font-mono text-[9px] uppercase tracking-[0.16em] text-muted-foreground">小腿 · 1 条</p>
+  </div>
+  <table class="mt-1 w-full border-collapse">
+    <tbody class="font-mono text-[11px]">
+      <tr class="border-b border-border" data-testid="site-gastrocnemius">
+        <td class="px-4 py-2.5">
+          <span class="font-sans text-[14px] font-medium text-muted-foreground line-through decoration-1">腓肠肌</span>
+          <span class="ml-1 font-sans text-[10px] text-muted-foreground">左</span>
+        </td>
+        <td class="px-1 py-2.5 text-right">
+          <span class="border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground">已解决 张力正常</span>
+        </td>
+        <td class="w-12 px-4 py-2.5 text-right text-[10px] text-muted-foreground">11-01</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="px-4 pt-5">
+    <p class="font-mono text-[9px] uppercase tracking-[0.16em] text-muted-foreground">训练条件</p>
+    <dl class="mt-1.5 border-t border-border font-mono text-[11px]">
+      <div class="flex justify-between border-b border-border py-2">
+        <dt class="text-muted-foreground">频次</dt><dd>每周 3 次 · 30 分钟</dd>
+      </div>
+      <div class="flex justify-between border-b border-border py-2">
+        <dt class="text-muted-foreground">场景</dt><dd>家</dd>
+      </div>
+      <div class="flex justify-between border-b border-border py-2">
+        <dt class="text-muted-foreground">器械</dt><dd>弹力带 · 哑铃 8kg</dd>
+      </div>
+    </dl>
+    <button class="mt-2 font-mono text-[10px] text-primary underline underline-offset-4" data-testid="edit-training-context">修改</button>
+  </div>
+
+  <div class="flex-1"></div>
+  <footer class="flex items-center justify-between border-t border-border px-4 py-3 font-mono text-[10px] text-muted-foreground">
+    <span>STORAGE 1.2 MB</span>
+    <button class="underline underline-offset-4" data-testid="open-conversations">全部会话</button>
+  </footer>
+
+</div>
+</body>
+</html>

@@ -4,3 +4,7 @@
 # OD 导出时可能写进项目根的产物
 DESIGN-HANDOFF.md
 DESIGN-MANIFEST.json
+
+# Tailwind 构建依赖（npm i tailwindcss@4 @tailwindcss/cli@4 可重建）
+node_modules/
+package-lock.json

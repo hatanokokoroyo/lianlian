@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>档案 · 铁馆</title>
+<link rel="stylesheet" href="iron.css">
+</head>
+<body class="bg-black/90">
+<div class="mx-auto flex min-h-[800px] w-[360px] flex-col bg-background text-foreground border-x border-border">
+
+  <header class="px-5 pt-5">
+    <p class="text-xs text-muted-foreground">上次评估 11月12日</p>
+    <h1 class="mt-2 text-[30px] font-bold leading-none tracking-tight">身体档案</h1>
+    <div class="mt-4 flex gap-2">
+      <span class="rounded-lg bg-muted px-2.5 py-1.5 text-[11px] text-muted-foreground">178 cm</span>
+      <span class="rounded-lg bg-muted px-2.5 py-1.5 text-[11px] text-muted-foreground">74.2 kg</span>
+      <span class="rounded-lg bg-muted px-2.5 py-1.5 text-[11px] text-muted-foreground">每周 3 次</span>
+    </div>
+  </header>
+
+  <section class="mt-6 px-5">
+    <p class="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">髋</p>
+    <div class="mt-2 divide-y divide-border rounded-xl bg-card">
+      <button class="flex w-full items-center gap-3 px-4 py-3.5 text-left" data-testid="site-gluteus-maximus">
+        <div class="min-w-0 flex-1">
+          <div class="flex items-baseline gap-1.5">
+            <h2 class="text-[15px] font-semibold">臀大肌</h2>
+            <span class="text-[11px] text-muted-foreground">左</span>
+          </div>
+          <div class="mt-1.5 flex flex-wrap gap-1.5">
+            <span class="rounded-md bg-accent/15 px-1.5 py-0.5 text-[11px] font-medium text-accent">张力 弱</span>
+          </div>
+        </div>
+        <span class="shrink-0 text-[11px] text-muted-foreground">3 天前</span>
+      </button>
+
+      <button class="flex w-full items-center gap-3 px-4 py-3.5 text-left" data-testid="site-gluteus-medius">
+        <div class="min-w-0 flex-1">
+          <div class="flex items-baseline gap-1.5">
+            <h2 class="text-[15px] font-semibold">臀中肌</h2>
+            <span class="text-[11px] text-muted-foreground">左</span>
+          </div>
+          <div class="mt-1.5 flex flex-wrap gap-1.5">
+            <span class="rounded-md bg-accent/15 px-1.5 py-0.5 text-[11px] font-medium text-accent">张力 弱</span>
+            <span class="rounded-md bg-destructive/15 px-1.5 py-0.5 text-[11px] font-medium text-destructive">对称 左弱</span>
+          </div>
+        </div>
+        <span class="shrink-0 text-[11px] text-muted-foreground">3 天前</span>
+      </button>
+
+      <button class="flex w-full items-center gap-3 px-4 py-3.5 text-left" data-testid="site-psoas-major">
+        <div class="min-w-0 flex-1">
+          <div class="flex items-baseline gap-1.5">
+            <h2 class="text-[15px] font-semibold">腰大肌</h2>
+            <span class="text-[11px] text-muted-foreground">双侧</span>
+          </div>
+          <div class="mt-1.5 flex flex-wrap gap-1.5">
+            <span class="rounded-md bg-destructive/15 px-1.5 py-0.5 text-[11px] font-medium text-destructive">张力 紧</span>
+          </div>
+        </div>
+        <span class="shrink-0 text-[11px] text-muted-foreground">3 天前</span>
+      </button>
+    </div>
+  </section>
+
+  <section class="mt-5 px-5">
+    <p class="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">小腿</p>
+    <div class="mt-2 divide-y divide-border rounded-xl bg-card">
+      <button class="flex w-full items-center gap-3 px-4 py-3.5 text-left" data-testid="site-gastrocnemius">
+        <div class="min-w-0 flex-1">
+          <div class="flex items-baseline gap-1.5">
+            <h2 class="text-[15px] font-semibold text-muted-foreground">腓肠肌</h2>
+            <span class="text-[11px] text-muted-foreground">左</span>
+          </div>
+          <div class="mt-1.5 flex flex-wrap gap-1.5">
+            <span class="rounded-md border border-border px-1.5 py-0.5 text-[11px] text-muted-foreground">已解决 · 张力 正常</span>
+          </div>
+        </div>
+        <span class="shrink-0 text-[11px] text-muted-foreground">2 周前</span>
+      </button>
+    </div>
+  </section>
+
+  <section class="mt-5 px-5">
+    <p class="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">训练条件</p>
+    <div class="mt-2 rounded-xl bg-card px-4 py-3.5 text-[12px] leading-relaxed text-muted-foreground">
+      每周 3 次、每次 30 分钟 · 在家 · 弹力带 + 一对 8kg 哑铃
+      <button class="mt-2 block text-[11px] text-primary underline underline-offset-4" data-testid="edit-training-context">修改训练条件</button>
+    </div>
+  </section>
+
+  <div class="flex-1"></div>
+  <footer class="border-t border-border px-5 py-4">
+    <div class="flex items-center justify-between text-[11px]">
+      <span class="text-muted-foreground">本地数据 1.2 MB / 5 GB</span>
+      <button class="text-muted-foreground underline underline-offset-4" data-testid="open-conversations">全部会话</button>
+    </div>
+  </footer>
+
+</div>
+</body>
+</html>

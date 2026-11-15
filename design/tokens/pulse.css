@@ -1,0 +1,21 @@
+@import "tailwindcss";
+@source "../screens/today-pulse.html";
+@source "../screens/profile-pulse.html";
+
+/* 方向 C · 节拍：深石板蓝 + 青柠，进度环、大圆角、教练口吻 */
+@theme {
+  --color-background: #0f1114;
+  --color-foreground: #e8edf2;
+  --color-card: #171a1f;
+  --color-card-foreground: #e8edf2;
+  --color-muted: #1e2229;
+  --color-muted-foreground: #8a93a0;
+  --color-primary: #c8f04a;
+  --color-primary-foreground: #10120c;
+  --color-accent: #6ee7f0;
+  --color-accent-foreground: #06201f;
+  --color-destructive: #ff6b6b;
+  --color-border: #23272e;
+  --radius-lg: 20px;
+  --radius-xl: 26px;
+}
