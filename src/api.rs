@@ -193,6 +193,267 @@ fn empty_measurements_view(error: Option<String>) -> MeasurementsView {
     }
 }
 
+/// 会话列表里的一行。
+#[derive(Debug, Clone, PartialEq, JsObject)]
+pub struct ConversationView {
+    pub id: f64,
+    /// 第一条用户消息派生的标题；还没说话时是「新会话」。
+    pub title: String,
+    /// 最后一次活动，Unix 毫秒。
+    pub updated_at: f64,
+    pub archived: bool,
+    /// 最后一条消息的摘要（最多 40 字）。
+    pub preview: String,
+    /// 消息条数。
+    pub message_count: f64,
+}
+
+/// 一条消息。
+#[derive(Debug, Clone, PartialEq, JsObject)]
+pub struct MessageView {
+    pub id: f64,
+    /// `user` / `assistant`。
+    pub role: String,
+    pub text: String,
+    /// Unix 毫秒。
+    pub at: f64,
+}
+
+/// 会话列表：未归档与已归档分开，界面把归档的折叠起来。
+#[derive(Debug, Clone, PartialEq, JsObject)]
+pub struct ConversationListView {
+    pub active: Vec<ConversationView>,
+    pub archived: Vec<ConversationView>,
+    pub error: Option<String>,
+}
+
+/// 一个会话的正文。
+#[derive(Debug, Clone, PartialEq, JsObject)]
+pub struct ConversationDetailView {
+    pub id: f64,
+    pub title: String,
+    /// 按时间升序；界面从下往上读。
+    pub messages: Vec<MessageView>,
+    pub error: Option<String>,
+}
+
+/// 一轮对话的失败，按「出路」分类（ADR-0001：错误处理自己来）。
+#[derive(Debug, Clone, PartialEq, JsObject)]
+pub struct ChatErrorView {
+    /// `retryable`（断网/超时/429）/ `config`（key 无效或无额度）/ `request`（请求本身有问题）。
+    pub kind: String,
+    /// 给用户看的一句话。
+    pub message: String,
+    /// 还能原地重试吗；`config` 只能去设置。
+    pub can_retry: bool,
+}
+
+/// 发一条消息的结果：已落库的消息（含这次新增的）。
+#[derive(Debug, Clone, PartialEq, JsObject)]
+pub struct SendResultView {
+    pub messages: Vec<MessageView>,
+    /// 有值时消息可能只落了一半（用户那句在，回复没有）。
+    pub error: Option<ChatErrorView>,
+}
+
+/// 会话与消息：新建、续聊、归档、删除。
+#[module]
+pub struct Conversations;
+
+#[module]
+impl Conversations {
+    /// 读列表（未归档 + 已归档）。
+    pub async fn list() -> ConversationListView {
+        match Store::open_app() {
+            Ok(store) => conversation_list_view(&store, None),
+            Err(error) => ConversationListView {
+                active: Vec::new(),
+                archived: Vec::new(),
+                error: Some(error.to_string()),
+            },
+        }
+    }
+
+    /// 新开一个会话，返回它的编号。
+    pub async fn create() -> f64 {
+        match Store::open_app() {
+            Ok(store) => store
+                .create_conversation(now_ms())
+                .map(|conversation| conversation.id.0 as f64)
+                .unwrap_or(0.0),
+            Err(_) => 0.0,
+        }
+    }
+
+    /// 打开一个会话（含全部消息）。
+    pub async fn open(id: f64) -> ConversationDetailView {
+        match Store::open_app() {
+            Ok(store) => conversation_detail_view(&store, id, None),
+            Err(error) => empty_detail_view(id, Some(error.to_string())),
+        }
+    }
+
+    /// 发一条消息：用户那句先落库，再追加回复。
+    ///
+    /// 目前回复是占位的（#7 换成模型网关）；失败时用户那句仍然保留。
+    pub async fn send(id: f64, text: String) -> SendResultView {
+        let store = match Store::open_app() {
+            Ok(store) => store,
+            Err(error) => {
+                return SendResultView {
+                    messages: Vec::new(),
+                    error: Some(ChatErrorView {
+                        kind: "config".to_owned(),
+                        message: error.to_string(),
+                        can_retry: false,
+                    }),
+                };
+            }
+        };
+        let conversation = crate::domain::ConversationId(id as u64);
+        let at = now_ms();
+        if let Err(error) = store.append_message(conversation, crate::domain::Role::User, &text, at)
+        {
+            return SendResultView {
+                messages: Vec::new(),
+                error: Some(ChatErrorView {
+                    kind: "request".to_owned(),
+                    message: error.to_string(),
+                    can_retry: false,
+                }),
+            };
+        }
+        let reply = crate::llm::fake::reply(&text);
+        if let Err(error) = store.append_message(
+            conversation,
+            crate::domain::Role::Assistant,
+            &reply,
+            at.saturating_add(1),
+        ) {
+            return SendResultView {
+                messages: Vec::new(),
+                error: Some(ChatErrorView {
+                    kind: "config".to_owned(),
+                    message: error.to_string(),
+                    can_retry: false,
+                }),
+            };
+        }
+        SendResultView {
+            messages: store
+                .messages(conversation)
+                .unwrap_or_default()
+                .iter()
+                .map(message_view)
+                .collect(),
+            error: None,
+        }
+    }
+
+    /// 归档 / 取消归档；返回失败原因，成功是 `null`。
+    pub async fn set_archived(id: f64, archived: bool) -> Option<String> {
+        save(&Store::open_app(), |store| {
+            store.set_conversation_archived(crate::domain::ConversationId(id as u64), archived)
+        })
+    }
+
+    /// 删除会话与它的消息正文（依据日志与照片保留，见 ADR-0005）。
+    pub async fn delete(id: f64) -> Option<String> {
+        save(&Store::open_app(), |store| {
+            store.delete_conversation(crate::domain::ConversationId(id as u64))
+        })
+    }
+}
+
+fn now_ms() -> i64 {
+    nsh_core::time::unix_ms() as i64
+}
+
+fn message_view(message: &crate::domain::Message) -> MessageView {
+    MessageView {
+        id: message.id.0 as f64,
+        role: message.role.key().to_owned(),
+        text: message.text.clone(),
+        at: message.at as f64,
+    }
+}
+
+fn conversation_list_view(store: &Store, error: Option<String>) -> ConversationListView {
+    let conversations = store.conversations().unwrap_or_default();
+    let view = |conversation: &crate::domain::Conversation| ConversationView {
+        id: conversation.id.0 as f64,
+        title: conversation.title.clone(),
+        updated_at: conversation.updated_at as f64,
+        archived: conversation.archived,
+        preview: store
+            .messages(conversation.id)
+            .ok()
+            .and_then(|messages| messages.last().map(|message| preview(&message.text)))
+            .unwrap_or_else(|| "还没有消息".to_owned()),
+        message_count: store
+            .messages(conversation.id)
+            .map(|messages| messages.len() as f64)
+            .unwrap_or(0.0),
+    };
+    ConversationListView {
+        active: conversations
+            .iter()
+            .filter(|conversation| !conversation.archived)
+            .map(&view)
+            .collect(),
+        archived: conversations
+            .iter()
+            .filter(|conversation| conversation.archived)
+            .map(&view)
+            .collect(),
+        error,
+    }
+}
+
+fn conversation_detail_view(
+    store: &Store,
+    id: f64,
+    error: Option<String>,
+) -> ConversationDetailView {
+    let conversation = store
+        .conversation(crate::domain::ConversationId(id as u64))
+        .ok()
+        .flatten();
+    match conversation {
+        Some(conversation) => ConversationDetailView {
+            id,
+            title: conversation.title.clone(),
+            messages: store
+                .messages(conversation.id)
+                .unwrap_or_default()
+                .iter()
+                .map(message_view)
+                .collect(),
+            error,
+        },
+        None => empty_detail_view(id, error.or_else(|| Some("找不到这个会话。".to_owned()))),
+    }
+}
+
+fn empty_detail_view(id: f64, error: Option<String>) -> ConversationDetailView {
+    ConversationDetailView {
+        id,
+        title: "新会话".to_owned(),
+        messages: Vec::new(),
+        error,
+    }
+}
+
+/// 摘要：压成一行，最多 40 个字。
+fn preview(text: &str) -> String {
+    let line = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let mut preview: String = line.chars().take(40).collect();
+    if line.chars().count() > 40 {
+        preview.push('…');
+    }
+    preview
+}
+
 /// 档案的读写：基本属性、训练条件、引导标记。
 #[module]
 pub struct Profile;
@@ -628,5 +889,76 @@ mod measurement_tests {
         assert_eq!(drafts[0].kind, MeasurementKind::Weight);
         assert!(body_measurements(None, None).expect("空").is_empty());
         assert!(body_measurements(Some(9.0), None).is_err());
+    }
+}
+
+#[cfg(test)]
+mod conversation_tests {
+    use super::*;
+    use crate::domain::Role;
+    use crate::store::tests::TempStore;
+
+    #[test]
+    fn the_list_splits_active_from_archived_and_summarizes_the_last_message() {
+        let temp = TempStore::new("api-conversations-list");
+        let store = temp.store();
+        let active = store.create_conversation(100).expect("会话");
+        store
+            .append_message(active.id, Role::User, "右膝为什么响\n没有明显疼痛", 110)
+            .expect("消息");
+        let archived = store.create_conversation(200).expect("会话");
+        store
+            .append_message(archived.id, Role::User, "训练条件改一下", 210)
+            .expect("消息");
+        store
+            .set_conversation_archived(archived.id, true)
+            .expect("归档");
+
+        let view = conversation_list_view(store, None);
+        assert_eq!(view.active.len(), 1);
+        assert_eq!(view.archived.len(), 1);
+        assert_eq!(view.active[0].title, "右膝为什么响 没有明显疼痛");
+        assert_eq!(view.active[0].preview, "右膝为什么响 没有明显疼痛");
+        assert_eq!(view.active[0].message_count, 1.0);
+        assert_eq!(view.archived[0].title, "训练条件改一下");
+        assert_eq!(view.error, None);
+    }
+
+    #[test]
+    fn an_open_conversation_carries_its_messages_in_order() {
+        let temp = TempStore::new("api-conversations-open");
+        let store = temp.store();
+        let conversation = store.create_conversation(100).expect("会话");
+        store
+            .append_message(conversation.id, Role::User, "先说一句", 110)
+            .expect("消息");
+        store
+            .append_message(conversation.id, Role::Assistant, "再说一句", 120)
+            .expect("消息");
+
+        let view = conversation_detail_view(store, conversation.id.0 as f64, None);
+        assert_eq!(view.title, "先说一句");
+        assert_eq!(
+            view.messages
+                .iter()
+                .map(|message| (message.role.as_str(), message.text.as_str()))
+                .collect::<Vec<_>>(),
+            vec![("user", "先说一句"), ("assistant", "再说一句")]
+        );
+        assert_eq!(view.error, None);
+    }
+
+    #[test]
+    fn opening_a_missing_conversation_says_so_instead_of_pretending() {
+        let temp = TempStore::new("api-conversations-missing");
+        let view = conversation_detail_view(temp.store(), 42.0, None);
+        assert!(view.messages.is_empty());
+        assert_eq!(view.error.as_deref(), Some("找不到这个会话。"));
+    }
+
+    #[test]
+    fn previews_are_one_line_and_bounded() {
+        assert_eq!(preview("  一\n二  三 "), "一 二 三");
+        assert_eq!(preview(&"字".repeat(50)).chars().count(), 41);
     }
 }

@@ -1,10 +1,11 @@
 // 应用外壳：冷启动读档案 → 没走完引导就先引导，走完了进四个 Tab。
-// 日历与对话两屏还没做（#16 / #6），这里给一个说清状态的占位，而不是空白。
+// 日历屏还没做（#16），这里给一个说清状态的占位，而不是空白。
 import { mount, resource, signal, Text, token, View } from "nsh";
 import { Profile } from "lianlian/native";
 
 import { profileDrafts } from "./ui/drafts";
 import { Onboarding } from "./screens/onboarding";
+import { ConversationsScreen } from "./screens/conversations";
 import { MeasurementsScreen } from "./screens/measurements";
 import { ProfileScreen } from "./screens/profile";
 import { Today } from "./screens/today";
@@ -87,9 +88,7 @@ function App() {
               )
             ) : null}
             {tab() === "calendar" ? <Pending title="月历" ticket="工单 #16" /> : null}
-            {tab() === "conversations" ? (
-              <Pending title="对话" ticket="工单 #6 / #7" />
-            ) : null}
+            {tab() === "conversations" ? <ConversationsScreen /> : null}
           </View>
           <TabBar current={tab()} onSelect={(next) => tab.set(next as Tab)} />
         </View>

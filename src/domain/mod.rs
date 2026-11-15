@@ -5,6 +5,7 @@
 
 pub mod axis;
 pub mod basics;
+pub mod conversation;
 pub mod finding;
 pub mod measurement;
 pub mod projection;
@@ -16,6 +17,9 @@ pub use axis::{
 };
 #[allow(unused_imports)]
 pub use basics::{Basics, Sex};
+pub use conversation::{
+    Conversation, ConversationId, Message, MessageId, Role,
+};
 #[allow(unused_imports)]
 pub use training::{Place, Readiness, TrainingContext, TrainingField};
 pub use finding::{
@@ -52,6 +56,10 @@ pub enum DomainError {
     UnknownFinding(FindingId),
     /// 删除一条不存在的测量。
     UnknownMeasurement(u64),
+    /// 消息正文是空白。
+    EmptyMessage,
+    /// 找不到这个会话。
+    UnknownConversation(u64),
     /// 同一条目被撤回了两次。
     AlreadyRetracted(FindingId),
     /// 撤回一条已经被撤回的条目之后，投影无从恢复（用于提示调用方）。
@@ -122,6 +130,8 @@ impl fmt::Display for DomainError {
             DomainError::EmptyReason => write!(f, "撤回一条判定必须写理由。"),
             DomainError::UnknownFinding(id) => write!(f, "找不到编号 {} 的判定。", id.0),
             DomainError::UnknownMeasurement(id) => write!(f, "找不到编号 {id} 的测量。"),
+            DomainError::EmptyMessage => write!(f, "消息不能是空白。"),
+            DomainError::UnknownConversation(id) => write!(f, "找不到编号 {id} 的会话。"),
             DomainError::AlreadyRetracted(id) => {
                 write!(f, "编号 {} 的判定已经被撤回过了。", id.0)
             }

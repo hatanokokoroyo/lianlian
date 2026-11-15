@@ -4,8 +4,10 @@
 //! `domain::projection`。库结构有版本号，对不上就重建（骨架期不做迁移）。
 //!
 //! 表：`meta`（库自己的标量）、`profile`（基本属性 / 训练条件 / 引导标记）、
-//! `findings` 与 `retracts`（档案条目与撤回）、`measurements`（身高体重的测量序列）。
+//! `findings` 与 `retracts`（档案条目与撤回）、`measurements`（身高体重的测量序列）、
+//! `conversations` 与 `messages`（会话与消息）。
 
+pub mod conversations;
 pub mod findings;
 pub mod measurements;
 pub mod profile;
@@ -19,7 +21,7 @@ use redb::{Database, ReadableDatabase, TableDefinition};
 use crate::domain::DomainError;
 
 /// 库结构与值格式的版本；改表或改值的编码都要 +1。
-pub const SCHEMA_VERSION: &str = "5";
+pub const SCHEMA_VERSION: &str = "6";
 
 /// 库自己的标量：`schema_version`、`next_finding_id`。
 pub(crate) const META: TableDefinition<&str, &str> = TableDefinition::new("meta");
@@ -132,6 +134,8 @@ fn initialize(db: &Database) -> Result<(), StoreError> {
             .map_err(db_error)?;
     }
     // 空表也要建出来：读的时候不必判断表在不在。
+    write.open_table(conversations::CONVERSATIONS).map_err(db_error)?;
+    write.open_table(conversations::MESSAGES).map_err(db_error)?;
     write.open_table(findings::FINDINGS).map_err(db_error)?;
     write.open_table(findings::RETRACTS).map_err(db_error)?;
     write.open_table(measurements::MEASUREMENTS).map_err(db_error)?;
@@ -143,6 +147,8 @@ fn reset(db: &Database) -> Result<(), StoreError> {
     let write = db.begin_write().map_err(db_error)?;
     drop_table(&write, META)?;
     drop_table(&write, profile::PROFILE)?;
+    drop_table(&write, conversations::MESSAGES)?;
+    drop_table(&write, conversations::CONVERSATIONS)?;
     drop_table(&write, findings::FINDINGS)?;
     drop_table(&write, findings::RETRACTS)?;
     drop_table(&write, measurements::MEASUREMENTS)?;

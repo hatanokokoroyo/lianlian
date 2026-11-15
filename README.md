@@ -21,22 +21,26 @@ App.tsx（TSX 屏：今日页） → lianlian/native（自动生成的类型） 
   投影与聚合（肌群取最差值、骨骼集合子项优先于父项）。档案页/工具层会用到它，界面还没接。
 - **#4 冷启动**：首启引导三步（基本属性 → 训练条件 → 首次评估）；档案页可随时改基本属性与
   训练条件；训练条件缺项时今日页提示「计划前需要先补训练条件」，齐全时提示「可以开始首次评估」。
-  对话与月历两屏还是占位（#6/#7、#16）。
+  月历屏还是占位（#16）。
 - **#5 测量**：身高与体重是**测量**（带时间戳的只追加序列），不再是基本属性里的两个可编辑字段。
   档案页的「当前身高/体重」永远取最新一条测量；测量页用 `Plot` 画折线（只有一个点也看得见），
   单条可删（全库唯一允许单条删除的数据）。库结构版本升到 5（旧库按骨架期惯例重建）。
+- **#6 会话**：会话列表（新建 / 续聊 / 归档折叠 / 删除）与会话正文。消息按序落库，长列表用
+  `List` 虚拟滚动；删除只清消息正文（依据日志与照片的保留语义由 #8 之后接上）。回复目前是
+  占位的假回复（`src/llm/fake.rs`），#7 换成真模型。
 
 ```
 App.tsx            应用外壳：读档案 → 引导 / 四个 Tab
-screens/           今日、引导、档案、测量四屏（TSX）
+screens/           今日、引导、档案、测量、对话列表/聊天（TSX）
 ui/                共用零件（卡片/胶囊/按钮/输入）与表单草稿
 App.test.tsx       冷启动主干与重开持久的 headless 测试（nsh test）
 src/lib.rs         crate 的 UI 集合：注册对 TSX 暴露的 module
-src/api.rs         对 TSX 暴露的类型与入口（JsObject → native.d.ts，`Profile` / `Measurements` 模块）
+src/api.rs         对 TSX 暴露的类型与入口（JsObject → native.d.ts，`Profile` / `Measurements` / `Conversations` 模块）
 src/anatomy/       解剖学词表：mod.rs 放类型与规则，sites.rs 是生成的内容
-src/domain/        五轴取值、Finding/Retract、投影与聚合（纯函数、零 IO）
+src/domain/        五轴取值、Finding/Retract、投影与聚合、测量、会话（纯函数、零 IO）
+src/llm/           模型网关与装配（ADR-0006）；现在只有占位回复
 src/store/         redb：mod.rs 开库与版本、profile.rs 基本属性/训练条件、findings.rs 判定与撤回、
-                   measurements.rs 测量序列
+                   measurements.rs 测量序列、conversations.rs 会话与消息
 scripts/gen-anatomy.py   从词表 markdown 生成 src/anatomy/sites.rs
 nsh.json           app 元信息 + 设计 token（shadcn cssVars 形式）
 design/            OpenDesign 工作区：9 屏原型 + 视觉契约
