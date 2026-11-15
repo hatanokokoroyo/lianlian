@@ -5,12 +5,13 @@
 //!
 //! 表：`meta`（库自己的标量）、`profile`（基本属性 / 训练条件 / 引导标记）、
 //! `findings` 与 `retracts`（档案条目与撤回）、`measurements`（身高体重的测量序列）、
-//! `conversations` 与 `messages`（会话与消息）。
+//! `conversations` 与 `messages`（会话与消息）、`settings`（本机设置，含 API key）。
 
 pub mod conversations;
 pub mod findings;
 pub mod measurements;
 pub mod profile;
+pub mod settings;
 
 use std::fmt;
 use std::path::Path;
@@ -21,7 +22,7 @@ use redb::{Database, ReadableDatabase, TableDefinition};
 use crate::domain::DomainError;
 
 /// 库结构与值格式的版本；改表或改值的编码都要 +1。
-pub const SCHEMA_VERSION: &str = "6";
+pub const SCHEMA_VERSION: &str = "7";
 
 /// 库自己的标量：`schema_version`、`next_finding_id`。
 pub(crate) const META: TableDefinition<&str, &str> = TableDefinition::new("meta");
@@ -140,6 +141,7 @@ fn initialize(db: &Database) -> Result<(), StoreError> {
     write.open_table(findings::RETRACTS).map_err(db_error)?;
     write.open_table(measurements::MEASUREMENTS).map_err(db_error)?;
     write.open_table(profile::PROFILE).map_err(db_error)?;
+    write.open_table(settings::SETTINGS).map_err(db_error)?;
     write.commit().map_err(db_error)
 }
 
@@ -147,6 +149,7 @@ fn reset(db: &Database) -> Result<(), StoreError> {
     let write = db.begin_write().map_err(db_error)?;
     drop_table(&write, META)?;
     drop_table(&write, profile::PROFILE)?;
+    drop_table(&write, settings::SETTINGS)?;
     drop_table(&write, conversations::MESSAGES)?;
     drop_table(&write, conversations::CONVERSATIONS)?;
     drop_table(&write, findings::FINDINGS)?;

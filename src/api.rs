@@ -14,6 +14,9 @@ use crate::domain::training::{
     Place, Readiness, TrainingContext, DAYS_PER_WEEK_RANGE, MINUTES_RANGE,
 };
 use crate::domain::DomainError;
+use crate::llm::deepseek::{self, GatewayError};
+use crate::llm::prompt::{assemble, assemble_with_history, Snapshot};
+use crate::store::settings::API_KEY;
 use crate::store::Store;
 
 /// 基本属性。
@@ -248,12 +251,14 @@ pub struct ChatErrorView {
     pub can_retry: bool,
 }
 
-/// 发一条消息的结果：已落库的消息（含这次新增的）。
+/// 发一条消息的结果：落库之后的全部消息。
 #[derive(Debug, Clone, PartialEq, JsObject)]
 pub struct SendResultView {
     pub messages: Vec<MessageView>,
-    /// 有值时消息可能只落了一半（用户那句在，回复没有）。
+    /// 有值时这一轮没有落库（用户那句话仍在输入框里，不丢）。
     pub error: Option<ChatErrorView>,
+    /// 自动裁剪历史后重发成功时的说明；正常是 `null`。
+    pub notice: Option<String>,
 }
 
 /// 会话与消息：新建、续聊、归档、删除。
@@ -293,60 +298,97 @@ impl Conversations {
         }
     }
 
-    /// 发一条消息：用户那句先落库，再追加回复。
+    /// 发一条消息：装配 → 调模型 → 成功才把这一轮（用户 + 回复）落库。
     ///
-    /// 目前回复是占位的（#7 换成模型网关）；失败时用户那句仍然保留。
+    /// 失败时什么都不写：用户打了一半的字在界面里，重试只会重发这一轮，不会
+    /// 在时间线上留下半条对话。三类失败各有出路（见 `ChatErrorView`）。
     pub async fn send(id: f64, text: String) -> SendResultView {
         let store = match Store::open_app() {
             Ok(store) => store,
-            Err(error) => {
-                return SendResultView {
-                    messages: Vec::new(),
-                    error: Some(ChatErrorView {
-                        kind: "config".to_owned(),
-                        message: error.to_string(),
-                        can_retry: false,
-                    }),
-                };
-            }
+            Err(error) => return failure(GatewayError::Config(error.to_string())),
         };
         let conversation = crate::domain::ConversationId(id as u64);
-        let at = now_ms();
-        if let Err(error) = store.append_message(conversation, crate::domain::Role::User, &text, at)
-        {
-            return SendResultView {
-                messages: Vec::new(),
-                error: Some(ChatErrorView {
-                    kind: "request".to_owned(),
-                    message: error.to_string(),
-                    can_retry: false,
-                }),
-            };
+
+        // 会话必须存在；消息不能是空白（同一条规则在领域层再校验一次）。
+        if store.conversation(conversation).ok().flatten().is_none() {
+            return failure(GatewayError::Request(format!(
+                "找不到编号 {id} 的会话。"
+            )));
         }
-        let reply = crate::llm::fake::reply(&text);
-        if let Err(error) = store.append_message(
+        if let Err(error) = crate::domain::Message::new(
+            crate::domain::MessageId(0),
             conversation,
-            crate::domain::Role::Assistant,
-            &reply,
-            at.saturating_add(1),
+            crate::domain::Role::User,
+            &text,
+            0,
         ) {
-            return SendResultView {
-                messages: Vec::new(),
-                error: Some(ChatErrorView {
-                    kind: "config".to_owned(),
-                    message: error.to_string(),
-                    can_retry: false,
-                }),
-            };
+            return failure(GatewayError::Request(error.to_string()));
         }
-        SendResultView {
-            messages: store
-                .messages(conversation)
-                .unwrap_or_default()
-                .iter()
-                .map(message_view)
-                .collect(),
-            error: None,
+
+        // key 缺失是配置问题，连请求都不发。
+        let key = store
+            .setting(API_KEY)
+            .ok()
+            .flatten()
+            .unwrap_or_default();
+        if key.trim().is_empty() {
+            return failure(GatewayError::Config(
+                "还没填 DeepSeek 的 API key。去设置里填一把，它只存在这台设备上。".to_owned(),
+            ));
+        }
+
+        let history = store.messages(conversation).unwrap_or_default();
+        let snapshot = snapshot(&store);
+        let assembly = assemble(&snapshot, &history, &text);
+
+        let (reply, notice) = match deepseek::send(&key, &assembly.items).await {
+            Ok(reply) => (reply, None),
+            // 超长：丢掉最旧的一半历史，自动重发一次。
+            Err(GatewayError::TooLong(_)) => {
+                let keep = history.len() / 2;
+                if keep >= history.len() {
+                    return failure(GatewayError::TooLong(
+                        "这一轮本身就超过了模型上下文上限，先删短一点再发。".to_owned(),
+                    ));
+                }
+                let trimmed = assemble_with_history(&snapshot, &history, &text, keep);
+                match deepseek::send(&key, &trimmed.items).await {
+                    Ok(reply) => (
+                        reply,
+                        Some(format!(
+                            "会话太长了，这次只带了最近 {} 条消息；建议新开一个会话。",
+                            keep
+                        )),
+                    ),
+                    Err(error) => return failure(error),
+                }
+            }
+            Err(error) => return failure(error),
+        };
+
+        let at = now_ms();
+        let user = store.append_message(conversation, crate::domain::Role::User, &text, at);
+        let assistant = user.and_then(|_| {
+            store.append_message(
+                conversation,
+                crate::domain::Role::Assistant,
+                &reply,
+                at.saturating_add(1),
+            )
+        });
+        match assistant {
+            Ok(_) => SendResultView {
+                messages: store
+                    .messages(conversation)
+                    .unwrap_or_default()
+                    .iter()
+                    .map(message_view)
+                    .collect(),
+                error: None,
+                notice,
+            },
+            // 回复已经到了但落库失败：别装作成功，也别把用户那句抹掉。
+            Err(error) => failure(GatewayError::Config(format!("回复落库失败：{error}"))),
         }
     }
 
@@ -363,6 +405,104 @@ impl Conversations {
             store.delete_conversation(crate::domain::ConversationId(id as u64))
         })
     }
+}
+
+/// 失败：一条消息都不落库，错误按出路分类。
+fn failure(error: GatewayError) -> SendResultView {
+    SendResultView {
+        messages: Vec::new(),
+        error: Some(ChatErrorView {
+            kind: error.kind().to_owned(),
+            message: error.message().to_owned(),
+            can_retry: error.can_retry(),
+        }),
+        notice: None,
+    }
+}
+
+/// 装配要的当前状态：基本属性、最新测量、档案投影、训练条件、未结提议。
+fn snapshot(store: &Store) -> Snapshot {
+    Snapshot {
+        basics: store.basics().unwrap_or_default(),
+        height: store
+            .latest_measurement(MeasurementKind::Height)
+            .ok()
+            .flatten(),
+        weight: store
+            .latest_measurement(MeasurementKind::Weight)
+            .ok()
+            .flatten(),
+        projection: store.projection().unwrap_or_default(),
+        training: store.training().unwrap_or_default(),
+        // 提议表在 #10 才建；现在恒为空，装配里明确写「未结提议：无」。
+        proposals: Vec::new(),
+    }
+}
+
+/// 设置的读与写：目前只有 DeepSeek 的 API key。
+#[derive(Debug, Clone, PartialEq, JsObject)]
+pub struct SettingsView {
+    /// 是否已经有一把 key。
+    pub has_key: bool,
+    /// 打码后的样子（`sk-…abcd`），没填是 `null`。
+    pub masked: Option<String>,
+    /// 读库失败的原因。
+    pub error: Option<String>,
+}
+
+/// 本机设置：DeepSeek 的 API key（打码读取）。
+#[module]
+pub struct Settings;
+
+#[module]
+impl Settings {
+    /// 读设置（不返回 key 本身：界面只显示打码后的样子）。
+    pub async fn load() -> SettingsView {
+        match Store::open_app() {
+            Ok(store) => match store.setting(API_KEY) {
+                Ok(key) => settings_view(key, None),
+                Err(error) => settings_view(None, Some(error.to_string())),
+            },
+            Err(error) => settings_view(None, Some(error.to_string())),
+        }
+    }
+
+    /// 保存 key；返回失败原因，成功是 `null`。
+    pub async fn save_key(key: String) -> Option<String> {
+        let key = key.trim().to_owned();
+        if key.is_empty() {
+            return Some("key 不能是空白。要清除已保存的 key，用「清除」。".to_owned());
+        }
+        if key.chars().any(char::is_whitespace) {
+            return Some("key 里不应该有空格或换行，检查一下有没有复制多行。".to_owned());
+        }
+        save(&Store::open_app(), |store| store.set_setting(API_KEY, &key))
+    }
+
+    /// 清除已保存的 key。
+    pub async fn clear_key() -> Option<String> {
+        save(&Store::open_app(), |store| store.delete_setting(API_KEY))
+    }
+}
+
+fn settings_view(key: Option<String>, error: Option<String>) -> SettingsView {
+    let masked = key.as_deref().map(mask_key);
+    SettingsView {
+        has_key: key.is_some_and(|key| !key.trim().is_empty()),
+        masked,
+        error,
+    }
+}
+
+/// 只露头尾：`sk-…abcd`。
+fn mask_key(key: &str) -> String {
+    let chars: Vec<char> = key.chars().collect();
+    if chars.len() <= 8 {
+        return "…".to_owned();
+    }
+    let head: String = chars.iter().take(3).collect();
+    let tail: String = chars[chars.len() - 4..].iter().collect();
+    format!("{head}…{tail}")
 }
 
 fn now_ms() -> i64 {

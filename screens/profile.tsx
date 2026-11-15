@@ -6,13 +6,14 @@ import type { ProfileView } from "lianlian/native";
 
 import type { ProfileDrafts } from "../ui/drafts";
 import { BasicsFields, TrainingFields, basicsPayload, trainingPayload } from "../ui/forms";
-import { Card, Note, PrimaryButton, ScreenHeader, SectionLabel } from "../ui/parts";
+import { Card, Note, PrimaryButton, ScreenHeader, SectionLabel, TextButton } from "../ui/parts";
 
 export function ProfileScreen(props: {
   state: ProfileView;
   drafts: ProfileDrafts;
   onSaved: () => void;
   onGoMeasurements: () => void;
+  onGoSettings: () => void;
 }) {
   const basics = props.drafts.basics;
   const training = props.drafts.training;
@@ -67,6 +68,9 @@ export function ProfileScreen(props: {
       />
 
       <View style={{ padding: 16, gap: 12 }}>
+        <View style={{ flexDirection: "row", justifyContent: "flex-end" }}>
+          <TextButton testID="open-settings" label="设置与 key" onPress={props.onGoSettings} />
+        </View>
         {error() ? (
           <Card testID="profile-error">
             <Note tone="error" text={error() ?? ""} />

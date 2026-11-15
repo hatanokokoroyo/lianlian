@@ -1,14 +1,18 @@
 import { expect, open, test } from "nsh/test";
 
-import { ensureOnboarded } from "./test-helpers";
+import { ensureOnboarded, replyWith, setApiKey } from "./test-helpers";
 
 // #6：会话能新建、续聊、归档、删除；消息按序落库，重开 app 还在。
 // 这时还没有模型，回复是占位的；测试只断言「有回复且按序」。
 test("会话新建、续聊、归档、删除与重开仍在", async () => {
-  const app = await open("./App.tsx");
+  const network = {
+    "POST https://api.deepseek.com/responses": replyWith("先做一个踝背屈测试，看看脚跟会不会抬。"),
+  };
+  const app = await open("./App.tsx", { network });
   await app.waitUntil(() => app.shows("id:onboarding-next") || app.shows("id:tab-today"));
   await ensureOnboarded(app);
   await app.waitFor("id:tab-today");
+  await setApiKey(app);
 
   await app.press("id:tab-conversations");
   await app.waitFor("id:new-conversation");
@@ -20,7 +24,9 @@ test("会话新建、续聊、归档、删除与重开仍在", async () => {
   await app.type("id:message-input", title);
   await app.press("id:send");
   await app.waitFor("id:send");
-  await app.waitUntil(() => app.texts().some((text) => text.includes("还没有接上模型")));
+  await app.waitUntil(() =>
+    app.texts().some((text) => text.includes("先做一个踝背屈测试")),
+  );
   expect(app.texts().some((text) => text.includes(title))).toBe(true);
 
   // 续聊：同一个会话里再发一句，历史还在。
@@ -35,22 +41,22 @@ test("会话新建、续聊、归档、删除与重开仍在", async () => {
   expect(app.texts().some((text) => text.includes(title))).toBe(true);
 
   // 归档：从默认列表消失，折叠区能找到。
-  await app.press("text:⋯ >> nth=0");
-  await app.press("text:归档");
+  await app.press(`label:会话菜单：${title}`);
+  await app.press(`label:归档：${title}`);
   await app.wait(200);
   await app.waitFor("id:archived-toggle");
   await app.press("id:archived-toggle");
   await app.waitFor("text:收起已归档 1 个");
-  await app.press("text:⋯ >> nth=0");
-  await app.waitFor("text:取消归档");
+  await app.press(`label:会话菜单：${title}`);
+  await app.waitFor(`label:取消归档：${title}`);
 
   // 取消归档后又回到默认列表。
-  await app.press("text:取消归档");
+  await app.press(`label:取消归档：${title}`);
   await app.wait(200);
   expect(app.texts().some((text) => text.includes(title))).toBe(true);
 
   // 重开 app：消息还在。
-  const reopened = await open("./App.tsx");
+  const reopened = await open("./App.tsx", { network });
   await reopened.waitUntil(
     () => reopened.shows("id:onboarding-next") || reopened.shows("id:tab-today"),
   );
@@ -65,14 +71,14 @@ test("会话新建、续聊、归档、删除与重开仍在", async () => {
   // 删除：只删这个会话，确认后从列表消失。
   await reopened.press("id:conv-back");
   await reopened.waitFor("id:new-conversation");
-  await reopened.press("text:⋯ >> nth=0");
-  await reopened.press("text:删除");
-  await reopened.waitFor("text:确认删除");
-  await reopened.press("text:确认删除");
+  await reopened.press(`label:会话菜单：${title}`);
+  await reopened.press(`label:删除：${title}`);
+  await reopened.waitFor(`label:确认删除：${title}`);
+  await reopened.press(`label:确认删除：${title}`);
   await reopened.wait(200);
   expect(reopened.texts().some((text) => text.includes(title))).toBe(false);
 
-  const third = await open("./App.tsx");
+  const third = await open("./App.tsx", { network });
   await third.waitUntil(() => third.shows("id:onboarding-next") || third.shows("id:tab-today"));
   await ensureOnboarded(third);
   await third.press("id:tab-conversations");

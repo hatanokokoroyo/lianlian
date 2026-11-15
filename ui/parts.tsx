@@ -123,17 +123,18 @@ export function PrimaryButton(props: {
   );
 }
 
-/** 次要行动：一行文字。 */
+/** 次要行动：一行文字。`hint` 是给读屏与测试用的完整说法（列表行之间要能区分）。 */
 export function TextButton(props: {
   label: string;
   onPress: () => void;
   testID?: string;
+  hint?: string;
 }) {
   return (
     <View
       testID={props.testID}
       role="button"
-      accessibilityLabel={props.label}
+      accessibilityLabel={props.hint ?? props.label}
       onPress={props.onPress}
     >
       <Text style={{ fontSize: 11, color: token("accent") }}>{props.label}</Text>

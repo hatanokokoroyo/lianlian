@@ -29,3 +29,33 @@ export async function deleteAllMeasurements(app: App) {
     await app.wait(100);
   }
 }
+
+/** 在设置里填一把 key（已保存过就覆盖）。 */
+export async function setApiKey(app: App, key = "sk-test-lianlian") {
+  await app.press("id:tab-profile");
+  await app.waitFor("id:open-settings");
+  await app.press("id:open-settings");
+  await app.waitFor("id:reveal-key");
+  await app.press("id:reveal-key");
+  await app.type("id:api-key", key);
+  await app.press("id:save-api-key");
+  await app.waitFor("id:settings-message");
+  await app.press("id:settings-back");
+}
+
+/** 假模型的一次正常响应（OpenAI Responses 的形状）。 */
+export function replyWith(text: string) {
+  return {
+    status: 200,
+    body: {
+      status: "completed",
+      output: [
+        {
+          type: "message",
+          role: "assistant",
+          content: [{ type: "output_text", text }],
+        },
+      ],
+    },
+  };
+}

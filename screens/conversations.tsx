@@ -5,7 +5,7 @@
 import { List, resource, signal, Text, token, View } from "nsh";
 import { Input } from "nsh/base";
 import { Conversations } from "lianlian/native";
-import type { ConversationView, MessageView } from "lianlian/native";
+import type { ChatErrorView, ConversationView, MessageView } from "lianlian/native";
 
 import { Card, Note, PrimaryButton, ScreenHeader, SectionLabel, TextButton } from "../ui/parts";
 
@@ -76,12 +76,29 @@ function MessageRow(props: { message: MessageView }) {
   );
 }
 
+/**
+ * 没发出去的草稿按会话缓存：出错跳去设置再回来，打了一半的字还在。
+ * 键是会话编号，模块级——和 `ui/drafts.ts` 对表单草稿的处理同一个理由。
+ */
+const drafts = new Map<number, string>();
+
 /** 一个会话的正文与输入条。 */
-function Chat(props: { id: number; onBack: () => void; onChanged: () => void }) {
+function Chat(props: {
+  id: number;
+  onBack: () => void;
+  onChanged: () => void;
+  onOpenSettings: () => void;
+}) {
   const detail = resource(() => Conversations.open(props.id));
-  const draft = signal("");
+  const draft = signal(drafts.get(props.id) ?? "");
   const busy = signal(false);
-  const error = signal<string | null>(null);
+  const failure = signal<ChatErrorView | null>(null);
+  const notice = signal<string | null>(null);
+
+  const writeDraft = (text: string) => {
+    drafts.set(props.id, text);
+    draft.set(text);
+  };
 
   const send = async () => {
     const text = draft();
@@ -89,14 +106,19 @@ function Chat(props: { id: number; onBack: () => void; onChanged: () => void }) 
       return;
     }
     busy.set(true);
-    error.set(null);
+    failure.set(null);
+    notice.set(null);
     const result = await Conversations.send(props.id, text);
     busy.set(false);
     if (result.error) {
-      // 失败时把打了一半的字留在输入框里（工单 #7 的三类错误态都靠这条）。
-      error.set(result.error.message);
+      // 失败时什么都不落库，打了一半的字留在输入框里：断网重试、去设置换 key
+      // 都从这里接上（contract §8 的三类错误态）。
+      failure.set(result.error);
     } else {
-      draft.set("");
+      writeDraft("");
+      if (result.notice) {
+        notice.set(result.notice);
+      }
     }
     detail.refetch();
     props.onChanged();
@@ -153,10 +175,30 @@ function Chat(props: { id: number; onBack: () => void; onChanged: () => void }) 
             {(message: () => MessageView) => <MessageRow message={message()} />}
           </List>
 
-          {error() ? (
+          {notice() ? (
+            <View style={{ paddingHorizontal: 16, paddingBottom: 6 }}>
+              <Card testID="conv-send-notice">
+                <Note tone="accent" text={notice()!} />
+              </Card>
+            </View>
+          ) : null}
+
+          {failure() ? (
             <View style={{ paddingHorizontal: 16, paddingBottom: 6 }}>
               <Card testID="conv-send-error">
-                <Note tone="error" text={error()!} />
+                <Note tone="error" text={failure()!.message} />
+                <View style={{ flexDirection: "row", gap: 12 }}>
+                  {failure()!.canRetry ? (
+                    <TextButton testID="retry-send" label="重试" onPress={send} />
+                  ) : null}
+                  {failure()!.kind === "config" ? (
+                    <TextButton
+                      testID="open-settings"
+                      label="去设置"
+                      onPress={props.onOpenSettings}
+                    />
+                  ) : null}
+                </View>
               </Card>
             </View>
           ) : null}
@@ -179,7 +221,7 @@ function Chat(props: { id: number; onBack: () => void; onChanged: () => void }) 
                 value={draft()}
                 multiline
                 placeholder="说点什么…"
-                onChange={(event) => draft.set(event.value)}
+                onChange={(event) => writeDraft(event.value)}
                 style={{
                   backgroundColor: token("muted"),
                   borderRadius: token("radius"),
@@ -247,6 +289,7 @@ function ConversationRow(props: {
         <TextButton
           testID={`conv-menu-${conversation.id}`}
           label={props.menuOpen ? "收起" : "⋯"}
+          hint={`会话菜单：${conversation.title}`}
           onPress={props.onToggleMenu}
         />
         {props.menuOpen ? (
@@ -255,18 +298,21 @@ function ConversationRow(props: {
               <TextButton
                 testID={`unarchive-conv-${conversation.id}`}
                 label="取消归档"
+                hint={`取消归档：${conversation.title}`}
                 onPress={props.onUnarchive}
               />
             ) : (
               <TextButton
                 testID={`archive-conv-${conversation.id}`}
                 label="归档"
+                hint={`归档：${conversation.title}`}
                 onPress={props.onArchive}
               />
             )}
             <TextButton
               testID={`delete-conv-${conversation.id}`}
               label="删除"
+              hint={`删除：${conversation.title}`}
               onPress={props.onDeletePressed}
             />
           </View>
@@ -291,6 +337,7 @@ function ConversationRow(props: {
             <TextButton
               testID={`delete-conv-confirm-${conversation.id}`}
               label="确认删除"
+              hint={`确认删除：${conversation.title}`}
               onPress={props.onDeleteConfirmed}
             />
             <TextButton
@@ -305,7 +352,7 @@ function ConversationRow(props: {
   );
 }
 
-export function ConversationsScreen() {
+export function ConversationsScreen(props: { onOpenSettings: () => void }) {
   const list = resource(() => Conversations.list());
   const selected = signal<number | null>(null);
   const showArchived = signal(false);
@@ -444,6 +491,7 @@ export function ConversationsScreen() {
           id={selected()!}
           onBack={back}
           onChanged={() => list.refetch()}
+          onOpenSettings={props.onOpenSettings}
         />
       )}
     </View>
