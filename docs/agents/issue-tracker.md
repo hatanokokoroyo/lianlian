@@ -50,6 +50,8 @@ GitHub 标签与本地 `Status:` 行使用同一套字符串：
 
 ## 约定 —— GitHub 侧
 
+> 本机 `gh` 版本为 **2.45.0**，低于 2.94：`--parent` / `--add-sub-issue` / `--blocked-by` / `--add-blocked-by` 这些参数**不存在**。子 issue 与原生依赖一律走下文的 `gh api` 回退路径（注意要用数字 **database id**，不是 `#number`）。`gh` 升级后可改用短参数。
+
 - **创建 issue**：`gh issue create --title "..." --body "..."`。多行正文用 heredoc。
 - **读取 issue**：`gh issue view <number> --json number,title,body,labels,comments`。
 - **列出 issue**：`gh issue list --state open --json number,title,body,labels,comments --jq '[.[] | {number, title, body, labels: [.labels[].name], comments: [.comments[].body]}]'`，按需配 `--label`、`--state` 过滤。
