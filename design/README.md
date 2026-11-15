@@ -20,3 +20,11 @@
 
 定稿后只取两样东西进实现：**定型屏的 HTML（视觉基准）** + **`contract.md`（视觉契约：token 表 / 屏清单 / 组件映射 / 状态矩阵 / testID）**。
 OD 自带的 `DESIGN-HANDOFF.md` / `DESIGN-MANIFEST.json` 是 web 中心的，不覆盖 NSH 的约束，按需参考、不要照抄。
+
+## 当前状态（2026-11-15）
+
+- **定稿方向**：C · 节拍（`screens/*-pulse.html`，9 屏全铺，可交互）。A（铁馆）/ B（台账）各两屏仅作风格考古，不进实现。
+- **视觉契约**：`contract.md`——token 表 / 屏清单 / 组件映射 / 状态矩阵 / 交互契约 / testID 登记。**实现只认它**。
+- **构建**：`npm i tailwindcss@4 @tailwindcss/cli@4` 后
+  `./node_modules/.bin/tailwindcss -i tokens/pulse.css -o screens/pulse.css --minify`。
+  编译产物 `screens/*.css` 入库（OD 预览直接依赖，不拉 CDN）。
