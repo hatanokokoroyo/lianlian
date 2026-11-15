@@ -105,6 +105,8 @@ nsh run                     # 本机 Linux 宿主，最快的界面迭代
 - **`Directory not empty (os error 39)`**：上一次 `nsh run` 被 Ctrl-C 打断会留下 `.nsh/android/NshDev.apk-work/`，下一次装宿主时命名冲突。删掉 `.nsh/android` 再来。
 - **`no reactive runtime: signals are used on the engine thread`**：Rust 的普通 `fn`（不带 `cx`、非 `async`）跑在引擎线程，那里没有响应式运行时，读 `data_dir()` 之类的服务会 panic。要碰平台服务就写成 `async fn`（任务里跑）或在 TSX 侧用 `resource()` 消费。
 - **改了 Rust，手机上却还是旧行为**：dev server 有时判定「没变化」而不重装宿主，手机上跑的还是旧 native lib（加 `nsh.json` 的 `build` 也不一定让它重装）。可靠做法是 `adb shell pm clear com.longbridge.nsh.host` 后重开一次 dev server，等日志出现 `installed the Android development host`。代价是 app 私有目录里的库文件也被清掉——开发期无所谓。
+- **`nsh.json` 故意不声明 `capabilities`**：一旦声明，没列出的能力（webview、picker、clipboard……）会一并被关掉；
+  不声明时自有 app 保留不受限的 HTTP/取图等能力，而文件系统、裸 socket 仍然要显式声明。接照片（#8）前别加。
 - **库里的值格式变了**：库结构与值格式的版本写在 `meta` 表的 `schema_version`（当前 7）；版本对不上时 `store` 丢表重建（骨架期不做迁移，改表就要 +1）。
 - **`nsh.test` 的 headless 宿主不给 app 私有目录**（`data_dir()` 为 `None`），所以 `store` 在没有私有目录时落到系统临时目录，库行为在测试里是真的。
 
