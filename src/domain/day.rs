@@ -350,6 +350,58 @@ pub fn settle(day: &mut Day, today: Date) -> bool {
     }
 }
 
+/// 月历格子的五种状态（`design/contract.md` §6.3）；休息日不是训练日。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CalendarCell {
+    /// 休息日：没有训练，也没有从别处推迟过来。
+    Rest,
+    /// 计划中：这一天有训练，还没打卡，也还没过。
+    Planned,
+    /// 已完成：打卡了。
+    Completed,
+    /// 已推迟：原来那天的训练被顺延走了（这一天本身没有动作快照）。
+    Postponed,
+    /// 未完成：过了自然日 00:00 还没打卡。
+    Missed,
+}
+
+impl CalendarCell {
+    pub fn key(self) -> &'static str {
+        match self {
+            CalendarCell::Rest => "rest",
+            CalendarCell::Planned => "planned",
+            CalendarCell::Completed => "completed",
+            CalendarCell::Postponed => "postponed",
+            CalendarCell::Missed => "missed",
+        }
+    }
+
+    pub fn zh(self) -> &'static str {
+        match self {
+            CalendarCell::Rest => "休息日",
+            CalendarCell::Planned => "计划中",
+            CalendarCell::Completed => "已完成",
+            CalendarCell::Postponed => "已推迟",
+            CalendarCell::Missed => "未完成",
+        }
+    }
+}
+
+/// 某一天在月历上的格子状态。
+///
+/// `postponed_away` 表示这一天原本有训练、但被整天顺延走了：库里没有这一天的
+/// 训练行（原日回到空档），格子上仍要能看出「已推迟」，目标日则接管动作快照。
+pub fn calendar_cell(day: Option<&Day>, postponed_away: bool) -> CalendarCell {
+    match (day.map(|day| day.state), postponed_away) {
+        (Some(DayState::Completed), _) => CalendarCell::Completed,
+        (Some(DayState::Missed), _) => CalendarCell::Missed,
+        (Some(DayState::Postponed), _) => CalendarCell::Postponed,
+        (Some(DayState::Planned), _) => CalendarCell::Planned,
+        (None, true) => CalendarCell::Postponed,
+        (None, false) => CalendarCell::Rest,
+    }
+}
+
 /// Howard Hinnant 的 `civil_from_days`：1970-01-01 起的天数 → 年月日。
 fn civil_from_days(days: i64) -> (i64, u32, u32) {
     let z = days + 719_468;
@@ -641,6 +693,27 @@ mod tests {
         day.skip(0).expect("补上缺的标记再跳过");
         assert!(day.is_skipped(0));
         assert_eq!(day.state, DayState::Completed);
+    }
+
+    #[test]
+    fn the_five_calendar_cells_come_from_the_day_and_the_postponed_edge() {
+        let planned = plan(Frequency::PerWeek(3), "2026-11-16");
+        let mut day = Day::from_plan(&planned, date("2026-11-16"), Vec::new(), 0);
+
+        assert_eq!(calendar_cell(None, false), CalendarCell::Rest);
+        assert_eq!(calendar_cell(None, true), CalendarCell::Postponed);
+        assert_eq!(calendar_cell(Some(&day), false), CalendarCell::Planned);
+
+        day.state = DayState::Completed;
+        assert_eq!(calendar_cell(Some(&day), false), CalendarCell::Completed);
+        day.state = DayState::Missed;
+        assert_eq!(calendar_cell(Some(&day), false), CalendarCell::Missed);
+        day.state = DayState::Postponed;
+        assert_eq!(calendar_cell(Some(&day), false), CalendarCell::Postponed);
+
+        // key() 与中文名一一对应，界面与测试共用同一套词。
+        assert_eq!(CalendarCell::Rest.key(), "rest");
+        assert_eq!(CalendarCell::Missed.zh(), "未完成");
     }
 
     #[test]

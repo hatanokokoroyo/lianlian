@@ -5,6 +5,7 @@
 //! `Option<String>` 表达——`None` 是成功，`Some(文案)` 是失败原因，界面直接显示。
 
 use nsh_core::prelude::*;
+use std::collections::BTreeMap;
 
 use crate::domain::DomainError;
 use crate::domain::basics::{AGE_RANGE, Basics, Sex};
@@ -976,7 +977,30 @@ pub struct DaysView {
     pub from: String,
     pub to: String,
     pub days: Vec<DayView>,
+    /// 从 `from` 到 `to` 的每一天（含休息日），月历直接铺它。
+    pub cells: Vec<CalendarCellView>,
     pub error: Option<String>,
+}
+
+/// 月历上的一天：五种状态之一（休息日 / 计划中 / 已完成 / 已推迟 / 未完成）。
+#[derive(Debug, Clone, PartialEq, JsObject)]
+pub struct CalendarCellView {
+    /// `YYYY-MM-DD`。
+    pub date: String,
+    /// 状态 key：`rest` / `planned` / `completed` / `postponed` / `missed`。
+    pub status: String,
+    /// 状态中文名。
+    pub status_zh: String,
+    /// 这一天有训练时，勾了几个。
+    pub done: f64,
+    /// 这一天有训练时，一共几个动作。
+    pub total: f64,
+    /// 原来这一天被推迟到了哪一天（只有「已推迟」的格子有）。
+    pub moved_to: Option<String>,
+    /// 这一天的训练是从哪一天推迟过来的（目标日有）。
+    pub moved_from: Option<String>,
+    /// 今天是哪一天（设备本地）；界面用它加独立标记。
+    pub is_today: bool,
 }
 
 /// 训练日：展开、查询与整天推迟（今天的清单与勾选在 `Today` 里）。
@@ -997,6 +1021,7 @@ impl Days {
                 from,
                 to,
                 days: Vec::new(),
+                cells: Vec::new(),
                 error: Some("日期要用 YYYY-MM-DD。".to_owned()),
             };
         };
@@ -1007,6 +1032,7 @@ impl Days {
                     from,
                     to,
                     days: Vec::new(),
+                    cells: Vec::new(),
                     error: Some(error.to_string()),
                 };
             }
@@ -1017,6 +1043,7 @@ impl Days {
                 from,
                 to,
                 days: Vec::new(),
+                cells: Vec::new(),
                 error: Some("日期要用 YYYY-MM-DD。".to_owned()),
             };
         };
@@ -1028,20 +1055,23 @@ impl Days {
                 from,
                 to,
                 days: Vec::new(),
+                cells: Vec::new(),
                 error: Some(error.to_string()),
             };
         }
-        match store.days_between(from_date, to_date) {
-            Ok(days) => DaysView {
+        match (store.days(), store.days_between(from_date, to_date)) {
+            (Ok(all), Ok(days)) => DaysView {
                 from,
                 to,
+                cells: calendar_cells(from_date, to_date, today, &all),
                 days: days.iter().map(day_view).collect(),
                 error: None,
             },
-            Err(error) => DaysView {
+            (Err(error), _) | (_, Err(error)) => DaysView {
                 from,
                 to,
                 days: Vec::new(),
+                cells: Vec::new(),
                 error: Some(error.to_string()),
             },
         }
@@ -1103,6 +1133,44 @@ fn day_view(day: &crate::domain::Day) -> DayView {
         postponed_from: day.postponed_from.map(|date| date.iso()),
         exercises,
     }
+}
+
+/// 把区间里的每一天铺成月历格子（含休息日）。
+///
+/// 「已推迟」既可能出现在有训练行的目标日（`state = postponed`），也可能出现在
+/// 原日：原日已经没有训练行，但它的 `postponed_from` 出现在别的训练日上。
+fn calendar_cells(
+    from: crate::domain::Date,
+    to: crate::domain::Date,
+    today: crate::domain::Date,
+    all: &[crate::domain::Day],
+) -> Vec<CalendarCellView> {
+    let by_date: BTreeMap<crate::domain::Date, &crate::domain::Day> =
+        all.iter().map(|day| (day.date, day)).collect();
+    let postponed_to: BTreeMap<crate::domain::Date, crate::domain::Date> = all
+        .iter()
+        .filter_map(|day| day.postponed_from.map(|origin| (origin, day.date)))
+        .collect();
+
+    let mut cells = Vec::new();
+    let mut date = from;
+    while date <= to {
+        let day = by_date.get(&date).copied();
+        let moved_to = postponed_to.get(&date).copied();
+        let status = crate::domain::day::calendar_cell(day, moved_to.is_some());
+        cells.push(CalendarCellView {
+            date: date.iso(),
+            status: status.key().to_owned(),
+            status_zh: status.zh().to_owned(),
+            done: day.map(|day| day.done_count()).unwrap_or(0) as f64,
+            total: day.map(|day| day.total()).unwrap_or(0) as f64,
+            moved_to: moved_to.map(|target| target.iso()),
+            moved_from: day.and_then(|day| day.postponed_from.map(|origin| origin.iso())),
+            is_today: date == today,
+        });
+        date = date.add(1);
+    }
+    cells
 }
 
 /// 设置的读与写：DeepSeek 的 API key 与工具往返上限。
@@ -2551,6 +2619,82 @@ mod day_tests {
             side: None,
         };
         assert_eq!(snapshot.prescription, "3×30 秒");
+    }
+
+    #[test]
+    fn the_calendar_cells_carry_all_five_states_and_the_postponed_edges() {
+        let temp = TempStore::new("api-calendar-cells");
+        let store = temp.store();
+        store
+            .save_training(&TrainingContext {
+                days_per_week: Some(7),
+                minutes_per_session: Some(30),
+                places: vec![Place::Home],
+                equipment: vec!["band".to_owned()],
+            })
+            .expect("训练条件");
+        let finding = store
+            .record(FindingDraft {
+                site: "gluteus-medius".to_owned(),
+                side: Some(Side::Left),
+                values: {
+                    let mut values = crate::domain::AxisValues::new();
+                    values.set(AxisValue::Tension(Tension::Weak));
+                    values
+                },
+                confidence: 70,
+                at: 0,
+            })
+            .expect("写一条判定");
+        store
+            .create_plan(
+                None,
+                date("2026-11-16").0 * crate::domain::day::DAY_MS,
+                PlanDraft {
+                    frequency: Frequency::PerWeek(7),
+                    exercises: vec![Exercise {
+                        name: "臀桥".to_owned(),
+                        sets: 3,
+                        reps: 10,
+                        unit: RepsUnit::Times,
+                        finding: finding.id,
+                    }],
+                    review_at: None,
+                },
+            )
+            .expect("排计划");
+        store
+            .ensure_days(date("2026-11-16"), 5, 0)
+            .expect("展开");
+        store
+            .toggle_exercise(date("2026-11-16"), 0)
+            .expect("打卡 16");
+        store.settle_before(date("2026-11-18")).expect("结算 17");
+        store
+            .postpone(date("2026-11-18"), date("2026-11-21"))
+            .expect("把 18 推迟到 21");
+
+        let cells = calendar_cells(
+            date("2026-11-16"),
+            date("2026-11-22"),
+            date("2026-11-18"),
+            &store.days().expect("读训练日"),
+        );
+        let by_date: BTreeMap<&str, &CalendarCellView> = cells
+            .iter()
+            .map(|cell| (cell.date.as_str(), cell))
+            .collect();
+        assert_eq!(by_date["2026-11-16"].status, "completed");
+        assert_eq!(by_date["2026-11-17"].status, "missed");
+        assert_eq!(by_date["2026-11-18"].status, "postponed");
+        assert_eq!(by_date["2026-11-18"].moved_to.as_deref(), Some("2026-11-21"));
+        assert_eq!(by_date["2026-11-21"].status, "planned");
+        assert_eq!(
+            by_date["2026-11-21"].moved_from.as_deref(),
+            Some("2026-11-18")
+        );
+        assert_eq!(by_date["2026-11-22"].status, "rest");
+        assert!(by_date["2026-11-18"].is_today);
     }
 }
 

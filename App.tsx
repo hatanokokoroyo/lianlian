@@ -1,32 +1,18 @@
 // 应用外壳：冷启动读档案 → 没走完引导就先引导，走完了进四个 Tab。
-// 日历屏还没做（#16），这里给一个说清状态的占位，而不是空白。
 import { mount, resource, signal, Text, token, View } from "nsh";
 import { Profile } from "lianlian/native";
 
 import { profileDrafts } from "./ui/drafts";
+import { CalendarScreen } from "./screens/calendar";
 import { Onboarding } from "./screens/onboarding";
 import { ConversationsScreen } from "./screens/conversations";
 import { MeasurementsScreen } from "./screens/measurements";
 import { SettingsScreen } from "./screens/settings";
 import { ProfileScreen } from "./screens/profile";
 import { Today } from "./screens/today";
-import { Card, Note, ScreenHeader, TabBar } from "./ui/parts";
+import { TabBar } from "./ui/parts";
 
 type Tab = "today" | "calendar" | "conversations" | "profile";
-
-/** 还没做的那两屏：说清楚是什么、由哪个工单来接手。 */
-function Pending(props: { title: string; ticket: string }) {
-  return (
-    <View style={{ flex: 1 }}>
-      <ScreenHeader eyebrow="还没做" title={props.title} />
-      <View style={{ padding: 16 }}>
-        <Card>
-          <Note text={`这一屏由 ${props.ticket} 来做。现在它不影响已经跑通的链路。`} />
-        </Card>
-      </View>
-    </View>
-  );
-}
 
 function Loading() {
   return (
@@ -91,7 +77,7 @@ function App() {
                 />
               )
             ) : null}
-            {tab() === "calendar" ? <Pending title="月历" ticket="工单 #16" /> : null}
+            {tab() === "calendar" ? <CalendarScreen /> : null}
             {tab() === "conversations" ? (
               <ConversationsScreen
                 onOpenSettings={() => {
