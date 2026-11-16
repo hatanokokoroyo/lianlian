@@ -140,7 +140,50 @@ nsh run                     # 本机 Linux 宿主，最快的界面迭代
 
 首次 `nsh run --target android` 会编译 Rust 依赖并给设备装 NSHDev 宿主，几分钟；之后是秒级。
 
+## 发版与更新
+
+只在人主动下令时发版：推送代码不会触发构建，也不会打包。
+
+```sh
+scripts/release-android.sh "修好了打卡日期边界"   # 触发云端构建，等它跑完
+scripts/release-android.sh --dry-run "验证流水线" # 只构建，不建 Release
+```
+
+- 版本号只有一个真源：`nsh.json` 的 `version`。发版前先提升它；tag `v<version>` 已存在时构建会拒绝。
+- 构建号（`versionCode`）用 CI 的运行序号自动递增，不需要手改 `build`。
+- 工作流产出正式签名的 APK，并在同一个 Release 里挂 `latest.json` 与 `.sig`：
+  应用启动时读它，比对版本、校验签名，发现有新版就在今日页顶部提示。
+- 安卓不允许应用静默安装：点「去下载」只会打开 APK 直链，下载后由系统安装器弹窗确认，
+  首次还需要在浏览器里允许「安装未知应用」。
+
+发版需要的仓库 Secret（一次性配置，值不在仓库里）：
+
+| Secret | 内容 |
+| --- | --- |
+| `ANDROID_KEYSTORE_B64` | 正式签名 keystore 的 base64 |
+| `ANDROID_KEYSTORE_PASSWORD` | 该 keystore 的密码 |
+| `NSH_UPDATE_KEY` | 更新清单签名私钥（`nsh keygen` 的 `.secret`）的 base64 |
+
+keystore 必须离线备份：丢了以后，已装的应用无法再覆盖升级。应用配置里 `updater.publicKey`
+是更新清单公钥，改了它等于让老版本不再信任新清单。
+
+本地验证更新提示时，可以把 `updater` 临时指向本机回环地址的清单；安卓默认禁止明文 HTTP，
+这种临时构建需要 `android.usesCleartextTraffic`，验证完不要提交。
+
 ## 踩过的坑（WSL2 + 真机）
+
+- **`nsh test` 的模块替身只有第一次 `open` 生效**：同一个测试入口在一次运行里只构建一次，
+  `open(..., { modules })` 换掉的导出不会带进第二次 `open`。要测「重开以后」的行为，一个文件只开一次应用，
+  用真实的库状态（例如设置表）造出前置条件。
+- **组件自己 `return null` 不会移除已渲染的视图**：组件体只跑一次，条件判断要在调用方的 JSX 里做
+  （`{cond() ? <X/> : null}`），那里才是会跟着信号重跑的绑定。
+- **`nsh update-manifest` 不接受 `.apk`**：它只认桌面那套 `<name>-<version>-<os>-<arch>.tar.gz|.zip`。
+  安卓只用到「去哪里下载」，所以不传归档、只传 `--link android=<url>` 即可，清单里就是
+  `platforms.android.url`，签名照常由 `--key` 产出。
+- **`nsh package` 调 `apksigner` 需要 Java**：非交互 shell 里没设 `JAVA_HOME` 会报
+  `Unable to locate a Java Runtime`，Rust 已经编好却卡在签名这一步。
+- **清单走本机回环地址时安卓会拦**：默认禁止明文 HTTP，本地验证要临时给
+  `android.usesCleartextTraffic` 并 `adb reverse` 端口，验证完还原。
 
 - **adb 归属**：WSL 用 mirrored 网络，`adb` 复用 **Windows** 上跑的 adb server，本机 `~/.wslconfig` 是 `networkingMode=mirrored`。设备由 Windows 侧 daemon 持有，WSL 不设任何变量就能看到设备。
 - **`adb devices` 空但手机确实连着**：先杀干净多余的 daemon。真机上遇到过 Windows adb 起在 5038、独占 USB 设备，5037 的 daemon 于是一直空；`adb -P 5038 kill-server` 后 5037 立即正常。

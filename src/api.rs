@@ -24,7 +24,7 @@ use crate::llm::prompt::{
     Length, Snapshot, assemble, assemble_with_turns, session_length, turns,
 };
 use crate::store::Store;
-use crate::store::settings::{API_KEY, TOOL_ROUNDS};
+use crate::store::settings::{API_KEY, SKIPPED_UPDATE, TOOL_ROUNDS};
 
 /// 基本属性。
 #[derive(Debug, Clone, PartialEq, JsObject)]
@@ -1624,6 +1624,33 @@ impl Settings {
     /// 清除已保存的 key。
     pub async fn clear_key() -> Option<String> {
         save(&Store::open_app(), |store| store.delete_setting(API_KEY))
+    }
+}
+
+/// 应用更新：只记住用户「以后再说」的版本。检查与下载由 nsh 的更新模块负责，
+/// 这里不碰网络，也不判断「要不要提示」。
+#[module]
+pub struct Updates;
+
+#[module]
+impl Updates {
+    /// 上次跳过提示的版本；从没跳过就是空串。
+    pub async fn skipped() -> String {
+        Store::open_app()
+            .ok()
+            .and_then(|store| store.setting(SKIPPED_UPDATE).ok().flatten())
+            .unwrap_or_default()
+    }
+
+    /// 记住跳过的版本；返回失败原因，成功是 `None`。
+    pub async fn skip(version: String) -> Option<String> {
+        let version = version.trim().to_owned();
+        if version.is_empty() {
+            return Some("版本号不能是空白。".to_owned());
+        }
+        save(&Store::open_app(), |store| {
+            store.set_setting(SKIPPED_UPDATE, &version)
+        })
     }
 }
 

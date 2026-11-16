@@ -9,6 +9,8 @@ import { Today as TodayApi } from "lianlian/native";
 import type { DayView, TodayView } from "lianlian/native";
 
 import { todayIso } from "../ui/dates";
+import { UpdateBanner, showsUpdate } from "../ui/updates";
+import type { UpdateCheck } from "../ui/updates";
 import {
   Card,
   Note,
@@ -337,7 +339,13 @@ function Guidance(props: {
   );
 }
 
-export function Today(props: { onGoProfile: () => void; onGoConversations: () => void }) {
+export function Today(props: {
+  onGoProfile: () => void;
+  onGoConversations: () => void;
+  update?: UpdateCheck | null;
+  onDismissUpdate: (version: string) => void;
+  onOpenUpdate: (url: string) => void;
+}) {
   const data = resource(() => TodayApi.load(todayIso()));
   const busy = signal(false);
   const postponing = signal(false);
@@ -393,6 +401,13 @@ export function Today(props: { onGoProfile: () => void; onGoConversations: () =>
     <View style={{ flex: 1 }}>
       <ScreenHeader eyebrow={todayLabel()} title="练练" />
       <View style={{ flex: 1, padding: 16, gap: 12 }}>
+        {showsUpdate(props.update) ? (
+          <UpdateBanner
+            found={props.update!.found!}
+            onOpen={props.onOpenUpdate}
+            onDismiss={props.onDismissUpdate}
+          />
+        ) : null}
         {data() === undefined ? (
           <Card testID="today-loading">
             <Note text="正在读今天的安排…" />

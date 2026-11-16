@@ -14,6 +14,8 @@ pub(crate) const SETTINGS: TableDefinition<&str, &str> = TableDefinition::new("s
 pub const API_KEY: &str = "deepseek_api_key";
 /// 一轮对话里允许的工具往返轮数（默认 6，夹在 1–128）。
 pub const TOOL_ROUNDS: &str = "tool_rounds";
+/// 用户点过「以后再说」的更新版本；同一版本不再提示。
+pub const SKIPPED_UPDATE: &str = "skipped_update_version";
 
 impl Store {
     /// 读一个设置；没设过就是 `None`。

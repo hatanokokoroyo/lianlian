@@ -1,0 +1,138 @@
+name: Android APK
+
+# 只在人主动下令时构建：推送代码不会发版，也不会打包。
+on:
+  workflow_dispatch:
+    inputs:
+      notes:
+        description: 更新说明（写进 Release 和更新清单）
+        required: false
+        default: ""
+      dry_run:
+        description: 只构建并留 artifact，不创建 Release
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-apk
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      ANDROID_HOME: /usr/local/lib/android/sdk
+      ANDROID_NDK_HOME: /usr/local/lib/android/sdk/ndk/30.0.16248370
+      LIBCLANG_PATH: /usr/local/lib/android/sdk/ndk/30.0.16248370/toolchains/llvm/prebuilt/linux-x86_64/lib
+      NSH_VERSION: v0.5.1
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 读版本号
+        id: meta
+        run: |
+          version=$(python3 -c 'import json; print(json.load(open("nsh.json"))["version"])')
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+          echo "apk=lianlian-$version-android.apk" >> "$GITHUB_OUTPUT"
+
+      - name: 版本号必须是没发过的新 tag
+        if: ${{ inputs.dry_run == false }}
+        run: |
+          if git ls-remote --exit-code --tags origin "refs/tags/${{ steps.meta.outputs.tag }}" >/dev/null 2>&1; then
+            echo "::error::tag ${{ steps.meta.outputs.tag }} 已存在；先在 nsh.json 里提升 version"
+            exit 1
+          fi
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: android-actions/setup-android@v3
+
+      - name: 安装 SDK 组件
+        run: |
+          sdkmanager --install "platform-tools" "platforms;android-35" "build-tools;35.0.1" "ndk;30.0.16248370"
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: 安装 nsh
+        run: |
+          curl -fsSL https://nsh.dev/install.sh | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          "$HOME/.local/bin/nsh" -V
+
+      - name: 还原签名证书
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+        run: |
+          printf '%s' "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.p12"
+          chmod 600 "$RUNNER_TEMP/release.p12"
+
+      - name: 打包
+        env:
+          NSH_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          nsh package --target android \
+            --keystore "$RUNNER_TEMP/release.p12" \
+            --key-alias lianlian \
+            --build "${{ github.run_number }}" \
+            --out dist
+          src=$(ls dist/*.apk | head -1)
+          mv "$src" "dist/${{ steps.meta.outputs.apk }}"
+          ls -l dist
+
+      - name: 验证签名
+        run: |
+          "$ANDROID_HOME/build-tools/35.0.1/apksigner" verify --print-certs "dist/${{ steps.meta.outputs.apk }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: apk
+          path: dist/${{ steps.meta.outputs.apk }}
+          if-no-files-found: error
+
+      - name: 写更新说明
+        env:
+          NOTES: ${{ inputs.notes }}
+        run: |
+          if [ -n "$NOTES" ]; then
+            printf '%s\n' "$NOTES" > "$RUNNER_TEMP/notes.md"
+          else
+            printf 'v%s\n' "${{ steps.meta.outputs.version }}" > "$RUNNER_TEMP/notes.md"
+          fi
+
+      - name: 生成更新清单
+        # 清单只写「安卓用户去哪里下载」：安卓端的更新接口只用这一个链接，
+        # 不走桌面那套归档下载，所以不需要把 APK 当归档传进来。
+        if: ${{ inputs.dry_run == false }}
+        env:
+          NSH_UPDATE_KEY: ${{ secrets.NSH_UPDATE_KEY }}
+        run: |
+          printf '%s' "$NSH_UPDATE_KEY" | base64 -d > "$RUNNER_TEMP/update.secret"
+          asset="https://github.com/${{ github.repository }}/releases/download/${{ steps.meta.outputs.tag }}/${{ steps.meta.outputs.apk }}"
+          nsh update-manifest \
+            --key "$RUNNER_TEMP/update.secret" \
+            --notes "$RUNNER_TEMP/notes.md" \
+            --link "android=$asset" \
+            --out dist
+          ls -l dist
+
+      - name: 发布 Release
+        if: ${{ inputs.dry_run == false }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ steps.meta.outputs.tag }}" \
+            "dist/${{ steps.meta.outputs.apk }}" \
+            dist/latest.json dist/latest.json.sig \
+            --title "${{ steps.meta.outputs.tag }}" \
+            --notes-file "$RUNNER_TEMP/notes.md"

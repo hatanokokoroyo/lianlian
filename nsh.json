@@ -3,6 +3,10 @@
   "id": "com.lianlian.app",
   "version": "0.1.0",
   "build": 2,
+  "updater": {
+    "github": "hatanokokoroyo/lianlian",
+    "publicKey": "GwcZ8i+y/3okb22wBM6N1hUEYhmb+4sHKUQsWjT19J4="
+  },
   "rust": ".",
   "theme": {
     "cssVars": {

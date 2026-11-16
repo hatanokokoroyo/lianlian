@@ -1,5 +1,5 @@
 // 应用外壳：冷启动读档案 → 没走完引导就先引导，走完了进四个 Tab。
-import { mount, resource, signal, Text, token, View } from "nsh";
+import { mount, openUrl, resource, signal, Text, token, View } from "nsh";
 import { Profile } from "lianlian/native";
 
 import { profileDrafts } from "./ui/drafts";
@@ -9,6 +9,8 @@ import { ConversationsScreen } from "./screens/conversations";
 import { ProfileScreen } from "./screens/profile";
 import { Today } from "./screens/today";
 import { TabBar } from "./ui/parts";
+import { checkForUpdates, rememberSkipped } from "./ui/updates";
+import type { UpdateCheck } from "./ui/updates";
 
 type Tab = "today" | "calendar" | "conversations" | "profile";
 
@@ -30,6 +32,8 @@ function Loading() {
 function App() {
   const profile = resource(() => Profile.load());
   const tab = signal<Tab>("today");
+  // 更新检查跟着应用实例走：启动查一次，之后不再重复请求。
+  const update = resource(() => checkForUpdates());
   // 从对话的错误态跳去设置：切 Tab 后由档案页把自己推到设置页。
   const profileIntent = signal<"none" | "settings">("none");
 
@@ -52,6 +56,19 @@ function App() {
               <Today
                 onGoProfile={() => tab.set("profile")}
                 onGoConversations={() => tab.set("conversations")}
+                update={update()}
+                onDismissUpdate={(version) => {
+                  // 先落盘再重查：跳过的版本由 Rust 侧记住，重查后提示条自己消失。
+                  void (async () => {
+                    await rememberSkipped(version);
+                    update.refetch();
+                  })();
+                }}
+                onOpenUpdate={(url) => {
+                  // 安卓上 canInstall 恒为 false：只把用户送到下载地址，
+                  // 安装交给系统安装器确认，应用不自己拉起安装器。
+                  void openUrl(url).catch(() => {});
+                }}
               />
             ) : null}
             {tab() === "profile" ? (
