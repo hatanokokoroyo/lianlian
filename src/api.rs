@@ -785,12 +785,15 @@ impl Today {
             Ok(store) => store,
             Err(error) => return empty_today_view(&today, Some(error.to_string())),
         };
-        let _ = store.settle_before(date);
+        let settle = settle_error(&store, date);
         if let Err(error) = store.ensure_days(date, crate::domain::day::HORIZON_DAYS, now_ms()) {
             return empty_today_view(&today, Some(error.to_string()));
         }
         match today_view(&store, date) {
-            Ok(view) => view,
+            Ok(mut view) => {
+                view.error = settle;
+                view
+            }
             Err(error) => empty_today_view(&today, Some(error.to_string())),
         }
     }
@@ -808,14 +811,14 @@ impl Today {
             Ok(store) => store,
             Err(error) => return empty_today_view(&today, Some(error.to_string())),
         };
-        let _ = store.settle_before(date);
+        let settle = settle_error(&store, date);
         let error = store
             .toggle_exercise(date, index)
             .err()
             .map(|error| error.to_string());
         match today_view(&store, date) {
             Ok(mut view) => {
-                view.error = error;
+                view.error = error.or(settle);
                 view
             }
             Err(error) => empty_today_view(&today, Some(error.to_string())),
@@ -835,14 +838,14 @@ impl Today {
             Ok(store) => store,
             Err(error) => return empty_today_view(&today, Some(error.to_string())),
         };
-        let _ = store.settle_before(date);
+        let settle = settle_error(&store, date);
         let error = store
             .skip_exercise(date, index)
             .err()
             .map(|error| error.to_string());
         match today_view(&store, date) {
             Ok(mut view) => {
-                view.error = error;
+                view.error = error.or(settle);
                 view
             }
             Err(error) => empty_today_view(&today, Some(error.to_string())),
@@ -858,7 +861,7 @@ impl Today {
             Ok(store) => store,
             Err(error) => return empty_today_view(&today, Some(error.to_string())),
         };
-        let _ = store.settle_before(date);
+        let settle = settle_error(&store, date);
         let target = if to.trim().is_empty() {
             match store.next_open(date, crate::domain::day::HORIZON_DAYS) {
                 Ok(Some(target)) => target,
@@ -891,7 +894,7 @@ impl Today {
             .map(|error| error.to_string());
         match today_view(&store, date) {
             Ok(mut view) => {
-                view.error = error;
+                view.error = error.or(settle);
                 view
             }
             Err(error) => empty_today_view(&today, Some(error.to_string())),
@@ -916,6 +919,11 @@ fn today_view(store: &Store, date: crate::domain::Date) -> Result<TodayView, cra
         findings: store.projection()?.states().count() as f64,
         error: None,
     })
+}
+
+/// 结算失败时留给视图的错误；读库出问题不能假装还停在「计划中」。
+fn settle_error(store: &Store, date: crate::domain::Date) -> Option<String> {
+    store.settle_before(date).err().map(|error| error.to_string())
 }
 
 fn empty_today_view(today: &str, error: Option<String>) -> TodayView {
@@ -1047,7 +1055,7 @@ impl Days {
                 error: Some("日期要用 YYYY-MM-DD。".to_owned()),
             };
         };
-        let _ = store.settle_before(today);
+        let settle = settle_error(&store, today);
         let start = from_date.max(today);
         let span = (to_date.0 - start.0 + 1).max(0);
         if let Err(error) = store.ensure_days(start, span, now_ms()) {
@@ -1065,7 +1073,7 @@ impl Days {
                 to,
                 cells: calendar_cells(from_date, to_date, today, &all),
                 days: days.iter().map(day_view).collect(),
-                error: None,
+                error: settle,
             },
             (Err(error), _) | (_, Err(error)) => DaysView {
                 from,

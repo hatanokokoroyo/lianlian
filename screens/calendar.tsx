@@ -397,6 +397,12 @@ export function CalendarScreen() {
           <Note
             text={`本月已打卡 ${counts().completed} 天 · 计划 ${counts().planned} 天 · 推迟 ${counts().postponed} 天 · 未完成 ${counts().missed} 天`}
           />
+          {data()!.cells.every((cell) => cell.status === "rest") ? (
+            <Note
+              testID="calendar-empty"
+              text="这个月还没有训练记录；排好计划后，训练日会出现在这里。"
+            />
+          ) : null}
           <View style={{ flexDirection: "row" }}>
             <Each of={WEEKDAYS} key={(weekday) => weekday}>
               {(weekday) => (
@@ -433,7 +439,7 @@ export function CalendarScreen() {
                         alignItems: "center",
                         justifyContent: "center",
                         gap: 2,
-                        borderRadius: 10,
+                        borderRadius: token("radius"),
                         borderWidth: item().cell?.isToday ? 1 : 0,
                         borderColor: token("primary"),
                       }}

@@ -94,7 +94,7 @@ test("今日页：清单、勾选、打卡、重开仍在与没有计划时的�
   await app.press("id:exercise-gluteus-medius-0");
   await app.waitUntil(() => app.texts().some((text) => text.includes("1/2 项")));
   expect(app.texts()).toContain("计划中");
-  expect(app.texts()).toContain("还差 1 项，勾完就是今天的打卡。");
+  expect(app.texts()).toContain("还差 1 项，勾完或跳过就是今天的打卡。");
   expect(app.shows("id:checkin")).toBe(false);
 
   // 杀掉进程重开：勾过的还在库里。

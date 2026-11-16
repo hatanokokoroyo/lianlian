@@ -144,6 +144,8 @@ pub enum DomainError {
     UnknownDay(String),
     /// 要改到的那天已经有训练了。
     DayTaken(String),
+    /// 推迟目标不晚于原训练日。
+    DayNotAfter(String),
 }
 
 impl fmt::Display for DomainError {
@@ -305,6 +307,9 @@ impl fmt::Display for DomainError {
             }
             DomainError::DayTaken(date) => {
                 write!(f, "{date} 已经有训练了；一天只排一次。")
+            }
+            DomainError::DayNotAfter(date) => {
+                write!(f, "{date} 不晚于原训练日；推迟只能往后挪。")
             }
         }
     }

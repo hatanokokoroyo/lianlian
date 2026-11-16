@@ -33,12 +33,13 @@ function dayLabel(iso: string): string {
 }
 
 /** 完成度环（契约 §6.1）：96×96、r=40、线宽 8、12 点起步顺时针，数字叠在中间。 */
-function ProgressRing(props: { done: number; total: number }) {
-  const percent = props.total === 0 ? 0 : Math.round((props.done / props.total) * 100);
+function ProgressRing(props: { resolved: number; total: number }) {
+  const percent =
+    props.total === 0 ? 0 : Math.round((props.resolved / props.total) * 100);
   return (
     <View
       testID="today-ring"
-      accessibilityLabel={`今日完成 ${percent}%，${props.done}/${props.total} 项`}
+      accessibilityLabel={`今日已处理 ${percent}%，${props.resolved}/${props.total} 项`}
       style={{ width: 96, height: 96, alignItems: "center", justifyContent: "center" }}
     >
       <Canvas
@@ -189,17 +190,17 @@ function TodayDay(props: {
 }) {
   const total = props.day.total;
   const checkedIn = props.day.state === "completed";
-  const done = props.day.done + props.day.skipped;
+  const resolved = props.day.done + props.day.skipped;
   const skipped = props.day.skipped;
   return (
     <View style={{ gap: 12 }}>
       <Card testID="today-progress">
         <View style={{ flexDirection: "row", alignItems: "center", gap: 14 }}>
-          <ProgressRing done={done} total={total} />
+          <ProgressRing resolved={resolved} total={total} />
           <View style={{ flex: 1, gap: 4 }}>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
               <Text style={{ fontSize: 15, fontWeight: "bold", color: token("foreground") }}>
-                {`${done}/${total} 项`}
+                {`${resolved}/${total} 项`}
               </Text>
               <Text
                 testID="today-state-label"
@@ -222,9 +223,9 @@ function TodayDay(props: {
               text={
                 checkedIn
                   ? "今天已经打卡。"
-                  : done === 0
+                  : resolved === 0
                     ? "还没开始。做一项勾一项，练到一半接个电话回来还能接着勾。"
-                    : `还差 ${total - done} 项，勾完就是今天的打卡。`
+                    : `还差 ${total - resolved} 项，勾完或跳过就是今天的打卡。`
               }
             />
           </View>

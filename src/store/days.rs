@@ -154,8 +154,8 @@ impl Store {
         let mut day = self
             .day(from)?
             .ok_or_else(|| DomainError::UnknownDay(from.iso()))?;
-        if from == to {
-            return Ok(day);
+        if to <= from {
+            return Err(StoreError::Domain(DomainError::DayNotAfter(to.iso())));
         }
         if self.day(to)?.is_some() {
             return Err(StoreError::Domain(DomainError::DayTaken(to.iso())));
@@ -376,14 +376,30 @@ mod tests {
             .expect("再展开");
         assert!(temp.store().day(date("2026-11-16")).expect("读").is_none());
 
-        // 目标日已经有训练时拒绝。
+        // 目标日已经有训练时拒绝（目标必须晚于原日，所以挑后面的周五）。
         let taken = temp
             .store()
-            .postpone(date("2026-11-18"), date("2026-11-17"))
+            .postpone(date("2026-11-18"), date("2026-11-20"))
             .unwrap_err();
         assert_eq!(
             taken,
-            StoreError::Domain(DomainError::DayTaken("2026-11-17".to_owned()))
+            StoreError::Domain(DomainError::DayTaken("2026-11-20".to_owned()))
+        );
+
+        // 不能把训练日挪到过去或原地：否则这一天会在下一次结算时凭空消失。
+        for target in [date("2026-11-18"), date("2026-11-10")] {
+            let backwards = temp
+                .store()
+                .postpone(date("2026-11-18"), target)
+                .unwrap_err();
+            assert_eq!(
+                backwards,
+                StoreError::Domain(DomainError::DayNotAfter(target.iso()))
+            );
+        }
+        assert!(
+            temp.store().day(date("2026-11-18")).expect("读").is_some(),
+            "拒绝之后原训练日还在"
         );
     }
 
