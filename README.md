@@ -9,7 +9,7 @@
 
 ## 现状
 
-骨架期，两条竖切已完成：
+骨架期，以下竖切已完成：
 
 ```
 App.tsx（TSX 屏：今日页） → lianlian/native（自动生成的类型） → src/api.rs → src/store → redb 单文件
@@ -34,17 +34,28 @@ App.tsx（TSX 屏：今日页） → lianlian/native（自动生成的类型） 
   请求（超长等，自动裁掉最旧一半历史重发一次，说明记在会话上、重开仍可见）。失败时一条消息都不落库，
   输入框里的文字不丢（草稿按会话缓存在界面模块里）。
   真实响应语料在 `tests/corpus/`（请求 + 响应），测试全离线（`open` 的 `network` 桩）。
+- **#8 照片**：系统选择器取图 → 落 app 私有目录（长边 ≤2048，只有一份 JPEG）→ 当轮随消息发给模型 →
+  会话里显示缩略图可点开。照片不作依据，随会话一起删（ADR-0005 修订）。
+- **#9 工具层**：`search_evidence` / `record_finding` / `correct_finding` / `propose_findings` 四个工具接上模型；
+  「未先对该部位 `search_evidence` 就写入」由 Rust 工具层拒绝，不靠提示词自觉。工具失败一律作为
+  `function_call_output` 回给模型；一轮的往返上限可配 1–128。
+- **#10 提议卡片**：一轮想改多条时走 `propose_findings`（1–8 项），会话末尾一张卡逐项勾选、可展开依据、
+  可拒绝并说明（拒绝落证据并自动发起下一轮）；接受后留可撤销摘要，撤销追加 Correction 不删历史。
+- **#11 档案页**：按区域（肌肉看首要肌群、骨骼看区域）分组、左右分开，每行五轴（未测虚线）；
+  展开看四段依据与时间线（倒序，含撤回理由），可「标记已解决」（追加正常判定）与「判定有误」（撤回，
+  必须写理由）；肌群聚合显示成员最差值与它的来源部位。词表外的部位不会出现。
 
 ```
 App.tsx            应用外壳：读档案 → 引导 / 四个 Tab
-screens/           今日、引导、档案、测量、对话列表/聊天、设置（TSX）
-ui/                共用零件（卡片/胶囊/按钮/输入）与表单草稿
-App.test.tsx       冷启动主干与重开持久的 headless 测试（nsh test）
+screens/           今日、引导、档案（含 findings.tsx 的档案条目）、测量、对话列表/聊天、设置（TSX）
+ui/                共用零件（卡片/胶囊/按钮/输入）、表单草稿与日期格式（dates.ts）
+*.test.tsx         headless 测试：App（冷启动主干）、Findings（档案页）、Chat/Conversations/Photos/
+                   Proposals/Measurements（各自工单），全部跑在 `api` 这一个接缝下
 src/lib.rs         crate 的 UI 集合：注册对 TSX 暴露的 module
 src/api.rs         对 TSX 暴露的类型与入口（JsObject → native.d.ts，`Profile` / `Measurements` /
-                   `Conversations` / `Settings` 模块）
+                   `Findings` / `Conversations` / `Photos` / `Proposals` / `Settings` 模块）
 src/anatomy/       解剖学词表：mod.rs 放类型与规则，sites.rs 是生成的内容
-src/domain/        五轴取值、Finding/Retract、投影与聚合、测量、会话（纯函数、零 IO）
+src/domain/        五轴取值、Finding/Retract、投影与聚合、档案页读模型（archive.rs）、测量、会话（纯函数、零 IO）
 src/llm/           装配（prompt.rs，纯函数）+ DeepSeek 网关（deepseek.rs，错误分类）
 src/store/         redb：mod.rs 开库与版本、profile.rs 基本属性/训练条件、findings.rs 判定与撤回、
                    measurements.rs 测量序列、conversations.rs 会话与消息、settings.rs API key

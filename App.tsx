@@ -88,6 +88,7 @@ function App() {
                   onSaved={() => profile.refetch()}
                   onGoMeasurements={() => profilePage.set("measurements")}
                   onGoSettings={() => profilePage.set("settings")}
+                  onGoConversations={() => tab.set("conversations")}
                 />
               )
             ) : null}

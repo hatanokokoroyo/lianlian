@@ -7,23 +7,8 @@ import { Plot, Dot, Grid, Line, PlotAxis } from "nsh/base/plot";
 import { Measurements } from "lianlian/native";
 import type { SeriesView } from "lianlian/native";
 
+import { fullDate, shortDate } from "../ui/dates";
 import { Card, Chip, ChipRow, Note, NumberField, PrimaryButton, ScreenHeader, SectionLabel, TextButton } from "../ui/parts";
-
-/** Unix 毫秒 → `11-14`（本地时区）。 */
-function shortDate(at: number): string {
-  const date = new Date(at);
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${month}-${day}`;
-}
-
-/** Unix 毫秒 → `11月14日 20:30`。 */
-function fullDate(at: number): string {
-  const date = new Date(at);
-  const hour = String(date.getHours()).padStart(2, "0");
-  const minute = String(date.getMinutes()).padStart(2, "0");
-  return `${date.getMonth() + 1}月${date.getDate()}日 ${hour}:${minute}`;
-}
 
 /** 一位或两位小数：体重 74.2，身高 168。 */
 function numberText(value: number): string {

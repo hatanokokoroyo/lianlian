@@ -726,6 +726,352 @@ pub struct SettingsView {
     pub error: Option<String>,
 }
 
+/// 档案页上的一个轴标签（五条轴都给，未测的也占一位）。
+#[derive(Debug, Clone, PartialEq, JsObject)]
+pub struct AxisChipView {
+    /// 机器键：`tension` / `symmetry` / `mobility` / `pain` / `stability`。
+    pub axis: String,
+    /// 中文名：张力 / 对称 / 活动度 / 疼痛 / 稳定性。
+    pub label: String,
+    /// 取值的可读串；未测是 `null`。
+    pub value: Option<String>,
+    /// 这条轴测过吗；没测的显示成虚线（契约 §6 的「未测」）。
+    pub measured: bool,
+    /// 这条轴落在异常取值上（紧 / 左弱 / 受限 / 疼痛 > 0）。
+    pub abnormal: bool,
+}
+
+/// 时间线上的一条：一条判定或一次撤回。
+#[derive(Debug, Clone, PartialEq, JsObject)]
+pub struct HistoryEntryView {
+    /// `finding` / `retract`。
+    pub kind: String,
+    /// Unix 毫秒。
+    pub at: f64,
+    /// 判定取值的可读串；撤回事件是空串。
+    pub values: String,
+    /// 判定置信度；撤回事件是 0。
+    pub confidence: f64,
+    /// 撤回理由；判定是 `null`。
+    pub reason: Option<String>,
+    /// 这条判定就是当前生效的那条。
+    pub current: bool,
+    /// 这条事件写的四段依据（旧数据可能没有）。
+    pub evidence: Vec<EvidenceSectionView>,
+}
+
+/// 档案页上一行：一个「部位 + 侧别」的当前状态。
+#[derive(Debug, Clone, PartialEq, JsObject)]
+pub struct SiteCardView {
+    /// 部位 id。
+    pub site: String,
+    /// 部位中文名。
+    pub site_zh: String,
+    /// 侧别（`left` / `right`），中线结构是 `null`。
+    pub side: Option<String>,
+    /// 侧别中文（左 / 右）。
+    pub side_zh: Option<String>,
+    /// 当前状态的时间，Unix 毫秒。
+    pub at: f64,
+    /// 当前状态来自哪条判定；「已解决 / 撤回」用它。
+    pub finding: f64,
+    /// 那条判定的置信度。
+    pub confidence: f64,
+    /// 当前取值全为正常：显示成「已解决」，不再提供「标记已解决」。
+    pub resolved: bool,
+    /// 五条轴，按显示顺序。
+    pub axes: Vec<AxisChipView>,
+    /// 当前判定的四段依据。
+    pub evidence: Vec<EvidenceSectionView>,
+    /// 依据的时间；没有依据是 `null`。
+    pub evidence_at: Option<f64>,
+    /// 这个「部位 + 侧别」的全部事件，时间倒序。
+    pub timeline: Vec<HistoryEntryView>,
+}
+
+/// 按区域（肌肉看首要肌群，骨骼看区域）分出来的一块。
+#[derive(Debug, Clone, PartialEq, JsObject)]
+pub struct ArchiveSectionView {
+    /// 肌肉是肌群 id，骨骼是区域 id。
+    pub id: String,
+    /// 显示用的中文名。
+    pub label: String,
+    pub cards: Vec<SiteCardView>,
+}
+
+/// 一个肌群在一侧上的聚合（成员逐轴取最差值）。
+#[derive(Debug, Clone, PartialEq, JsObject)]
+pub struct GroupWorstView {
+    /// 肌群 id。
+    pub id: String,
+    /// 肌群中文名。
+    pub zh: String,
+    /// 聚合的侧别，中线成员是 `null`。
+    pub side: Option<String>,
+    pub side_zh: Option<String>,
+    /// 聚合之后的五条轴。
+    pub axes: Vec<AxisChipView>,
+    /// 最差来自哪个部位（中文名）。
+    pub source_site_zh: String,
+    /// 最差那条判定的取值可读串。
+    pub source_values: String,
+    /// 时间，Unix 毫秒。
+    pub at: f64,
+    /// 有判定、参与聚合的成员数。
+    pub member_count: f64,
+}
+
+/// 档案页要读的全部状态。
+#[derive(Debug, Clone, PartialEq, JsObject)]
+pub struct FindingsView {
+    /// 一共有多少行（一个「部位 + 侧别」一行）。
+    pub total: f64,
+    pub sections: Vec<ArchiveSectionView>,
+    /// 有判定的肌群聚合；没判定的肌群不出现。
+    pub groups: Vec<GroupWorstView>,
+    /// 读库失败的原因；有值时界面要提示而不是装作空档案。
+    pub error: Option<String>,
+}
+
+/// 档案条目的读写：读档案页的读模型，追加「已解决 / 撤回」两种更正。
+#[module]
+pub struct Findings;
+
+#[module]
+impl Findings {
+    /// 读档案页：按区域分组的卡片、依据、时间线与肌群聚合。
+    pub async fn load() -> FindingsView {
+        match Store::open_app() {
+            Ok(store) => findings_view(&store, None),
+            Err(error) => empty_findings_view(Some(error.to_string())),
+        }
+    }
+
+    /// 「标记已解决」：给这条判定的部位追加一条正常判定（历史仍在）；
+    /// 返回失败原因，成功是 `null`。
+    pub async fn resolve(finding: f64) -> Option<String> {
+        let id = match whole(finding, "判定编号") {
+            Ok(id) => crate::domain::FindingId(id),
+            Err(message) => return Some(message),
+        };
+        save(&Store::open_app(), |store| resolve_at(store, id, now_ms()))
+    }
+
+    /// 「判定有误」：撤回这条判定，必须写理由；返回失败原因，成功是 `null`。
+    pub async fn retract(finding: f64, reason: String) -> Option<String> {
+        let id = match whole(finding, "判定编号") {
+            Ok(id) => crate::domain::FindingId(id),
+            Err(message) => return Some(message),
+        };
+        let reason = reason.trim().to_owned();
+        if reason.is_empty() {
+            return Some("撤回一条判定必须写理由：错在哪，下次才知道该信什么。".to_owned());
+        }
+        save(&Store::open_app(), |store| {
+            retract_at(store, id, &reason, now_ms())
+        })
+    }
+}
+
+fn findings_view(store: &Store, error: Option<String>) -> FindingsView {
+    let mut errors: Vec<String> = error.into_iter().collect();
+    let events = match store.events() {
+        Ok(events) => events,
+        Err(error) => {
+            errors.push(error.to_string());
+            Vec::new()
+        }
+    };
+    let evidence = match store.evidence_log() {
+        Ok(evidence) => evidence,
+        Err(error) => {
+            errors.push(error.to_string());
+            Vec::new()
+        }
+    };
+    let archive = crate::domain::Archive::build(&events, &evidence);
+    FindingsView {
+        total: archive.cards() as f64,
+        sections: archive
+            .sections
+            .iter()
+            .map(|section| ArchiveSectionView {
+                id: section.id.clone(),
+                label: section.label.clone(),
+                cards: section.cards.iter().map(site_card_view).collect(),
+            })
+            .collect(),
+        groups: archive.groups.iter().map(group_worst_view).collect(),
+        error: join_errors(errors),
+    }
+}
+
+fn empty_findings_view(error: Option<String>) -> FindingsView {
+    FindingsView {
+        total: 0.0,
+        sections: Vec::new(),
+        groups: Vec::new(),
+        error,
+    }
+}
+
+fn site_card_view(card: &crate::domain::SiteCard) -> SiteCardView {
+    SiteCardView {
+        site: card.site.clone(),
+        site_zh: anatomy_zh(&card.site),
+        side: card.side.map(|side| side.key().to_owned()),
+        side_zh: card.side.map(|side| side.zh().to_owned()),
+        at: card.at as f64,
+        finding: card.from.0 as f64,
+        confidence: f64::from(card.confidence),
+        resolved: card.resolved(),
+        axes: axis_chips(card.values),
+        evidence: card
+            .evidence
+            .as_ref()
+            .map(evidence_sections)
+            .unwrap_or_default(),
+        evidence_at: card.evidence.as_ref().map(|evidence| evidence.at as f64),
+        timeline: card
+            .history
+            .iter()
+            .map(|entry| HistoryEntryView {
+                kind: if entry.is_retract() { "retract" } else { "finding" }.to_owned(),
+                at: entry.at as f64,
+                values: axis_values_text(&entry.values),
+                confidence: f64::from(entry.confidence),
+                reason: entry.reason.clone(),
+                current: entry.current,
+                evidence: entry
+                    .evidence
+                    .as_ref()
+                    .map(evidence_sections)
+                    .unwrap_or_default(),
+            })
+            .collect(),
+    }
+}
+
+fn group_worst_view(group: &crate::domain::GroupWorst) -> GroupWorstView {
+    GroupWorstView {
+        id: group.id.clone(),
+        zh: crate::anatomy::group(&group.id)
+            .map(|group| group.zh.to_owned())
+            .unwrap_or_else(|| group.id.clone()),
+        side: group.side.map(|side| side.key().to_owned()),
+        side_zh: group.side.map(|side| side.zh().to_owned()),
+        axes: axis_chips(group.values),
+        source_site_zh: anatomy_zh(&group.source_site),
+        source_values: axis_values_text(&group.source_values),
+        at: group.at as f64,
+        member_count: group.sites.len() as f64,
+    }
+}
+
+/// 五条轴都占一位：没测的也出现，界面才知道要显示成虚线。
+fn axis_chips(values: crate::domain::AxisValues) -> Vec<AxisChipView> {
+    crate::domain::Axis::ALL
+        .into_iter()
+        .map(|axis| {
+            let value = values.get(axis);
+            AxisChipView {
+                axis: axis.key().to_owned(),
+                label: axis.zh().to_owned(),
+                value: value.map(|value| value.zh()),
+                measured: value.is_some(),
+                abnormal: value.is_some_and(|value| !value.is_normal()),
+            }
+        })
+        .collect()
+}
+
+fn evidence_sections(evidence: &crate::domain::Evidence) -> Vec<EvidenceSectionView> {
+    evidence
+        .sections()
+        .iter()
+        .map(|(name, text)| EvidenceSectionView {
+            name: (*name).to_owned(),
+            text: (*text).to_owned(),
+        })
+        .collect()
+}
+
+fn anatomy_zh(site: &str) -> String {
+    crate::anatomy::site(site)
+        .map(|site| site.zh.to_owned())
+        .unwrap_or_else(|| site.to_owned())
+}
+
+/// 「标记已解决」：给同一个部位（同侧别）追加一条正常判定，连同四段依据。
+///
+/// 这是**用户**的动作，没有经过 agent 会话；四段照样写，但要如实说明「未经复查」，
+/// 别让它冒充一次验证。
+fn resolve_at(
+    store: &Store,
+    id: crate::domain::FindingId,
+    at: i64,
+) -> Result<(), crate::store::StoreError> {
+    let target = store
+        .finding(id)?
+        .ok_or(crate::store::StoreError::Domain(
+            crate::domain::DomainError::UnknownFinding(id),
+        ))?;
+    if store.retraction(id)?.is_some() {
+        return Err(crate::store::StoreError::Domain(
+            crate::domain::DomainError::AlreadyRetracted(id),
+        ));
+    }
+    let site_zh = anatomy_zh(&target.site);
+    let evidence = crate::domain::EvidenceDraft {
+        kind: crate::domain::EvidenceKind::Resolve,
+        site: target.site.clone(),
+        side: target.side,
+        finding: None,
+        conversation: None,
+        at,
+        user_said: format!("用户在档案页把「{site_zh}」标记为已解决。"),
+        test_and_feedback: "没有经过 agent 验证：这是用户在档案页直接点的。".to_owned(),
+        reasoning: format!(
+            "用户认为这条判定（{}）已经不再成立。",
+            axis_values_text(&target.values)
+        ),
+        uncertainty: "未经复查；下次评估应当重新验证这个部位。".to_owned(),
+    };
+    store.record_with_evidence(crate::domain::FindingDraft::resolve(&target, at), evidence)?;
+    Ok(())
+}
+
+/// 「判定有误」：撤回一条判定，连同四段依据（理由就是用户写的那句话）。
+fn retract_at(
+    store: &Store,
+    id: crate::domain::FindingId,
+    reason: &str,
+    at: i64,
+) -> Result<(), crate::store::StoreError> {
+    let target = store
+        .finding(id)?
+        .ok_or(crate::store::StoreError::Domain(
+            crate::domain::DomainError::UnknownFinding(id),
+        ))?;
+    let evidence = crate::domain::EvidenceDraft {
+        kind: crate::domain::EvidenceKind::Retract,
+        site: target.site.clone(),
+        side: target.side,
+        finding: None,
+        conversation: None,
+        at,
+        user_said: format!("用户在档案页判定这条有误：{reason}"),
+        test_and_feedback: "没有经过 agent 会话：这是用户在档案页直接点的。".to_owned(),
+        reasoning: format!(
+            "原判定（{}）被用户撤回，理由见上。",
+            axis_values_text(&target.values)
+        ),
+        uncertainty: "用户没有给出可复核的测量；历史条目仍留在时间线里。".to_owned(),
+    };
+    store.retract_with_evidence(id, reason, at, evidence)?;
+    Ok(())
+}
+
 /// 测试用入口：让每个测试文件从干净的库开始（`nsh test` 的多个文件共用一个进程）。
 ///
 /// 不是产品功能——「清空本地数据」属于后续工单的重操作，界面不走这里。
@@ -1775,5 +2121,195 @@ mod conversation_tests {
     fn previews_are_one_line_and_bounded() {
         assert_eq!(preview("  一\n二  三 "), "一 二 三");
         assert_eq!(preview(&"字".repeat(50)).chars().count(), 41);
+    }
+}
+
+#[cfg(test)]
+mod findings_tests {
+    use super::*;
+    use crate::domain::{
+        Axis, AxisValue, AxisValues, EvidenceDraft, EvidenceKind, FindingDraft, Side, Tension,
+    };
+    use crate::store::tests::TempStore;
+
+    fn record(store: &Store, at: i64) -> crate::domain::Finding {
+        let mut values = AxisValues::new();
+        values.set(AxisValue::Tension(Tension::Weak));
+        store
+            .record_with_evidence(
+                FindingDraft {
+                    site: "gluteus-medius".to_owned(),
+                    side: Some(Side::Left),
+                    values,
+                    confidence: 78,
+                    at,
+                },
+                EvidenceDraft {
+                    kind: EvidenceKind::Record,
+                    site: "gluteus-medius".to_owned(),
+                    side: Some(Side::Left),
+                    finding: None,
+                    conversation: None,
+                    at,
+                    user_said: "走路久了左胯往下一沉".to_owned(),
+                    test_and_feedback: "单腿站 30 秒，骨盆下沉 3cm".to_owned(),
+                    reasoning: "臀中肌耐力不足".to_owned(),
+                    uncertainty: "没排除髋屈肌".to_owned(),
+                },
+            )
+            .expect("写一条")
+            .0
+    }
+
+    #[test]
+    fn a_card_carries_all_five_axes_and_the_four_sections() {
+        let temp = TempStore::new("api-findings-view");
+        record(temp.store(), 1_000);
+
+        let view = findings_view(temp.store(), None);
+        assert_eq!(view.total, 1.0);
+        assert_eq!(view.sections.len(), 1);
+        assert_eq!(view.sections[0].label, "臀肌群");
+        let card = &view.sections[0].cards[0];
+        assert_eq!(card.site_zh, "臀中肌");
+        assert_eq!(card.side.as_deref(), Some("left"));
+        assert_eq!(card.axes.len(), 5, "五条轴都占一位，未测的显示虚线");
+        let tension = &card.axes[0];
+        assert_eq!(tension.axis, "tension");
+        assert!(tension.measured);
+        assert!(tension.abnormal);
+        assert!(!card.axes[4].measured, "稳定性没测");
+        assert_eq!(
+            card.evidence
+                .iter()
+                .map(|section| section.name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["用户说法要点", "验证方案与反馈", "推理", "不确定之处"]
+        );
+        assert!(!card.resolved);
+        assert_eq!(card.timeline.len(), 1);
+        assert!(card.timeline[0].current);
+        assert_eq!(view.error, None);
+    }
+
+    #[test]
+    fn the_group_worst_names_the_member_it_came_from() {
+        let temp = TempStore::new("api-findings-group");
+        record(temp.store(), 1_000);
+
+        let view = findings_view(temp.store(), None);
+        let left = view
+            .groups
+            .iter()
+            .find(|group| group.id == "gluteal-group" && group.side.as_deref() == Some("left"))
+            .expect("左侧有判定");
+        assert_eq!(left.zh, "臀肌群");
+        assert_eq!(left.source_site_zh, "臀中肌");
+        assert_eq!(left.source_values, "张力 弱");
+        assert_eq!(left.member_count, 1.0);
+        // 右侧没有判定：未测不是正常，不该出现。
+        assert!(
+            !view
+                .groups
+                .iter()
+                .any(|group| group.id == "gluteal-group" && group.side.as_deref() == Some("right"))
+        );
+    }
+
+    #[test]
+    fn resolving_appends_a_normal_finding_with_its_own_evidence() {
+        let temp = TempStore::new("api-findings-resolve");
+        let store = temp.store();
+        let finding = record(store, 1_000);
+
+        resolve_at(store, finding.id, 2_000).expect("标记已解决");
+        let view = findings_view(store, None);
+        assert_eq!(view.total, 1.0, "部位还是那一行，不是新增一行");
+        let card = &view.sections[0].cards[0];
+        assert!(card.resolved, "最新取值是正常");
+        assert_eq!(card.finding, 2.0, "当前状态来自新追加的那条（#1 是原判定）");
+        assert_eq!(card.timeline.len(), 2, "原判定留在时间线里");
+        assert_eq!(card.timeline[0].kind, "finding");
+        assert!(card.timeline[0].current, "时间线最上面是当前生效那条");
+        assert_eq!(card.timeline[0].values, "张力 正常");
+        assert!(!card.timeline[1].current);
+        assert_eq!(card.timeline[1].values, "张力 弱");
+
+        let log = store.evidence_log().expect("日志");
+        assert_eq!(log.len(), 2);
+        assert_eq!(log[1].kind, EvidenceKind::Resolve);
+        assert_eq!(
+            log[1].finding,
+            Some(crate::domain::FindingId(finding.id.0 + 1)),
+            "撤回日志指向原判定"
+        );
+        assert!(
+            log[1].user_said.contains("标记为已解决"),
+            "用户动作要如实写进依据：{}",
+            log[1].user_said
+        );
+    }
+
+    #[test]
+    fn retracting_needs_a_reason_and_takes_the_card_off_the_archive() {
+        let temp = TempStore::new("api-findings-retract");
+        let store = temp.store();
+        let finding = record(store, 1_000);
+
+        let blank = retract_at(store, finding.id, "  ", 2_000).unwrap_err();
+        assert!(
+            blank.to_string().contains("必须写理由"),
+            "空理由要被拒：{blank}"
+        );
+        assert_eq!(store.evidence_log().expect("日志").len(), 1, "失败不写日志");
+
+        retract_at(store, finding.id, "把臀中肌看成臀小肌了", 2_000).expect("撤回");
+        let view = findings_view(store, None);
+        assert!(view.sections.is_empty(), "撤回到没有判定时整条消失");
+        assert_eq!(view.total, 0.0);
+
+        let log = store.evidence_log().expect("日志");
+        assert_eq!(log.len(), 2);
+        assert!(log[1].user_said.contains("把臀中肌看成臀小肌了"));
+    }
+
+    #[test]
+    fn resolving_a_retracted_finding_is_refused() {
+        let temp = TempStore::new("api-findings-resolve-retracted");
+        let store = temp.store();
+        let finding = record(store, 1_000);
+        retract_at(store, finding.id, "看错了", 2_000).expect("撤回");
+
+        let error = resolve_at(store, finding.id, 3_000).unwrap_err();
+        assert!(error.to_string().contains("撤回"), "{error}");
+        assert_eq!(store.findings().expect("判定").len(), 1, "没有追加新判定");
+    }
+
+    #[test]
+    fn unknown_ids_are_refused_instead_of_writing_anything() {
+        let temp = TempStore::new("api-findings-unknown");
+        let missing = crate::domain::FindingId(999);
+        assert!(resolve_at(temp.store(), missing, 1_000).is_err());
+        assert!(retract_at(temp.store(), missing, "不存在", 1_000).is_err());
+        assert!(temp.store().evidence_log().expect("日志").is_empty());
+    }
+
+    #[test]
+    fn axes_keep_the_display_order_from_the_domain() {
+        let chips = axis_chips(crate::domain::AxisValues::new());
+        assert_eq!(
+            chips
+                .iter()
+                .map(|chip| chip.axis.as_str())
+                .collect::<Vec<_>>(),
+            vec![
+                Axis::Tension.key(),
+                Axis::Symmetry.key(),
+                Axis::Mobility.key(),
+                Axis::Pain.key(),
+                Axis::Stability.key()
+            ]
+        );
+        assert!(chips.iter().all(|chip| !chip.measured), "空取值全是未测");
     }
 }

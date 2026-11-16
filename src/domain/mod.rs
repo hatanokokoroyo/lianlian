@@ -3,6 +3,7 @@
 //! 规则都在这层：五轴取值、部位与侧别的约束、档案条目只追加、聚合与投影。
 //! 存储（`store`）只负责把这层的数据搬进搬出，界面只负责显示。
 
+pub mod archive;
 pub mod axis;
 pub mod basics;
 pub mod conversation;
@@ -16,6 +17,8 @@ pub mod proposal;
 pub mod tool;
 pub mod training;
 
+#[allow(unused_imports)]
+pub use archive::{Archive, GroupWorst, HistoryEntry, Section, SiteCard};
 #[allow(unused_imports)]
 pub use axis::{Axis, AxisValue, AxisValues, Mobility, Pain, Stability, Symmetry, Tension};
 #[allow(unused_imports)]

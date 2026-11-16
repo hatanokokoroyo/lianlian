@@ -1,4 +1,4 @@
-// 档案页的「基本属性 + 训练条件」部分（查找结果的部分是 #11）。
+// 档案页：档案条目（判定与依据，见 findings.tsx）在前，基本属性与训练条件在后。
 // 四个字段都可以留空；留空时页面明说「未填」，不拿 0 冒充。
 import { Scroll, signal, Text, token, View } from "nsh";
 import { Profile } from "lianlian/native";
@@ -6,6 +6,7 @@ import type { ProfileView } from "lianlian/native";
 
 import type { ProfileDrafts } from "../ui/drafts";
 import { BasicsFields, TrainingFields, basicsPayload, trainingPayload } from "../ui/forms";
+import { FindingsSection } from "./findings";
 import { Card, Note, PrimaryButton, ScreenHeader, SectionLabel, TextButton } from "../ui/parts";
 
 export function ProfileScreen(props: {
@@ -14,6 +15,7 @@ export function ProfileScreen(props: {
   onSaved: () => void;
   onGoMeasurements: () => void;
   onGoSettings: () => void;
+  onGoConversations: () => void;
 }) {
   const basics = props.drafts.basics;
   const training = props.drafts.training;
@@ -60,11 +62,11 @@ export function ProfileScreen(props: {
   const readiness = props.state.readiness;
 
   return (
-    <Scroll style={{ flex: 1 }} contentStyle={{ paddingBottom: 24 }}>
+    <Scroll testID="profile-scroll" style={{ flex: 1 }} contentStyle={{ paddingBottom: 24 }}>
       <ScreenHeader
         eyebrow="档案"
-        title="关于你"
-        note="这里只是你填的数字，不是判定。身体上的判定在档案条目里（#11）。"
+        title="身体档案"
+        note="上面是身体上的判定与依据（可展开、可更正），下面是你自己填的数字。"
       />
 
       <View style={{ padding: 16, gap: 12 }}>
@@ -81,6 +83,8 @@ export function ProfileScreen(props: {
             <Note tone="accent" text={saved() ?? ""} />
           </Card>
         ) : null}
+
+        <FindingsSection onGoConversations={props.onGoConversations} />
 
         <Card>
           <Text style={{ fontSize: 13, fontWeight: "bold", color: token("foreground") }}>

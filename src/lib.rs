@@ -20,6 +20,7 @@ use nsh_core::prelude::*;
 fn native(registry: &mut Registry) {
     registry.module::<api::Profile>();
     registry.module::<api::Measurements>();
+    registry.module::<api::Findings>();
     registry.module::<api::Conversations>();
     registry.module::<api::Photos>();
     registry.module::<api::Proposals>();

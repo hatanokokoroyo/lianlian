@@ -41,6 +41,20 @@ pub enum Region {
 }
 
 impl Region {
+    /// 机器可读的键（档案页分块、日志与测试都用它）。
+    pub fn key(self) -> &'static str {
+        match self {
+            Region::SkullFace => "skull-face",
+            Region::Spine => "spine",
+            Region::Thorax => "thorax",
+            Region::ShoulderGirdle => "shoulder-girdle",
+            Region::UpperLimb => "upper-limb",
+            Region::Pelvis => "pelvis",
+            Region::LowerLimb => "lower-limb",
+            Region::Foot => "foot",
+        }
+    }
+
     /// 显示用的中文名。
     pub fn zh(self) -> &'static str {
         match self {
@@ -195,6 +209,31 @@ mod tests {
         );
         let mut group_zh = HashSet::new();
         assert!(GROUPS.iter().all(|group| group_zh.insert(group.zh)));
+    }
+
+    #[test]
+    fn every_region_has_a_unique_machine_key() {
+        let regions = [
+            Region::SkullFace,
+            Region::Spine,
+            Region::Thorax,
+            Region::ShoulderGirdle,
+            Region::UpperLimb,
+            Region::Pelvis,
+            Region::LowerLimb,
+            Region::Foot,
+        ];
+        let mut keys = HashSet::new();
+        for region in regions {
+            assert!(keys.insert(region.key()), "区域 key 重复：{}", region.key());
+            assert!(
+                region.key().chars().all(|c| c.is_ascii_lowercase() || c == '-'),
+                "区域 key 要 kebab-case：{}",
+                region.key()
+            );
+            assert!(!region.zh().is_empty());
+        }
+        assert_eq!(keys.len(), 8);
     }
 
     #[test]
