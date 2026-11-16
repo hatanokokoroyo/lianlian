@@ -22,7 +22,8 @@ concurrency:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    # 固定版本：runner 镜像升级会换掉预装的 SDK 布局，发版机不该跟着漂。
+    runs-on: ubuntu-24.04
     env:
       ANDROID_HOME: /usr/local/lib/android/sdk
       ANDROID_NDK_HOME: /usr/local/lib/android/sdk/ndk/30.0.16248370
@@ -47,15 +48,22 @@ jobs:
             exit 1
           fi
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
 
-      - uses: android-actions/setup-android@v3
+      - name: 准备 Android SDK
+        # runner 自带 SDK 与 sdkmanager；不依赖第三方 setup action（它的旧版本
+        # 会去找已经被移除的 `tools` 包）。把 cmdline-tools 的 bin 加进 PATH。
+        run: |
+          tools=$(ls -d "$ANDROID_HOME"/cmdline-tools/*/bin 2>/dev/null | tail -1)
+          echo "$tools" >> "$GITHUB_PATH"
+          "$tools/sdkmanager" --version
 
       - name: 安装 SDK 组件
         run: |
+          yes | sdkmanager --licenses > /dev/null || true
           sdkmanager --install "platform-tools" "platforms;android-35" "build-tools;35.0.1" "ndk;30.0.16248370"
 
       - uses: dtolnay/rust-toolchain@stable

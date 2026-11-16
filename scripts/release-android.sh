@@ -20,7 +20,7 @@ fi
 
 # 版本号以 nsh.json 为准：没提升版本就发版，工作流会在 tag 已存在时拒绝。
 version=$(python3 -c 'import json; print(json.load(open("nsh.json"))["version"])')
-echo "版本 v$version，dry-run=$dry_run"
+echo "版本 v${version}，dry-run=$dry_run"
 
 gh workflow run "$workflow" --ref "$(git rev-parse --abbrev-ref HEAD)" \
   -f notes="$notes" -F dry_run="$dry_run"
