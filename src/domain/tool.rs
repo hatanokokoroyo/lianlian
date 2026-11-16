@@ -26,6 +26,7 @@ pub const SEARCH_EVIDENCE: &str = "search_evidence";
 pub const RECORD_FINDING: &str = "record_finding";
 pub const CORRECT_FINDING: &str = "correct_finding";
 pub const PROPOSE_FINDINGS: &str = "propose_findings";
+pub const GENERATE_PLAN: &str = "generate_plan";
 
 /// 一次检索的条件。
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -269,6 +270,117 @@ impl CorrectArgs {
     }
 }
 
+/// `generate_plan` 的参数：频次规则、动作清单、复查日（#12）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GenerateArgs {
+    pub draft: super::PlanDraft,
+}
+
+impl GenerateArgs {
+    /// 从工具参数解析。形状不对是工具错误；取值范围留给领域层校验。
+    pub fn parse(args: &Value, at: Timestamp) -> Result<GenerateArgs, ToolError> {
+        let object = args
+            .as_object()
+            .ok_or_else(|| ToolError::invalid_arguments("参数必须是一个对象。"))?;
+        let frequency = object
+            .get("frequency")
+            .and_then(Value::as_object)
+            .ok_or_else(|| {
+                ToolError::invalid_arguments(
+                    "缺少 frequency（频次规则）：unit 取 per-week / every-n-days，count 是次数或天数。"
+                        .to_owned(),
+                )
+            })?;
+        let unit = required_string(frequency.get("unit"), "frequency.unit")?;
+        let count = frequency.get("count").and_then(Value::as_u64).ok_or_else(|| {
+            ToolError::invalid_arguments("缺少 frequency.count（1–7 的整数）。".to_owned())
+        })?;
+        let frequency = super::Frequency::from_parts(&unit, count)
+            .map_err(|error| ToolError::invalid_arguments(error.to_string()))?;
+
+        let raw_exercises = object
+            .get("exercises")
+            .and_then(Value::as_array)
+            .ok_or_else(|| {
+                ToolError::invalid_arguments(
+                    "缺少 exercises（动作清单，1–12 个，每个挂一条判定）。".to_owned(),
+                )
+            })?;
+        let mut exercises = Vec::with_capacity(raw_exercises.len());
+        for raw in raw_exercises {
+            exercises.push(parse_exercise(raw)?);
+        }
+
+        let review_at = match object.get("review_in_weeks") {
+            None | Some(Value::Null) => None,
+            Some(value) => {
+                let weeks = value.as_u64().ok_or_else(|| {
+                    ToolError::invalid_arguments("review_in_weeks 必须是整数周。".to_owned())
+                })?;
+                if !(1..=super::plan::MAX_REVIEW_WEEKS as u64).contains(&weeks) {
+                    return Err(ToolError::invalid_arguments(format!(
+                        "review_in_weeks 要在 1–{} 周之间，收到 {weeks}。",
+                        super::plan::MAX_REVIEW_WEEKS
+                    )));
+                }
+                Some(at + weeks as i64 * 7 * DAY_MS)
+            }
+        };
+
+        let draft = super::PlanDraft {
+            frequency,
+            exercises,
+            review_at,
+        };
+        draft.validate().map_err(ToolError::Domain)?;
+        Ok(GenerateArgs { draft })
+    }
+}
+
+fn parse_exercise(raw: &Value) -> Result<super::Exercise, ToolError> {
+    let object = raw
+        .as_object()
+        .ok_or_else(|| ToolError::invalid_arguments("每个动作都要是一个对象。"))?;
+    let name = required_string(object.get("name"), "exercises[].name")?;
+    let sets = object
+        .get("sets")
+        .and_then(Value::as_u64)
+        .and_then(|value| u8::try_from(value).ok())
+        .ok_or_else(|| {
+            ToolError::invalid_arguments("缺少 sets（组数，1–12 的整数）。".to_owned())
+        })?;
+    let reps = object
+        .get("reps")
+        .and_then(Value::as_u64)
+        .and_then(|value| u16::try_from(value).ok())
+        .ok_or_else(|| {
+            ToolError::invalid_arguments("缺少 reps（每组次数或秒数，整数）。".to_owned())
+        })?;
+    let unit = match optional_string(object.get("unit"))? {
+        Some(raw) => super::RepsUnit::from_key(&raw).ok_or_else(|| {
+            ToolError::invalid_arguments(format!(
+                "动作的 unit 只有 times（次）/ seconds（秒），收到 `{raw}`。"
+            ))
+        })?,
+        None => super::RepsUnit::Times,
+    };
+    let finding = object
+        .get("finding")
+        .and_then(Value::as_u64)
+        .ok_or_else(|| {
+            ToolError::invalid_arguments(
+                "缺少 finding（这个动作对应的判定编号；先 search_evidence 查到它）。".to_owned(),
+            )
+        })?;
+    Ok(super::Exercise {
+        name,
+        sets,
+        reps,
+        unit,
+        finding: super::FindingId(finding),
+    })
+}
+
 fn parse_values(raw: Option<&Value>) -> Result<AxisValues, ToolError> {
     let object = raw.and_then(Value::as_object).ok_or_else(|| {
         ToolError::invalid_arguments("缺少 values（至少一条轴的取值）。".to_owned())
@@ -452,6 +564,7 @@ impl ToolError {
             ToolError::PendingProposal { .. } => "pending_proposal",
             ToolError::Storage(_) => "storage_error",
             ToolError::Domain(super::DomainError::EmptyEvidenceSection(_)) => "missing_evidence",
+            ToolError::Domain(super::DomainError::TrainingIncomplete(_)) => "training_incomplete",
             ToolError::Domain(_) => "invalid_finding",
         }
     }
@@ -468,7 +581,7 @@ impl ToolError {
             ),
             ToolError::InvalidArguments(message) => message.clone(),
             ToolError::UnknownTool(name) => format!(
-                "没有叫 `{name}` 的工具；可用的是 {SEARCH_EVIDENCE} / {RECORD_FINDING} / {CORRECT_FINDING} / {PROPOSE_FINDINGS}。"
+                "没有叫 `{name}` 的工具；可用的是 {SEARCH_EVIDENCE} / {RECORD_FINDING} / {CORRECT_FINDING} / {PROPOSE_FINDINGS} / {GENERATE_PLAN}。"
             ),
             ToolError::UnknownFinding(id) => format!("找不到编号 {id} 的判定；先查档案再改。"),
             ToolError::TooManyItems { count, max } => format!(
@@ -506,6 +619,13 @@ impl ToolError {
             ToolError::Domain(super::DomainError::EmptyEvidenceSection(section)) => {
                 format!("把「{section}」写出来；这条依据没写清就不该落库。")
             }
+            ToolError::Domain(super::DomainError::TrainingIncomplete(_)) => {
+                "先按错误里说的几项追问用户，补齐后再调一次 generate_plan；不要编。".to_owned()
+            }
+            ToolError::Domain(super::DomainError::UnknownFinding(id)) => format!(
+                "编号 {} 的判定不存在；先 search_evidence 查到动作能挂哪条判定。",
+                id.0
+            ),
             ToolError::Domain(_) => "按错误里说的改；改不了就先问用户，不要猜。".to_owned(),
         }
     }
@@ -792,6 +912,80 @@ mod tests {
         )
         .expect("解析");
         assert_eq!(resolve.kind, EvidenceKind::Resolve);
+    }
+
+    #[test]
+    fn plan_arguments_become_a_draft_with_defaults_filled_in() {
+        let args = GenerateArgs::parse(
+            &json!({
+                "frequency": { "unit": "per-week", "count": 3 },
+                "exercises": [
+                    { "name": "臀桥", "sets": 3, "reps": 10, "finding": 7 },
+                    { "name": "死虫式", "sets": 3, "reps": 30, "unit": "seconds", "finding": 9 }
+                ]
+            }),
+            1_000,
+        )
+        .expect("解析");
+        assert_eq!(args.draft.frequency, super::super::Frequency::PerWeek(3));
+        assert_eq!(args.draft.exercises.len(), 2);
+        assert_eq!(args.draft.exercises[0].unit, super::super::RepsUnit::Times);
+        assert_eq!(
+            args.draft.exercises[1].unit,
+            super::super::RepsUnit::Seconds
+        );
+        assert_eq!(args.draft.review_at, None, "没给就是默认四周，落库时再算");
+
+        let later = GenerateArgs::parse(
+            &json!({
+                "frequency": { "unit": "every-n-days", "count": 2 },
+                "exercises": [ { "name": "臀桥", "sets": 3, "reps": 10, "finding": 7 } ],
+                "review_in_weeks": 6
+            }),
+            1_000,
+        )
+        .expect("解析");
+        assert_eq!(later.draft.review_at, Some(1_000 + 6 * 7 * DAY_MS));
+    }
+
+    #[test]
+    fn plan_arguments_are_refused_when_a_field_is_missing_or_out_of_range() {
+        let no_frequency = GenerateArgs::parse(&json!({ "exercises": [] }), 1_000).unwrap_err();
+        assert_eq!(no_frequency.code(), "invalid_arguments");
+        assert!(no_frequency.message().contains("frequency"));
+
+        let no_finding = GenerateArgs::parse(
+            &json!({
+                "frequency": { "unit": "per-week", "count": 3 },
+                "exercises": [ { "name": "臀桥", "sets": 3, "reps": 10 } ]
+            }),
+            1_000,
+        )
+        .unwrap_err();
+        assert!(no_finding.message().contains("finding"));
+
+        let bad_unit = GenerateArgs::parse(
+            &json!({
+                "frequency": { "unit": "per-week", "count": 3 },
+                "exercises": [
+                    { "name": "臀桥", "sets": 3, "reps": 10, "unit": "reps", "finding": 7 }
+                ]
+            }),
+            1_000,
+        )
+        .unwrap_err();
+        assert!(bad_unit.message().contains("times"));
+
+        let too_many_feet = GenerateArgs::parse(
+            &json!({
+                "frequency": { "unit": "per-week", "count": 3 },
+                "exercises": [ { "name": "臀桥", "sets": 0, "reps": 10, "finding": 7 } ]
+            }),
+            1_000,
+        )
+        .unwrap_err();
+        assert_eq!(too_many_feet.code(), "invalid_finding");
+        assert!(too_many_feet.message().contains("组数"));
     }
 
     #[test]

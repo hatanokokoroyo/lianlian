@@ -335,7 +335,7 @@ mod tests {
         assert_eq!(body["input"].as_array().expect("数组").len(), 2);
         assert_eq!(body["reasoning"]["effort"], "none");
         assert_eq!(body["tool_choice"], "auto");
-        assert_eq!(body["tools"].as_array().expect("工具").len(), 4);
+        assert_eq!(body["tools"].as_array().expect("工具").len(), 5);
         assert_eq!(body["input"][0]["role"], "system");
     }
 

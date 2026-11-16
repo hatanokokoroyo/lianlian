@@ -12,7 +12,7 @@ use serde::Serialize;
 use serde_json::Value;
 
 use crate::domain::measurement::Measurement;
-use crate::domain::{Basics, Entry, Projection, Side, StoredItem, TrainingContext};
+use crate::domain::{Basics, Entry, Plan, Projection, Side, StoredItem, TrainingContext};
 
 /// 历史里的照片只有这一行占位：不重发原图（吃 token 且历史不需要），也不假装
 /// 没有发生过（模型要知道用户当时发过图）。
@@ -34,7 +34,9 @@ pub const SYSTEM_PROMPT: &str = concat!(
     "工具是唯一的写入通道：没调用工具就不要声称已经写入；部位只能用词表里的 id，拿不准就先问。\n",
     "照片只在这一轮可见：它是用户发来的图，不是已留存的依据——不要声称档案里存了照片。\n",
     "一次想改多条、或把握不大时用 propose_findings 开一张卡（最多 8 项），让用户逐项勾；卡没被接受就别说已经写进档案。\n",
-    "用户拒绝某一项时，下一轮必须给出下一步（换方案 / 追问 / 撤回并说明），只回「好的」不算。"
+    "用户拒绝某一项时，下一轮必须给出下一步（换方案 / 追问 / 撤回并说明），只回「好的」不算。\n",
+    "排计划用 generate_plan：频次规则 + 动作清单 + 复查日（默认 4 周），每个动作都挂一条已有的判定；",
+    "训练条件不齐时它会被拒，先追问补齐再排。"
 
 );
 
@@ -191,6 +193,8 @@ pub struct Snapshot {
     pub training: TrainingContext,
     /// 未结提议（#10 之前恒为空）。
     pub proposals: Vec<String>,
+    /// 生效计划（#12）：模型要知道现在排到哪一版、频次与复查日。
+    pub plan: Option<Plan>,
 }
 
 /// 装配结果。
@@ -391,6 +395,26 @@ pub fn state_block(snapshot: &Snapshot) -> String {
         }
     ));
 
+    match &snapshot.plan {
+        None => lines.push("生效计划：暂无（还没排过计划）".to_owned()),
+        Some(plan) => {
+            lines.push(format!(
+                "生效计划：第 {} 版 · {} · 复查 {}",
+                plan.version,
+                plan.frequency.zh(),
+                date(plan.review_at)
+            ));
+            for exercise in &plan.exercises {
+                lines.push(format!(
+                    "- {} {}{}",
+                    exercise.name,
+                    exercise.prescription(),
+                    plan_finding_ref(exercise.finding)
+                ));
+            }
+        }
+    }
+
     lines.push(format!(
         "未结提议：{}",
         if snapshot.proposals.is_empty() {
@@ -401,6 +425,11 @@ pub fn state_block(snapshot: &Snapshot) -> String {
     ));
 
     lines.join("\n")
+}
+
+/// 动作挂的那条判定：`（判定 #7）`，模型据此解释「为什么做这个」。
+fn plan_finding_ref(finding: crate::domain::FindingId) -> String {
+    format!("（判定 #{}）", finding.0)
 }
 
 /// 器械清单里的键换成中文；自由文本原样保留。
@@ -519,6 +548,7 @@ mod tests {
                 equipment: vec!["band".to_owned()],
             },
             proposals: Vec::new(),
+            plan: None,
         }
     }
 
@@ -747,6 +777,44 @@ mod tests {
         assert!(block.contains("测量：暂无"));
         assert!(block.contains("档案条目：暂无"));
         assert!(block.contains("训练条件：未填齐"));
+        assert!(block.contains("生效计划：暂无"));
+    }
+
+    #[test]
+    fn the_state_block_carries_the_active_plan_and_its_review_date() {
+        let mut state = snapshot();
+        state.plan = Some(crate::domain::Plan {
+            id: crate::domain::PlanId(3),
+            version: 2,
+            conversation: None,
+            at: NOW,
+            frequency: crate::domain::Frequency::PerWeek(3),
+            exercises: vec![crate::domain::Exercise {
+                name: "臀桥".to_owned(),
+                sets: 3,
+                reps: 10,
+                unit: crate::domain::RepsUnit::Times,
+                finding: FindingId(7),
+            }],
+            review_at: crate::domain::tool::parse_date("2026-12-13").expect("日期"),
+        });
+        let block = state_block(&state);
+        assert!(block.contains("生效计划：第 2 版 · 每周 3 次 · 复查 2026-12-13"));
+        assert!(block.contains("- 臀桥 3×10（判定 #7）"));
+    }
+
+    #[test]
+    fn a_new_conversation_still_gets_the_whole_state_block() {
+        // 强制新开会话之后，第一轮也不许是空状态：档案投影得在里面。
+        let assembly = assemble(&snapshot(), &[], "在吗", None);
+        let state = assembly
+            .items
+            .iter()
+            .find_map(|item| item.content().filter(|text| text.starts_with("【当前状态】")))
+            .expect("状态块");
+        assert!(state.contains("档案条目："));
+        assert!(state.contains("臀中肌"));
+        assert!(state.contains("生效计划：暂无"));
     }
 
     /// 录下来的那一轮：只用一条用户消息，历史为空。

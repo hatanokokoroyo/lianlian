@@ -9,8 +9,8 @@
 //! 重放，下一轮请求会被网关拒）。
 
 use crate::domain::tool::{
-    CORRECT_FINDING, CorrectArgs, EvidenceQuery, PROPOSE_FINDINGS, ProposeArgs, RECORD_FINDING,
-    RecordArgs, SEARCH_EVIDENCE, ToolError, TurnSearches,
+    CORRECT_FINDING, CorrectArgs, EvidenceQuery, GENERATE_PLAN, GenerateArgs, PROPOSE_FINDINGS,
+    ProposeArgs, RECORD_FINDING, RecordArgs, SEARCH_EVIDENCE, ToolError, TurnSearches,
 };
 use crate::domain::{
     EvidenceKind, FindingDraft, FindingId, Proposal, ProposalId, StoredItem,
@@ -294,6 +294,37 @@ impl<'a> StoreHost<'a> {
         .to_string())
     }
 
+    /// 排计划：频次 + 动作清单 + 复查日。写进去就是一个新版本（旧版本还在）。
+    fn plan(&mut self, args: &serde_json::Value) -> Result<String, ToolError> {
+        let parsed = GenerateArgs::parse(args, self.at)?;
+        let plan = self
+            .store
+            .create_plan(Some(self.conversation), self.at, parsed.draft)
+            .map_err(Self::storage)?;
+        self.writes += 1;
+        let exercises: Vec<serde_json::Value> = plan
+            .exercises
+            .iter()
+            .map(|exercise| {
+                serde_json::json!({
+                    "name": exercise.name,
+                    "prescription": exercise.prescription(),
+                    "finding": exercise.finding.0,
+                })
+            })
+            .collect();
+        Ok(serde_json::json!({
+            "ok": true,
+            "plan": plan.id.0,
+            "version": plan.version,
+            "frequency": plan.frequency.zh(),
+            "exercises": exercises,
+            "review_at": date(plan.review_at),
+            "notice": "计划已生效；旧版本仍在，改计划会再生成一个版本。",
+        })
+        .to_string())
+    }
+
     fn correct(&mut self, args: &serde_json::Value) -> Result<String, ToolError> {
         let id = args
             .get("finding")
@@ -362,6 +393,7 @@ impl ToolHost for StoreHost<'_> {
             RECORD_FINDING,
             CORRECT_FINDING,
             PROPOSE_FINDINGS,
+            GENERATE_PLAN,
         ]
         .contains(&name);
         if !known {
@@ -375,6 +407,7 @@ impl ToolHost for StoreHost<'_> {
             SEARCH_EVIDENCE => self.search(&args),
             RECORD_FINDING => self.record(&args),
             CORRECT_FINDING => self.correct(&args),
+            GENERATE_PLAN => self.plan(&args),
             _ => self.propose(&args),
         };
         match result {
@@ -828,6 +861,69 @@ mod tests {
         let output = host.call("delete_everything", "{}");
         assert!(output.contains("unknown_tool"));
         assert!(output.contains(SEARCH_EVIDENCE));
+    }
+
+    /// 一条挂在计划动作上的判定。
+    fn seed_finding(store: &Store, site: &str) -> crate::domain::Finding {
+        store
+            .record(crate::domain::FindingDraft {
+                site: site.to_owned(),
+                side: Some(crate::domain::Side::Left),
+                values: {
+                    let mut values = crate::domain::AxisValues::new();
+                    values.set(crate::domain::AxisValue::Tension(crate::domain::Tension::Weak));
+                    values
+                },
+                confidence: 70,
+                at: 10,
+            })
+            .expect("写一条判定")
+    }
+
+    fn plan_args(finding: u64) -> serde_json::Value {
+        json!({
+            "frequency": { "unit": "per-week", "count": 3 },
+            "exercises": [
+                { "name": "臀桥", "sets": 3, "reps": 10, "finding": finding }
+            ]
+        })
+    }
+
+    fn ready_training() -> crate::domain::TrainingContext {
+        crate::domain::TrainingContext {
+            days_per_week: Some(3),
+            minutes_per_session: Some(30),
+            places: vec![crate::domain::Place::Home],
+            equipment: vec!["band".to_owned()],
+        }
+    }
+
+    #[test]
+    fn generating_a_plan_writes_a_new_version_and_refuses_before_training_conditions() {
+        let temp = TempStore::new("agent-plan");
+        let store = temp.store();
+        let conversation = store.create_conversation(1).expect("会话");
+        let finding = seed_finding(store, "gluteus-medius");
+        let mut host = StoreHost::new(store, conversation.id, 100);
+
+        // 训练条件还没填：拒绝，并说清缺什么（模型该去追问，不是编）。
+        let refused = host.call(GENERATE_PLAN, &plan_args(finding.id.0).to_string());
+        assert!(refused.contains("training_incomplete"), "{refused}");
+        assert!(refused.contains("每周能练几天"), "{refused}");
+        assert!(store.active_plan().expect("读").is_none());
+
+        store.save_training(&ready_training()).expect("填训练条件");
+        let written = host.call(GENERATE_PLAN, &plan_args(finding.id.0).to_string());
+        assert!(written.contains("\"version\":1"), "{written}");
+        assert!(written.contains("每周 3 次"), "{written}");
+        let first = store.active_plan().expect("读").expect("有");
+        assert_eq!(first.exercises[0].finding, finding.id);
+
+        // 再调一次 = 新版本，旧版本留着。
+        let again = host.call(GENERATE_PLAN, &plan_args(finding.id.0).to_string());
+        assert!(again.contains("\"version\":2"), "{again}");
+        assert_eq!(store.plans().expect("版本").len(), 2);
+        assert_eq!(store.active_plan().expect("读").expect("有").version, 2);
     }
 
     /// 同步地跑一个 async 函数：测试里不需要真的调度器。

@@ -7,16 +7,17 @@
 // 列表与条件用 NSH 的 `Each` / `If`：行按 key 保住，结构变化时节点按元素身份换。
 // 撤回表单不塞进会重排的行里，摆在列表上方——它服务时间线上选中的那一条。
 import { resource, signal, Text, token, View } from "nsh";
-import { Findings } from "lianlian/native";
+import { Findings, Plans } from "lianlian/native";
 import type {
   AxisChipView,
   EvidenceSectionView,
   GroupWorstView,
   HistoryEntryView,
+  PlanView,
   SiteCardView,
 } from "lianlian/native";
 
-import { fullDate } from "../ui/dates";
+import { fullDate, todayIso } from "../ui/dates";
 import { Card, Note, PrimaryButton, SectionLabel, TextButton, TextField } from "../ui/parts";
 
 /** 一个「部位 + 侧别」在 testID 里的写法。 */
@@ -299,6 +300,86 @@ function SiteRow(props: {
   );
 }
 
+/**
+ * 计划卡片：频次、动作与复查日。每个动作都挂一条判定，点「看判定」就展开那个
+ * 部位的卡片并打开它的时间线——这里和档案条目共用展开状态，所以放在这一区里。
+ */
+function PlanCard(props: {
+  plan: PlanView;
+  versions: PlanView[];
+  versionsOpen: boolean;
+  onToggleVersions: () => void;
+  onFocus: (slug: string) => void;
+}) {
+  return (
+    <Card testID="plan-card">
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+        <Text style={{ fontSize: 13, fontWeight: "bold", color: token("foreground") }}>
+          计划
+        </Text>
+        <SectionLabel
+          testID="plan-version"
+          text={`第 ${props.plan.version} 版 · ${props.plan.frequency}`}
+        />
+        <View style={{ flex: 1 }} />
+        <Text style={{ fontSize: 10, fontVariant: NUMBERS, color: token("muted-foreground") }}>
+          复查 {fullDate(props.plan.reviewAt)}
+        </Text>
+      </View>
+      <If
+        when={props.plan.reviewDue}
+        else={<Note text="每个动作后面都挂着它对应的判定；点「看判定」能翻到当时的依据。" />}
+      >
+        <Note
+          testID="plan-review-due"
+          tone="accent"
+          text="复查日到了：跟 agent 说一声，让它按现在的档案重新排一版。"
+        />
+      </If>
+      <Each of={props.plan.exercises} key={(exercise) => String(exercise.index)}>
+        {(exercise) => (
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: 12, color: token("foreground") }}>
+                {`${exercise().name} · ${exercise().prescription}`}
+              </Text>
+              <Text style={{ fontSize: 10, color: token("muted-foreground") }}>
+                {`来自「${exercise().siteZh}${exercise().sideZh ?? ""}」的判定`}
+              </Text>
+            </View>
+            <TextButton
+              testID={`plan-exercise-${exercise().index}`}
+              label="看判定"
+              hint={`看「${exercise().name}」对应的判定`}
+              onPress={() => props.onFocus(exercise().slug)}
+            />
+          </View>
+        )}
+      </Each>
+      <TextButton
+        testID="plan-versions"
+        label={
+          props.versionsOpen ? "收起历史版本" : `历史版本（${props.versions.length}）`
+        }
+        onPress={props.onToggleVersions}
+      />
+      <If when={props.versionsOpen}>
+        <View testID="plan-versions-list" style={{ gap: 4 }}>
+          <Each of={props.versions} key={(version) => String(version.id)}>
+            {(version) => (
+              <Text style={{ fontSize: 10, color: token("muted-foreground") }}>
+                {`第 ${version().version} 版 · ${version().frequency} · ${version()
+                  .exercises.map((exercise) => `${exercise.name} ${exercise.prescription}`)
+                  .join("、")}${version().id === props.plan.id ? "（生效）" : "（只读）"}`}
+              </Text>
+            )}
+          </Each>
+        </View>
+      </If>
+    </Card>
+  );
+}
+
 /** 肌群整体：成员逐轴取最差值，并指名最差的那一条来自哪里。 */
 function GroupRow(props: { group: () => GroupWorstView }) {
   const slug = groupSlug(props.group());
@@ -337,6 +418,8 @@ function GroupRow(props: { group: () => GroupWorstView }) {
 
 export function FindingsSection(props: { onGoConversations: () => void }) {
   const data = resource(() => Findings.load());
+  const plans = resource(() => Plans.load(todayIso()));
+  const versionsOpen = signal(false);
   const expanded = signal<string | null>(null);
   const timeline = signal<string | null>(null);
   const collapsed = signal<string[]>([]);
@@ -364,6 +447,20 @@ export function FindingsSection(props: { onGoConversations: () => void }) {
       return null;
     }
     return card.timeline.find((entry) => entry.finding === target.finding)?.at ?? null;
+  };
+
+  /** 从计划的某个动作跳回它对应的判定：展开那张卡并打开时间线。 */
+  const focusFinding = (slug: string) => {
+    const card = data()
+      ?.sections.flatMap((section) => section.cards)
+      .find((card) => slugOf(card) === slug);
+    if (!card) {
+      message.set("这个动作对应的判定已经不在档案上了（被撤回的判定不显示）。");
+      return;
+    }
+    message.set(null);
+    expanded.set(slug);
+    timeline.set(slug);
   };
 
   const toggleSection = (id: string) => {
@@ -417,6 +514,23 @@ export function FindingsSection(props: { onGoConversations: () => void }) {
           text={`档案条目 · ${data() === undefined ? "…" : `${data()!.total} 处`}`}
         />
       </View>
+
+      <If when={plans() !== undefined}>
+        <If when={plans()!.active !== null}>
+          <PlanCard
+            plan={plans()!.active!}
+            versions={plans()!.versions}
+            versionsOpen={versionsOpen()}
+            onToggleVersions={() => versionsOpen.set(!versionsOpen())}
+            onFocus={focusFinding}
+          />
+        </If>
+        <If when={plans()!.error !== null}>
+          <Card testID="plan-error">
+            <Note tone="error" text={plans()!.error ?? ""} />
+          </Card>
+        </If>
+      </If>
 
       <If
         when={data() !== undefined}

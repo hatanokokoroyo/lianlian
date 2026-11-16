@@ -675,6 +675,8 @@ fn snapshot(store: &Store, conversation: crate::domain::ConversationId) -> Snaps
             .flatten(),
         projection: store.projection().unwrap_or_default(),
         training: store.training().unwrap_or_default(),
+        // 生效计划进装配：模型要知道现在排到哪一版、复查日是哪天（#12）。
+        plan: store.active_plan().ok().flatten(),
         // 未结提议要进装配：用户拒绝之后，模型得知道「第 2 项」指的是哪个部位。
         proposals: store
             .pending_proposal(conversation)
@@ -1082,6 +1084,14 @@ impl Testing {
             Ok(store) => store.reset_all().err().map(|error| error.to_string()),
             Err(error) => Some(error.to_string()),
         }
+    }
+
+    /// 把生效计划的复查日挪到昨天（只在界面测试里用：造出「复查日到了」）。
+    /// 没有生效计划时什么都不做。
+    pub async fn expire_plan() -> Option<String> {
+        save(&Store::open_app(), |store| {
+            store.set_active_plan_review_at(now_ms() - crate::domain::tool::DAY_MS)
+        })
     }
 }
 
@@ -1493,6 +1503,142 @@ fn preview(text: &str) -> String {
         preview.push('…');
     }
     preview
+}
+
+/// 计划里的一个动作：名、处方，以及它对应哪条判定（档案页点它看时间线）。
+#[derive(Debug, Clone, PartialEq, JsObject)]
+pub struct PlanExerciseView {
+    /// 第几个（0 起）。
+    pub index: f64,
+    pub name: String,
+    /// 「3×10」/「3×30 秒」。
+    pub prescription: String,
+    /// 部位 id。
+    pub site: String,
+    /// 部位中文名。
+    pub site_zh: String,
+    /// 侧别（`left` / `right`），中线结构是 `null`。
+    pub side: Option<String>,
+    pub side_zh: Option<String>,
+    /// 这个动作对应哪条判定。
+    pub finding: f64,
+    /// 档案页找时间线用的写法（`{site}-{side}` / `{site}`）。
+    pub slug: String,
+}
+
+/// 一份计划。
+#[derive(Debug, Clone, PartialEq, JsObject)]
+pub struct PlanView {
+    pub id: f64,
+    /// 第几版（从 1 起）。
+    pub version: f64,
+    /// 「每周 3 次」/「每 2 天一次」。
+    pub frequency: String,
+    pub exercises: Vec<PlanExerciseView>,
+    /// 生成时间，Unix 毫秒。
+    pub at: f64,
+    /// 复查日，Unix 毫秒。
+    pub review_at: f64,
+    /// 到复查日了吗（到了今日页顶部要提示）。
+    pub review_due: bool,
+}
+
+/// 计划的读模型：生效的那一份 + 全部历史版本。
+#[derive(Debug, Clone, PartialEq, JsObject)]
+pub struct PlansView {
+    pub active: Option<PlanView>,
+    /// 全部版本，旧的在前：旧版本只读可查。
+    pub versions: Vec<PlanView>,
+    pub error: Option<String>,
+}
+
+/// 计划：读生效计划与历史版本（生成只走 agent 的 `generate_plan` 工具）。
+#[module]
+pub struct Plans;
+
+#[module]
+impl Plans {
+    /// 读计划。`today` 是设备本地的今天（`YYYY-MM-DD`），用来判断复查日到没到。
+    pub async fn load(today: String) -> PlansView {
+        let today_end = end_of_day(&today).unwrap_or_else(now_ms);
+        match Store::open_app() {
+            Ok(store) => plans_view(&store, today_end, None),
+            Err(error) => PlansView {
+                active: None,
+                versions: Vec::new(),
+                error: Some(error.to_string()),
+            },
+        }
+    }
+}
+
+fn plans_view(store: &Store, today_end: i64, error: Option<String>) -> PlansView {
+    match store.plans() {
+        Ok(plans) => PlansView {
+            active: store
+                .active_plan()
+                .ok()
+                .flatten()
+                .map(|plan| plan_view(store, &plan, today_end)),
+            versions: plans
+                .iter()
+                .map(|plan| plan_view(store, plan, today_end))
+                .collect(),
+            error,
+        },
+        Err(error) => PlansView {
+            active: None,
+            versions: Vec::new(),
+            error: Some(error.to_string()),
+        },
+    }
+}
+
+fn plan_view(store: &Store, plan: &crate::domain::Plan, today_end: i64) -> PlanView {
+    let exercises = plan
+        .exercises
+        .iter()
+        .enumerate()
+        .map(|(index, exercise)| {
+            let finding = store.finding(exercise.finding).ok().flatten();
+            let (site, side) = match &finding {
+                Some(finding) => (finding.site.clone(), finding.side),
+                None => (String::new(), None),
+            };
+            let site_zh = crate::anatomy::site(&site)
+                .map(|site| site.zh.to_owned())
+                .unwrap_or_else(|| site.clone());
+            let slug = match side {
+                Some(side) => format!("{site}-{}", side.key()),
+                None => site.clone(),
+            };
+            PlanExerciseView {
+                index: index as f64,
+                name: exercise.name.clone(),
+                prescription: exercise.prescription(),
+                site: site.clone(),
+                site_zh,
+                side: side.map(|side| side.key().to_owned()),
+                side_zh: side.map(|side| side.zh().to_owned()),
+                finding: exercise.finding.0 as f64,
+                slug,
+            }
+        })
+        .collect();
+    PlanView {
+        id: plan.id.0 as f64,
+        version: plan.version as f64,
+        frequency: plan.frequency.zh(),
+        exercises,
+        at: plan.at as f64,
+        review_at: plan.review_at as f64,
+        review_due: plan.review_at <= today_end,
+    }
+}
+
+/// 本地今天那一天的最后一毫秒（`YYYY-MM-DD` 解析不出来时退回现在）。
+fn end_of_day(iso: &str) -> Option<i64> {
+    crate::domain::tool::parse_date(iso).map(|start| start + crate::domain::tool::DAY_MS - 1)
 }
 
 /// 档案的读写：基本属性、训练条件、引导标记。

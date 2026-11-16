@@ -45,21 +45,27 @@ App.tsx（TSX 屏：今日页） → lianlian/native（自动生成的类型） 
   展开看四段依据与时间线（倒序，每条判定带自己的依据、标明写入/解决/撤回），可「标记已解决」
   （追加正常判定）与「判定有误」（撤回，必须写理由，时间线上任何一条都能撤）；肌群聚合显示成员的
   最差值并指名最差那条来自哪个部位。词表外的部位不会出现。
+- **#12 计划**：`generate_plan` 按档案与训练条件排出**版本化**计划（频次规则 + 动作清单 + 复查日，默认四周），
+  同一时刻只有一个生效计划，再生成就是新版本、旧版本只读可查；每个动作挂一条判定，档案页的计划卡
+  点「看判定」直接展开那个部位的时间线；训练条件不齐时工具直接拒绝（让 agent 追问，不编方案）；
+  复查日到期后今日页顶部提示重新评估。
 
 ```
 App.tsx            应用外壳：读档案 → 引导 / 四个 Tab
 screens/           今日、引导、档案（含 findings.tsx 的档案条目）、测量、对话列表/聊天、设置（TSX）
 ui/                共用零件（卡片/胶囊/按钮/输入）、表单草稿与日期格式（dates.ts）
-*.test.tsx         headless 测试：App（冷启动主干）、Findings（档案页）、Chat/Conversations/Photos/
-                   Proposals/Measurements（各自工单），全部跑在 `api` 这一个接缝下
+*.test.tsx         headless 测试：App（冷启动主干）、Findings（档案页）、Plan（计划）、Chat/Conversations/
+                   Photos/Proposals/Measurements（各自工单），全部跑在 `api` 这一个接缝下
 src/lib.rs         crate 的 UI 集合：注册对 TSX 暴露的 module
 src/api.rs         对 TSX 暴露的类型与入口（JsObject → native.d.ts，`Profile` / `Measurements` /
-                   `Findings` / `Conversations` / `Photos` / `Proposals` / `Settings` 模块）
+                   `Findings` / `Conversations` / `Photos` / `Proposals` / `Plans` / `Settings` 模块）
 src/anatomy/       解剖学词表：mod.rs 放类型与规则，sites.rs 是生成的内容
-src/domain/        五轴取值、Finding/Retract、投影与聚合、档案页读模型（profile_page.rs）、测量、会话（纯函数、零 IO）
+src/domain/        五轴取值、Finding/Retract、投影与聚合、档案页读模型（profile_page.rs）、测量、会话、
+                   计划（plan.rs：频次、动作、复查日）——纯函数、零 IO
 src/llm/           装配（prompt.rs，纯函数）+ DeepSeek 网关（deepseek.rs，错误分类）
 src/store/         redb：mod.rs 开库与版本、profile.rs 基本属性/训练条件、findings.rs 判定与撤回、
-                   measurements.rs 测量序列、conversations.rs 会话与消息、settings.rs API key
+                   measurements.rs 测量序列、conversations.rs 会话与消息、plans.rs 计划与版本、
+                   settings.rs API key
 scripts/gen-anatomy.py   从词表 markdown 生成 src/anatomy/sites.rs
 nsh.json           app 元信息 + 设计 token（shadcn cssVars 形式）
 design/            OpenDesign 工作区：9 屏原型 + 视觉契约

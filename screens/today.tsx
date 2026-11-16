@@ -1,8 +1,11 @@
-// 今日页。计划的清单要等 #12/#13；在那之前这一屏的职责是**说清楚下一步做什么**：
-// 训练条件不齐就提示去补，齐了就送到首次评估，而不是一片空白。
-import { Text, token, View } from "nsh";
+// 今日页。清单本身由 #13 的展开与 #14 的打卡接上；现在这一屏的职责是说清楚
+// 「下一步做什么」：训练条件不齐就提示去补、齐了就送到首次评估、复查日到了就提示
+// 重新排计划，而不是一片空白。
+import { resource, Text, token, View } from "nsh";
+import { Plans } from "lianlian/native";
 import type { ProfileView } from "lianlian/native";
 
+import { todayIso } from "../ui/dates";
 import { Card, Note, PrimaryButton, ScreenHeader } from "../ui/parts";
 
 /** 「11月15日 周日」 */
@@ -18,6 +21,7 @@ export function Today(props: {
   onGoConversations: () => void;
 }) {
   const readiness = props.state.readiness;
+  const plans = resource(() => Plans.load(todayIso()));
 
   return (
     <View style={{ flex: 1 }}>
@@ -26,6 +30,15 @@ export function Today(props: {
         {props.state.error ? (
           <Card testID="today-error">
             <Note tone="error" text={props.state.error} />
+          </Card>
+        ) : null}
+
+        {plans()?.active?.reviewDue ? (
+          <Card testID="today-review-due">
+            <Text style={{ fontSize: 13, fontWeight: "bold", color: token("accent") }}>
+              复查日到了
+            </Text>
+            <Note text="这份计划已经到期：跟 agent 说一声，让它按现在的档案重新排一版再练。" />
           </Card>
         ) : null}
 

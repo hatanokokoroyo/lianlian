@@ -1,17 +1,25 @@
-//! 四个工具的声明（#9 三个 + #10 的 `propose_findings`）：名字、描述、JSON Schema。
+//! 五个工具的声明（#9 三个 + #10 的 `propose_findings` + #12 的 `generate_plan`）：
+//! 名字、描述、JSON Schema。
 //!
-//! 描述是给模型看的提示词的一部分，改它等于改行为。工具集宁少不多：加第四个
-//! 工具要走 spec（`propose_findings` 在 #10）。
+//! 描述是给模型看的提示词的一部分，改它等于改行为。工具集宁少不多：加一个工具
+//! 要走 spec（`propose_findings` 在 #10，`generate_plan` 在 #12）。
 
 use serde_json::{Value, json};
 
+use crate::domain::plan::{MAX_EXERCISES, MAX_REVIEW_WEEKS, MAX_SETS};
 use crate::domain::tool::{
-    CORRECT_FINDING, PROPOSE_FINDINGS, RECORD_FINDING, SEARCH_EVIDENCE,
+    CORRECT_FINDING, GENERATE_PLAN, PROPOSE_FINDINGS, RECORD_FINDING, SEARCH_EVIDENCE,
 };
 
 /// 请求体里 `tools` 的值。
 pub fn specs() -> Vec<Value> {
-    vec![search_spec(), record_spec(), correct_spec(), propose_spec()]
+    vec![
+        search_spec(),
+        record_spec(),
+        correct_spec(),
+        propose_spec(),
+        plan_spec(),
+    ]
 }
 
 fn search_spec() -> Value {
@@ -133,6 +141,55 @@ fn propose_spec() -> Value {
     })
 }
 
+fn plan_spec() -> Value {
+    json!({
+        "type": "function",
+        "name": GENERATE_PLAN,
+        "description": "排出 / 调整训练计划：频次规则 + 动作清单（每个动作挂它对应的判定编号）+ 复查日（默认 4 周）。同一时刻只有一个生效计划，再调一次就是新版本，旧版本只读可查。训练条件不齐时会被拒绝——先追问补齐，不要编。",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "frequency": {
+                    "type": "object",
+                    "description": "频次规则：unit = per-week 时 count 是每周几次（1–7）；unit = every-n-days 时 count 是每几天一次（2–7）。",
+                    "properties": {
+                        "unit": { "type": "string", "enum": ["per-week", "every-n-days"] },
+                        "count": { "type": "integer", "minimum": 1, "maximum": 7 }
+                    },
+                    "required": ["unit", "count"],
+                    "additionalProperties": false
+                },
+                "exercises": {
+                    "type": "array",
+                    "description": "动作清单，1–12 个。每个动作都要挂一条已有的判定（它的理由）。",
+                    "minItems": 1,
+                    "maxItems": MAX_EXERCISES,
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "name": { "type": "string", "description": "动作名（中文），如「臀桥」" },
+                            "sets": { "type": "integer", "minimum": 1, "maximum": MAX_SETS, "description": "组数" },
+                            "reps": { "type": "integer", "minimum": 1, "maximum": 999, "description": "每组多少次或多少秒" },
+                            "unit": { "type": "string", "enum": ["times", "seconds"], "description": "reps 是次数还是秒数，默认 times" },
+                            "finding": { "type": "integer", "description": "这个动作对应的判定编号（search_evidence 里能查到）" }
+                        },
+                        "required": ["name", "sets", "reps", "finding"],
+                        "additionalProperties": false
+                    }
+                },
+                "review_in_weeks": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": MAX_REVIEW_WEEKS,
+                    "description": "复查日放在几周后，默认 4 周"
+                }
+            },
+            "required": ["frequency", "exercises"],
+            "additionalProperties": false
+        }
+    })
+}
+
 /// 四段依据的 Schema：写判定时必填，缺一段工具层会拒绝。
 fn evidence_schema() -> Value {
     json!({
@@ -153,7 +210,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn there_are_exactly_four_tools_and_their_names_match_the_domain() {
+    fn there_are_exactly_five_tools_and_their_names_match_the_domain() {
         let names: Vec<String> = specs()
             .iter()
             .map(|spec| spec["name"].as_str().expect("有名字").to_owned())
@@ -165,7 +222,8 @@ mod tests {
                 "search_evidence",
                 "record_finding",
                 "correct_finding",
-                "propose_findings"
+                "propose_findings",
+                "generate_plan"
             ]
         );
     }
@@ -179,6 +237,26 @@ mod tests {
             assert!(spec.get("function").is_none(), "别套 function 一层");
             assert!(spec["parameters"]["type"] == "object");
         }
+    }
+
+    #[test]
+    fn the_plan_tool_asks_for_the_frequency_the_exercises_and_their_findings() {
+        let plan = specs()
+            .into_iter()
+            .find(|spec| spec["name"] == "generate_plan")
+            .expect("有 generate_plan");
+        let properties = &plan["parameters"]["properties"];
+        assert_eq!(properties["frequency"]["required"], json!(["unit", "count"]));
+        let exercise = &properties["exercises"]["items"];
+        assert_eq!(
+            exercise["required"],
+            json!(["name", "sets", "reps", "finding"])
+        );
+        assert_eq!(properties["exercises"]["maxItems"], MAX_EXERCISES);
+        assert_eq!(
+            properties["review_in_weeks"]["maximum"],
+            MAX_REVIEW_WEEKS
+        );
     }
 
     #[test]
@@ -206,7 +284,7 @@ mod tests {
         };
         for spec in specs()
             .iter()
-            .filter(|spec| spec["name"] != "search_evidence")
+            .filter(|spec| spec["name"] != "search_evidence" && spec["name"] != "generate_plan")
         {
             let evidence = evidence_of(spec);
             let required: Vec<&str> = evidence["required"]

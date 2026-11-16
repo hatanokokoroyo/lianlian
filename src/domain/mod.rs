@@ -12,6 +12,7 @@ pub mod finding;
 pub mod item;
 pub mod measurement;
 pub mod photo;
+pub mod plan;
 pub mod projection;
 pub mod proposal;
 pub mod tool;
@@ -34,6 +35,9 @@ pub use measurement::{
 };
 #[allow(unused_imports)]
 pub use photo::{Photo, PhotoId};
+pub use plan::{
+    Exercise, Frequency, Plan, PlanDraft, PlanId, RepsUnit, ready_to_plan,
+};
 pub use proposal::{
     ItemState, Proposal, ProposalId, ProposalItem, ProposalStatus,
 };
@@ -120,6 +124,24 @@ pub enum DomainError {
     UnknownSex(String),
     /// 训练地点取值不认识。
     UnknownPlace(String),
+    /// 训练条件不齐，不能排计划（要先把缺的项问出来）。
+    TrainingIncomplete(Vec<TrainingField>),
+    /// 一份计划一个动作都没有。
+    EmptyPlan,
+    /// 一份计划超过上限的动作数。
+    TooManyExercises { count: usize, max: usize },
+    /// 动作名字是空白。
+    EmptyExercise,
+    /// 频次规则的取值不认识。
+    UnknownFrequency(String),
+    /// 找不到这份计划。
+    UnknownPlan(u64),
+    /// 训练日里没有这个动作（编号越界）。
+    UnknownExercise(usize),
+    /// 这一天本来就没有训练，没有可改期 / 可勾的东西。
+    UnknownDay(String),
+    /// 要改到的那天已经有训练了。
+    DayTaken(String),
 }
 
 impl fmt::Display for DomainError {
@@ -250,6 +272,38 @@ impl fmt::Display for DomainError {
                     .collect::<Vec<_>>()
                     .join(" / ")
             ),
+            DomainError::TrainingIncomplete(missing) => write!(
+                f,
+                "训练条件还差：{}。先把这几项问清楚再排计划，不要编一套做不了的方案。",
+                missing
+                    .iter()
+                    .map(|field| field.zh())
+                    .collect::<Vec<_>>()
+                    .join("、")
+            ),
+            DomainError::EmptyPlan => write!(
+                f,
+                "一份计划至少要有一个动作；没有要练的直接说，不用开计划。"
+            ),
+            DomainError::TooManyExercises { count, max } => write!(
+                f,
+                "一份计划最多 {max} 个动作，收到 {count} 个；挑最要紧的，剩下的下一版再加。"
+            ),
+            DomainError::EmptyExercise => write!(f, "动作的名字不能是空白。"),
+            DomainError::UnknownFrequency(value) => write!(
+                f,
+                "频次规则只有 per-week（每周几次）/ every-n-days（每几天一次），收到 `{value}`。"
+            ),
+            DomainError::UnknownPlan(id) => write!(f, "找不到编号 {id} 的计划。"),
+            DomainError::UnknownExercise(index) => {
+                write!(f, "这一天的训练里没有第 {index} 个动作。")
+            }
+            DomainError::UnknownDay(date) => {
+                write!(f, "{date} 没有训练安排，没有可改期的对象。")
+            }
+            DomainError::DayTaken(date) => {
+                write!(f, "{date} 已经有训练了；一天只排一次。")
+            }
         }
     }
 }

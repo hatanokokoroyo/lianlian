@@ -24,6 +24,7 @@ fn native(registry: &mut Registry) {
     registry.module::<api::Conversations>();
     registry.module::<api::Photos>();
     registry.module::<api::Proposals>();
+    registry.module::<api::Plans>();
     registry.module::<api::Settings>();
     registry.module::<api::Testing>();
 }
