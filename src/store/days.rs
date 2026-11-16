@@ -112,6 +112,43 @@ impl Store {
         Ok(day)
     }
 
+    /// 跳过某一天的一个动作；跳过不挡整天打卡，之后补勾仍可把它补回来。
+    pub fn skip_exercise(&self, date: Date, index: usize) -> Result<Day, StoreError> {
+        let mut day = self
+            .day(date)?
+            .ok_or_else(|| DomainError::UnknownDay(date.iso()))?;
+        day.skip(index)?;
+        self.save_day(&day)?;
+        Ok(day)
+    }
+
+    /// 跨天结算：把 `today` 之前还没打卡的训练日落为「未完成」。
+    ///
+    /// 边界是设备本地的自然日 00:00（`today` 由界面传入）；只改状态，不动动作快照。
+    /// 返回被结算的天数。
+    pub fn settle_before(&self, today: Date) -> Result<usize, StoreError> {
+        let mut changed = Vec::new();
+        for mut day in self.days()? {
+            if crate::domain::day::settle(&mut day, today) {
+                changed.push(day);
+            }
+        }
+        if changed.is_empty() {
+            return Ok(0);
+        }
+        let write = self.db().begin_write().map_err(db_error)?;
+        {
+            let mut table = write.open_table(DAYS).map_err(db_error)?;
+            for day in &changed {
+                table
+                    .insert(day.date.iso().as_str(), to_json(day)?.as_str())
+                    .map_err(db_error)?;
+            }
+        }
+        write.commit().map_err(db_error)?;
+        Ok(changed.len())
+    }
+
     /// 把某一天整天推迟到另一天；原来那天回到休息日。
     pub fn postpone(&self, from: Date, to: Date) -> Result<Day, StoreError> {
         let mut day = self
@@ -142,6 +179,22 @@ impl Store {
     /// 往后（不含 `after`）最近的一个训练日。
     pub fn next_day(&self, after: Date) -> Result<Option<Day>, StoreError> {
         Ok(self.days()?.into_iter().find(|day| day.date > after))
+    }
+
+    /// `after` 之后（不含）最近的一个空档日：没有训练行的日子，最多往后找 `horizon` 天。
+    ///
+    /// 推迟要用它给出默认目标；目标日已经有训练时 `postpone` 会拒绝，而不是静默叠加。
+    pub fn next_open(&self, after: Date, horizon: i64) -> Result<Option<Date>, StoreError> {
+        let taken: BTreeSet<Date> = self.days()?.iter().map(|day| day.date).collect();
+        let mut date = after.add(1);
+        let last = after.add(horizon);
+        while date <= last {
+            if !taken.contains(&date) {
+                return Ok(Some(date));
+            }
+            date = date.add(1);
+        }
+        Ok(None)
     }
 
     fn save_day(&self, day: &Day) -> Result<(), StoreError> {
@@ -394,5 +447,118 @@ mod tests {
             .next_day(date("2026-11-30"))
             .expect("读")
             .is_none());
+    }
+
+    #[test]
+    fn skipping_an_exercise_survives_reopening_and_does_not_block_checkin() {
+        let (mut temp, finding) = ready_store("days-skip");
+        let mut plan = draft(Frequency::PerWeek(7), finding.id);
+        plan.exercises.push(Exercise {
+            name: "蚌式开合".to_owned(),
+            sets: 3,
+            reps: 12,
+            unit: RepsUnit::Times,
+            finding: finding.id,
+        });
+        temp.store()
+            .create_plan(
+                None,
+                date("2026-11-16").0 * crate::domain::day::DAY_MS,
+                plan,
+            )
+            .expect("排计划");
+        temp.store()
+            .ensure_days(date("2026-11-16"), 7, AT)
+            .expect("展开");
+
+        let skipped = temp
+            .store()
+            .skip_exercise(date("2026-11-16"), 0)
+            .expect("跳过");
+        assert!(skipped.is_skipped(0));
+        assert_eq!(skipped.skipped_count(), 1);
+        assert_eq!(skipped.state, crate::domain::DayState::Planned);
+
+        let reopened = temp.reopen();
+        let day = reopened.day(date("2026-11-16")).expect("读").expect("有");
+        assert!(day.is_skipped(0), "跳过落盘了");
+        let completed = reopened
+            .toggle_exercise(date("2026-11-16"), 1)
+            .expect("勾另一项");
+        assert_eq!(
+            completed.state,
+            crate::domain::DayState::Completed,
+            "跳过不挡整天打卡"
+        );
+    }
+
+    #[test]
+    fn settling_marks_only_past_unfinished_days_and_keeps_the_snapshot() {
+        let (mut temp, finding) = ready_store("days-settle");
+        temp.store()
+            .create_plan(
+                None,
+                date("2026-11-10").0 * crate::domain::day::DAY_MS,
+                draft(Frequency::PerWeek(7), finding.id),
+            )
+            .expect("排计划");
+        temp.store()
+            .ensure_days(date("2026-11-10"), 7, AT)
+            .expect("展开");
+
+        // 11-11 已经打过卡；11-12/13 还没打。
+        temp.store()
+            .toggle_exercise(date("2026-11-11"), 0)
+            .expect("打卡");
+
+        let settled = temp
+            .store()
+            .settle_before(date("2026-11-13"))
+            .expect("结算");
+        assert_eq!(settled, 2, "只结算 11-10 与 11-12；11-11 已打卡，11-13 还没过");
+
+        let missed = temp.store().day(date("2026-11-12")).expect("读").expect("有");
+        assert_eq!(missed.state, crate::domain::DayState::Missed);
+        assert_eq!(missed.exercises[0].name, "臀桥", "快照一个字都不变");
+        let completed = temp.store().day(date("2026-11-11")).expect("读").expect("有");
+        assert_eq!(completed.state, crate::domain::DayState::Completed, "结过的账不再改判");
+        let planned = temp.store().day(date("2026-11-13")).expect("读").expect("有");
+        assert_eq!(planned.state, crate::domain::DayState::Planned);
+
+        // 重开仍在：结算真的落盘了。
+        let reopened = temp.reopen();
+        assert_eq!(
+            reopened.day(date("2026-11-12")).expect("读").expect("有").state,
+            crate::domain::DayState::Missed
+        );
+    }
+
+    #[test]
+    fn next_open_returns_the_first_day_without_a_training_row() {
+        let (temp, finding) = ready_store("days-next-open");
+        temp.store()
+            .create_plan(
+                None,
+                date("2026-11-16").0 * crate::domain::day::DAY_MS,
+                draft(Frequency::PerWeek(3), finding.id),
+            )
+            .expect("排计划");
+        temp.store()
+            .ensure_days(date("2026-11-16"), 7, AT)
+            .expect("展开");
+
+        assert_eq!(
+            temp.store()
+                .next_open(date("2026-11-16"), 7)
+                .expect("找空档"),
+            Some(date("2026-11-17")),
+            "周二没有训练行"
+        );
+        assert_eq!(
+            temp.store()
+                .next_open(date("2026-11-16"), 0)
+                .expect("找空档"),
+            None
+        );
     }
 }

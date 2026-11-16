@@ -30,7 +30,7 @@ use redb::{Database, ReadableDatabase, TableDefinition};
 use crate::domain::DomainError;
 
 /// 库结构与值格式的版本；改表或改值的编码都要 +1。
-pub const SCHEMA_VERSION: &str = "12";
+pub const SCHEMA_VERSION: &str = "13";
 
 /// 库自己的标量：`schema_version`、`next_finding_id`。
 pub(crate) const META: TableDefinition<&str, &str> = TableDefinition::new("meta");

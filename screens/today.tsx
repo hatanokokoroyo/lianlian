@@ -4,11 +4,20 @@
 // 勾到哪了」，日状态机在 `domain::day`（全部勾完 = 已完成，取消勾选回到计划中）；
 // 这一屏只负责把它摆出来、把点击送回去。
 import { Canvas, resource, signal, Text, token, View } from "nsh";
+import { Sheet } from "nsh/base";
 import { Today as TodayApi } from "lianlian/native";
 import type { DayView, TodayView } from "lianlian/native";
 
 import { todayIso } from "../ui/dates";
-import { Card, Note, PrimaryButton, ScreenHeader, SectionLabel } from "../ui/parts";
+import {
+  Card,
+  Note,
+  PrimaryButton,
+  ScreenHeader,
+  SectionLabel,
+  TextButton,
+  TextField,
+} from "../ui/parts";
 
 /** 「11月15日 周日」 */
 function todayLabel(): string {
@@ -71,8 +80,14 @@ function ProgressRing(props: { done: number; total: number }) {
   );
 }
 
-/** 勾选框：自绘圆形（实心 = 完成），命中区 44。 */
-function CheckBox(props: { done: boolean; label: string; onPress: () => void; testID: string }) {
+/** 勾选框：自绘圆形（实心 = 完成，横杠 = 跳过），命中区 44。 */
+function CheckBox(props: {
+  done: boolean;
+  skipped: boolean;
+  label: string;
+  onPress: () => void;
+  testID: string;
+}) {
   return (
     <View
       testID={props.testID}
@@ -87,8 +102,12 @@ function CheckBox(props: { done: boolean; label: string; onPress: () => void; te
           width: 24,
           height: 24,
           borderRadius: 9999,
-          backgroundColor: props.done ? token("primary") : "transparent",
-          borderWidth: props.done ? 0 : 1,
+          backgroundColor: props.done
+            ? token("primary")
+            : props.skipped
+              ? token("muted")
+              : "transparent",
+          borderWidth: props.done || props.skipped ? 0 : 1,
           borderColor: token("muted-foreground"),
           alignItems: "center",
           justifyContent: "center",
@@ -96,6 +115,8 @@ function CheckBox(props: { done: boolean; label: string; onPress: () => void; te
       >
         {props.done ? (
           <Text style={{ fontSize: 12, color: token("primary-foreground") }}>✓</Text>
+        ) : props.skipped ? (
+          <Text style={{ fontSize: 12, color: token("muted-foreground") }}>–</Text>
         ) : null}
       </View>
     </View>
@@ -112,6 +133,7 @@ function ExerciseRow(props: {
   // 契约 §7 的写法：`exercise-{site}-{n}`，同一天里同名部位的动作靠 n 区分。
   const exerciseId = `${exercise.site}-${props.index}`;
   const label = `${exercise.name} ${exercise.prescription}，${exercise.siteZh}${exercise.sideZh ?? ""}`;
+  const resolved = exercise.done || exercise.skipped;
   return (
     <View
       style={{
@@ -129,18 +151,27 @@ function ExerciseRow(props: {
         <Text
           style={{
             fontSize: 13,
-            color: exercise.done ? token("muted-foreground") : token("foreground"),
+            color: resolved ? token("muted-foreground") : token("foreground"),
+            textDecorationLine: exercise.done ? "line-through" : "none",
           }}
         >
           {`${exercise.name} · ${exercise.prescription}`}
         </Text>
-        <Text style={{ fontSize: 10, color: token("muted-foreground") }}>
-          {`来自「${exercise.siteZh}${exercise.sideZh ?? ""}」的判定`}
+        <Text
+          style={{
+            fontSize: 10,
+            color: exercise.skipped ? token("accent") : token("muted-foreground"),
+          }}
+        >
+          {exercise.skipped
+            ? "已跳过 · 不挡打卡，再点一次可以补勾"
+            : `来自「${exercise.siteZh}${exercise.sideZh ?? ""}」的判定`}
         </Text>
       </View>
       <CheckBox
         testID={`exercise-${exerciseId}`}
         done={exercise.done}
+        skipped={exercise.skipped}
         label={label}
         onPress={() => props.onToggle(props.index)}
       />
@@ -152,11 +183,14 @@ function ExerciseRow(props: {
 function TodayDay(props: {
   day: DayView;
   onToggle: (index: number) => void;
+  onPostpone: () => void;
+  onSkip: () => void;
   busy: boolean;
 }) {
   const total = props.day.total;
-  const done = props.day.done;
   const checkedIn = props.day.state === "completed";
+  const done = props.day.done + props.day.skipped;
+  const skipped = props.day.skipped;
   return (
     <View style={{ gap: 12 }}>
       <Card testID="today-progress">
@@ -177,6 +211,11 @@ function TodayDay(props: {
                 {props.day.stateZh}
               </Text>
             </View>
+            {skipped > 0 ? (
+              <Text style={{ fontSize: 10, color: token("accent") }}>
+                {`其中 ${skipped} 项已跳过`}
+              </Text>
+            ) : null}
             <Note
               testID="today-state"
               tone={checkedIn ? "accent" : "muted"}
@@ -207,9 +246,23 @@ function TodayDay(props: {
           <Text style={{ fontSize: 15, fontWeight: "bold", color: token("primary") }}>
             今天这笔账结清了
           </Text>
-          <Note text={`${total} 个动作全部勾完，日状态落为「已完成」。`} />
+          <Note text={`${total} 个动作都处理完了，日状态落为「已完成」。`} />
         </Card>
       ) : null}
+
+      {checkedIn ? null : (
+        <View
+          style={{
+            flexDirection: "row",
+            justifyContent: "center",
+            gap: 24,
+            paddingVertical: 4,
+          }}
+        >
+          <TextButton testID="postpone" label="整天推迟" onPress={props.onPostpone} />
+          <TextButton testID="skip-exercise" label="跳过一项" onPress={props.onSkip} />
+        </View>
+      )}
 
       {props.busy ? <Note testID="today-busy" text="正在记下…" /> : null}
     </View>
@@ -286,6 +339,10 @@ function Guidance(props: {
 export function Today(props: { onGoProfile: () => void; onGoConversations: () => void }) {
   const data = resource(() => TodayApi.load(todayIso()));
   const busy = signal(false);
+  const postponing = signal(false);
+  const skipping = signal(false);
+  const target = signal("");
+  const sheetError = signal<string | null>(null);
 
   const toggle = async (index: number) => {
     busy.set(true);
@@ -293,6 +350,43 @@ export function Today(props: { onGoProfile: () => void; onGoConversations: () =>
     busy.set(false);
     data.refetch();
   };
+
+  const openPostpone = () => {
+    sheetError.set(null);
+    target.set(data()?.postponeTo ?? "");
+    postponing.set(true);
+  };
+
+  const confirmPostpone = async () => {
+    busy.set(true);
+    sheetError.set(null);
+    const result = await TodayApi.postpone(todayIso(), target());
+    busy.set(false);
+    if (result.error) {
+      sheetError.set(result.error);
+      return;
+    }
+    postponing.set(false);
+    data.refetch();
+  };
+
+  const skip = async (index: number) => {
+    busy.set(true);
+    sheetError.set(null);
+    const result = await TodayApi.skip(todayIso(), index);
+    busy.set(false);
+    if (result.error) {
+      sheetError.set(result.error);
+      return;
+    }
+    skipping.set(false);
+    data.refetch();
+  };
+
+  const pending = () =>
+    data()?.day
+      ? data()!.day!.exercises.filter((exercise) => !exercise.done && !exercise.skipped)
+      : [];
 
   return (
     <View style={{ flex: 1 }}>
@@ -323,6 +417,11 @@ export function Today(props: { onGoProfile: () => void; onGoConversations: () =>
               <TodayDay
                 day={data()!.day!}
                 busy={busy()}
+                onPostpone={openPostpone}
+                onSkip={() => {
+                  sheetError.set(null);
+                  skipping.set(true);
+                }}
                 onToggle={(index) => {
                   if (!busy()) {
                     toggle(index);
@@ -339,6 +438,93 @@ export function Today(props: { onGoProfile: () => void; onGoConversations: () =>
           </View>
         )}
       </View>
+
+      <Sheet
+        open={postponing()}
+        onOpenChange={(event) => {
+          if (!event.open) {
+            postponing.set(false);
+          }
+        }}
+        popupStyle={{
+          backgroundColor: token("card"),
+          borderTopLeftRadius: token("radius"),
+          borderTopRightRadius: token("radius"),
+          padding: 16,
+          gap: 10,
+        }}
+        backdropStyle={{ backgroundColor: "rgba(0,0,0,0.6)" }}
+      >
+        <Text style={{ fontSize: 15, fontWeight: "bold", color: token("foreground") }}>
+          整天推迟
+        </Text>
+        <Note text="把今天这一整天顺延到另一个没有训练的日子；今天的动作快照会跟着过去，原来那天回到休息日。" />
+        <SectionLabel text="目标日期（YYYY-MM-DD）" />
+        <TextField
+          testID="postpone-target"
+          value={target()}
+          placeholder="2026-11-17"
+          onChange={(value) => target.set(value)}
+        />
+        {sheetError() ? (
+          <Note testID="postpone-error" tone="error" text={sheetError() ?? ""} />
+        ) : null}
+        <View style={{ flexDirection: "row", gap: 12 }}>
+          <PrimaryButton
+            testID="postpone-cancel"
+            label="取消"
+            onPress={() => postponing.set(false)}
+          />
+          <PrimaryButton
+            testID="postpone-confirm"
+            label={busy() ? "正在推迟…" : "确认推迟"}
+            disabled={busy()}
+            onPress={confirmPostpone}
+          />
+        </View>
+      </Sheet>
+
+      <Sheet
+        open={skipping()}
+        onOpenChange={(event) => {
+          if (!event.open) {
+            skipping.set(false);
+          }
+        }}
+        popupStyle={{
+          backgroundColor: token("card"),
+          borderTopLeftRadius: token("radius"),
+          borderTopRightRadius: token("radius"),
+          padding: 16,
+          gap: 10,
+        }}
+        backdropStyle={{ backgroundColor: "rgba(0,0,0,0.6)" }}
+      >
+        <Text style={{ fontSize: 15, fontWeight: "bold", color: token("foreground") }}>
+          跳过一项
+        </Text>
+        <Note text="跳过的动作不挡整天打卡；之后想补，点那一项就能补回来。" />
+        {pending().length === 0 ? (
+          <Note text="今天没有还没处理的动作。" />
+        ) : (
+          <Each
+            of={pending()}
+            key={(exercise) => String(exercise.index)}
+          >
+            {(exercise) => (
+              <PrimaryButton
+                testID={`skip-option-${exercise().index}`}
+                label={`跳过「${exercise().name}」`}
+                onPress={() => skip(exercise().index)}
+              />
+            )}
+          </Each>
+        )}
+        {sheetError() ? (
+          <Note testID="skip-error" tone="error" text={sheetError() ?? ""} />
+        ) : null}
+        <TextButton testID="skip-cancel" label="取消" onPress={() => skipping.set(false)} />
+      </Sheet>
     </View>
   );
 }

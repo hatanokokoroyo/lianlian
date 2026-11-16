@@ -758,6 +758,8 @@ pub struct TodayView {
     pub day: Option<DayView>,
     /// 今天休息时，下一次训练是哪天。
     pub next_date: Option<String>,
+    /// 整天推迟的默认目标：今天之后第一个没有训练的空档日。
+    pub postpone_to: Option<String>,
     /// 生效计划（频次与复查日）；还没有计划是 `null`。
     pub plan: Option<PlanView>,
     /// 训练条件齐不齐（不齐时今日页引导去补，而不是空白）。
@@ -782,6 +784,7 @@ impl Today {
             Ok(store) => store,
             Err(error) => return empty_today_view(&today, Some(error.to_string())),
         };
+        let _ = store.settle_before(date);
         if let Err(error) = store.ensure_days(date, crate::domain::day::HORIZON_DAYS, now_ms()) {
             return empty_today_view(&today, Some(error.to_string()));
         }
@@ -804,8 +807,85 @@ impl Today {
             Ok(store) => store,
             Err(error) => return empty_today_view(&today, Some(error.to_string())),
         };
+        let _ = store.settle_before(date);
         let error = store
             .toggle_exercise(date, index)
+            .err()
+            .map(|error| error.to_string());
+        match today_view(&store, date) {
+            Ok(mut view) => {
+                view.error = error;
+                view
+            }
+            Err(error) => empty_today_view(&today, Some(error.to_string())),
+        }
+    }
+
+    /// 跳过今天的一个动作；跳过不挡整天打卡。
+    pub async fn skip(today: String, index: f64) -> TodayView {
+        let Some(date) = crate::domain::Date::from_iso(&today) else {
+            return empty_today_view(&today, Some("日期要用 YYYY-MM-DD。".to_owned()));
+        };
+        let index = match whole(index, "动作编号") {
+            Ok(index) => index as usize,
+            Err(message) => return empty_today_view(&today, Some(message)),
+        };
+        let store = match Store::open_app() {
+            Ok(store) => store,
+            Err(error) => return empty_today_view(&today, Some(error.to_string())),
+        };
+        let _ = store.settle_before(date);
+        let error = store
+            .skip_exercise(date, index)
+            .err()
+            .map(|error| error.to_string());
+        match today_view(&store, date) {
+            Ok(mut view) => {
+                view.error = error;
+                view
+            }
+            Err(error) => empty_today_view(&today, Some(error.to_string())),
+        }
+    }
+
+    /// 整天推迟到 `to`；`to` 是空的就用最近的空档日。
+    pub async fn postpone(today: String, to: String) -> TodayView {
+        let Some(date) = crate::domain::Date::from_iso(&today) else {
+            return empty_today_view(&today, Some("日期要用 YYYY-MM-DD。".to_owned()));
+        };
+        let store = match Store::open_app() {
+            Ok(store) => store,
+            Err(error) => return empty_today_view(&today, Some(error.to_string())),
+        };
+        let _ = store.settle_before(date);
+        let target = if to.trim().is_empty() {
+            match store.next_open(date, crate::domain::day::HORIZON_DAYS) {
+                Ok(Some(target)) => target,
+                Ok(None) => {
+                    let mut view = today_view(&store, date).unwrap_or_else(|error| {
+                        empty_today_view(&today, Some(error.to_string()))
+                    });
+                    view.error = Some(
+                        "这段计划里没有空档日可顺延；手动填一个更远的日期。".to_owned(),
+                    );
+                    return view;
+                }
+                Err(error) => return empty_today_view(&today, Some(error.to_string())),
+            }
+        } else {
+            match crate::domain::Date::from_iso(&to) {
+                Some(target) => target,
+                None => {
+                    let mut view = today_view(&store, date).unwrap_or_else(|error| {
+                        empty_today_view(&today, Some(error.to_string()))
+                    });
+                    view.error = Some("目标日期要用 YYYY-MM-DD。".to_owned());
+                    return view;
+                }
+            }
+        };
+        let error = store
+            .postpone(date, target)
             .err()
             .map(|error| error.to_string());
         match today_view(&store, date) {
@@ -825,6 +905,9 @@ fn today_view(store: &Store, date: crate::domain::Date) -> Result<TodayView, cra
         date: date.iso(),
         day: store.day(date)?.as_ref().map(day_view),
         next_date: store.next_day(date)?.map(|day| day.date.iso()),
+        postpone_to: store
+            .next_open(date, crate::domain::day::HORIZON_DAYS)?
+            .map(|target| target.iso()),
         plan: store
             .active_plan()?
             .map(|plan| plan_view(store, &plan, today_end)),
@@ -839,6 +922,7 @@ fn empty_today_view(today: &str, error: Option<String>) -> TodayView {
         date: today.to_owned(),
         day: None,
         next_date: None,
+        postpone_to: None,
         plan: None,
         readiness: readiness_view(&crate::domain::TrainingContext::new().readiness()),
         findings: 0.0,
@@ -862,6 +946,8 @@ pub struct DayExerciseView {
     /// 这个动作对应哪条判定。
     pub finding: f64,
     pub done: bool,
+    /// 跳过了（不挡整天打卡，可再点一次补回来）。
+    pub skipped: bool,
 }
 
 /// 一个训练日。
@@ -875,8 +961,12 @@ pub struct DayView {
     pub state_zh: String,
     /// 勾了几个。
     pub done: f64,
+    /// 跳过了几个。
+    pub skipped: f64,
     /// 一共几个动作。
     pub total: f64,
+    /// 从哪一天推迟过来的；不是推迟来的就是 `null`。
+    pub postponed_from: Option<String>,
     pub exercises: Vec<DayExerciseView>,
 }
 
@@ -930,6 +1020,7 @@ impl Days {
                 error: Some("日期要用 YYYY-MM-DD。".to_owned()),
             };
         };
+        let _ = store.settle_before(today);
         let start = from_date.max(today);
         let span = (to_date.0 - start.0 + 1).max(0);
         if let Err(error) = store.ensure_days(start, span, now_ms()) {
@@ -956,10 +1047,12 @@ impl Days {
         }
     }
 
-    /// 某一天的训练日；休息日是 `null`。
-    pub async fn day(date: String) -> Option<DayView> {
+    /// 某一天的训练日；休息日是 `null`。`today` 是设备本地的今天（用于跨天结算）。
+    pub async fn day(today: String, date: String) -> Option<DayView> {
+        let today = crate::domain::Date::from_iso(&today)?;
         let date = crate::domain::Date::from_iso(&date)?;
         let store = Store::open_app().ok()?;
+        let _ = store.settle_before(today);
         store.day(date).ok().flatten().as_ref().map(day_view)
     }
 
@@ -975,6 +1068,7 @@ impl Days {
             Ok(store) => store,
             Err(error) => return Some(error.to_string()),
         };
+        let _ = store.settle_before(from);
         store
             .postpone(from, to)
             .err()
@@ -995,7 +1089,8 @@ fn day_view(day: &crate::domain::Day) -> DayView {
             site_zh: anatomy_zh(&exercise.site),
             side_zh: exercise.side.map(|side| side.zh().to_owned()),
             finding: exercise.finding.0 as f64,
-            done: day.done.get(index).copied().unwrap_or(false),
+            done: day.is_done(index),
+            skipped: day.is_skipped(index),
         })
         .collect();
     DayView {
@@ -1003,7 +1098,9 @@ fn day_view(day: &crate::domain::Day) -> DayView {
         state: day.state.key().to_owned(),
         state_zh: day.state.zh().to_owned(),
         done: day.done_count() as f64,
+        skipped: day.skipped_count() as f64,
         total: day.total() as f64,
+        postponed_from: day.postponed_from.map(|date| date.iso()),
         exercises,
     }
 }

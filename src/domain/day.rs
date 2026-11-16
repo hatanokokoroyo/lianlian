@@ -142,10 +142,11 @@ impl DayState {
     ///
     /// - 计划中 → 已完成（全部勾完）/ 已推迟（整天推迟）/ 未完成（跨天结算）；
     /// - 已完成 → 计划中（当天内取消勾选）；
-    /// - 已推迟 → 未完成（顺延之后又过了那一天，由 #15 的跨天结算触发）。
+    /// - 已推迟 → 未完成（顺延之后又过了那一天，由 #15 的跨天结算触发）；
+    /// - 未完成 → 已完成（跨天之后补勾，账仍然能结）。
     pub fn advance(self, event: DayEvent) -> DayState {
         match (self, event) {
-            (DayState::Planned, DayEvent::CheckIn) => DayState::Completed,
+            (DayState::Planned | DayState::Missed, DayEvent::CheckIn) => DayState::Completed,
             (DayState::Completed, DayEvent::Uncheck) => DayState::Planned,
             (DayState::Planned, DayEvent::Postpone) => DayState::Postponed,
             (DayState::Planned | DayState::Postponed, DayEvent::Settle) => DayState::Missed,
@@ -206,6 +207,9 @@ pub struct Day {
     pub exercises: Vec<ExerciseSnapshot>,
     /// 每个动作勾了没有（与 `exercises` 等长）。
     pub done: Vec<bool>,
+    /// 每个动作跳过了没有（与 `exercises` 等长）；跳过的动作不挡打卡。
+    #[serde(default)]
+    pub skipped: Vec<bool>,
     /// 这份快照来自哪一版计划。
     pub plan_id: PlanId,
     pub plan_version: u32,
@@ -225,11 +229,13 @@ impl Day {
         at: Timestamp,
     ) -> Day {
         let done = vec![false; exercises.len()];
+        let skipped = vec![false; exercises.len()];
         Day {
             date,
             state: DayState::Planned,
             exercises,
             done,
+            skipped,
             plan_id: plan.id,
             plan_version: plan.version,
             at,
@@ -239,7 +245,7 @@ impl Day {
 
     /// 勾了几个。
     pub fn done_count(&self) -> usize {
-        self.done.iter().filter(|done| **done).count()
+        (0..self.total()).filter(|index| self.is_done(*index)).count()
     }
 
     /// 一共几个动作。
@@ -247,24 +253,76 @@ impl Day {
         self.exercises.len()
     }
 
-    /// 全部勾完了吗（空的一天不算勾完）。
-    pub fn all_done(&self) -> bool {
-        !self.exercises.is_empty() && self.done.iter().all(|done| *done)
+    /// 跳过了几个。
+    pub fn skipped_count(&self) -> usize {
+        self.skipped.iter().filter(|skipped| **skipped).count()
     }
 
-    /// 勾 / 取消勾一个动作；日状态跟着走（全部勾完就是打卡）。
+    /// 处理完几个：勾上的 + 跳过的。
+    pub fn resolved_count(&self) -> usize {
+        (0..self.total())
+            .filter(|index| self.is_done(*index) || self.is_skipped(*index))
+            .count()
+    }
+
+    /// 全部处理完了吗（勾完或跳过；空的一天不算处理完）。
+    pub fn all_done(&self) -> bool {
+        !self.exercises.is_empty() && self.resolved_count() == self.total()
+    }
+
+    /// 第 `index` 个动作勾了吗（越界与旧数据都按没勾算）。
+    pub fn is_done(&self, index: usize) -> bool {
+        self.done.get(index).copied().unwrap_or(false)
+    }
+
+    /// 第 `index` 个动作跳过了吗（越界与旧数据都按没跳过算）。
+    pub fn is_skipped(&self, index: usize) -> bool {
+        self.skipped.get(index).copied().unwrap_or(false)
+    }
+
+    /// 勾 / 取消勾一个动作；日状态跟着走（全部勾完或跳过就是打卡）。
+    ///
+    /// 点一个「已跳过」的动作等于把它补回来并勾上——跳过不是不可撤销的判决。
     pub fn toggle(&mut self, index: usize) -> Result<(), DomainError> {
-        let Some(done) = self.done.get_mut(index) else {
+        if index >= self.exercises.len() {
             return Err(DomainError::UnknownExercise(index));
-        };
+        }
+        self.ensure_flags();
+        let done = &mut self.done[index];
         *done = !*done;
+        if *done {
+            self.skipped[index] = false;
+        }
+        self.refresh_state();
+        Ok(())
+    }
+
+    /// 跳过一个动作（不顺延，也不挡整天打卡）。
+    pub fn skip(&mut self, index: usize) -> Result<(), DomainError> {
+        if index >= self.exercises.len() {
+            return Err(DomainError::UnknownExercise(index));
+        }
+        self.ensure_flags();
+        self.done[index] = false;
+        self.skipped[index] = true;
+        self.refresh_state();
+        Ok(())
+    }
+
+    /// 按当前勾选 / 跳过情况重算日状态。
+    fn refresh_state(&mut self) {
         let event = if self.all_done() {
             DayEvent::CheckIn
         } else {
             DayEvent::Uncheck
         };
         self.state = self.state.advance(event);
-        Ok(())
+    }
+
+    /// 旧数据没有 `skipped` 时补成等长；越界与缺项都按没跳过算。
+    fn ensure_flags(&mut self) {
+        self.done.resize(self.exercises.len(), false);
+        self.skipped.resize(self.exercises.len(), false);
     }
 
     /// 推迟到另一天；记住原来那天，免得它被重新展开成一个新的训练日。
@@ -274,6 +332,21 @@ impl Day {
     pub fn postpone_to(&mut self, date: Date) {
         self.postponed_from = Some(self.postponed_from.unwrap_or(self.date));
         self.date = date;
+    }
+}
+
+/// 跨天结算一个训练日：过了自然日 00:00 还没打卡的，落为「未完成」。
+///
+/// `today` 是设备本地的今天（`YYYY-MM-DD` 由界面传入），所以边界就是本地自然日
+/// 的 00:00；已完成的日子不再改判，补勾仍可把它从「未完成」拉回「已完成」。
+pub fn settle(day: &mut Day, today: Date) -> bool {
+    if day.date < today
+        && matches!(day.state, DayState::Planned | DayState::Postponed)
+    {
+        day.state = day.state.advance(DayEvent::Settle);
+        true
+    } else {
+        false
     }
 }
 
@@ -479,6 +552,95 @@ mod tests {
             Err(DomainError::UnknownExercise(9)),
             "越界的动作编号要说清楚"
         );
+    }
+
+    fn two_exercise_day(date_iso: &str) -> Day {
+        let planned = plan(Frequency::PerWeek(3), "2026-11-16");
+        let mut day = Day::from_plan(&planned, date(date_iso), Vec::new(), 0);
+        day.exercises = vec![
+            ExerciseSnapshot {
+                name: "臀桥".to_owned(),
+                prescription: "3×10".to_owned(),
+                finding: FindingId(7),
+                site: "gluteus-medius".to_owned(),
+                side: Some(Side::Left),
+            },
+            ExerciseSnapshot {
+                name: "死虫式".to_owned(),
+                prescription: "3×10".to_owned(),
+                finding: FindingId(7),
+                site: "rectus-abdominis".to_owned(),
+                side: None,
+            },
+        ];
+        day.done = vec![false, false];
+        day.skipped = vec![false, false];
+        day
+    }
+
+    #[test]
+    fn a_skipped_exercise_does_not_block_checkin_and_is_recorded() {
+        let mut day = two_exercise_day("2026-11-16");
+
+        day.skip(0).expect("跳过第一项");
+        assert_eq!(day.skipped_count(), 1);
+        assert_eq!(day.done_count(), 0);
+        assert_eq!(day.resolved_count(), 1);
+        assert_eq!(day.state, DayState::Planned, "只跳过一项还不能打卡");
+
+        day.toggle(1).expect("勾第二项");
+        assert_eq!(day.state, DayState::Completed, "跳过不挡整天打卡");
+        assert_eq!(day.done_count(), 1);
+        assert_eq!(day.skipped_count(), 1);
+        assert_eq!(day.resolved_count(), 2);
+
+        // 点跳过的那一项等于补回来：跳过不是不可撤销的判决。
+        day.toggle(0).expect("补勾第一项");
+        assert_eq!(day.done_count(), 2);
+        assert_eq!(day.skipped_count(), 0);
+        assert_eq!(day.state, DayState::Completed);
+    }
+
+    #[test]
+    fn settling_uses_the_local_calendar_boundary_and_a_missed_day_can_be_made_up() {
+        let mut day = two_exercise_day("2026-11-16");
+
+        // 11-16 当天（23:59 也算当天）不结算；跨到 11-17 00:00 才落为未完成。
+        assert!(!settle(&mut day, date("2026-11-16")));
+        assert_eq!(day.state, DayState::Planned);
+        assert!(settle(&mut day, date("2026-11-17")));
+        assert_eq!(day.state, DayState::Missed);
+        assert!(!settle(&mut day, date("2026-11-18")), "已经是未完成，不重复改判");
+
+        // 补勾：两项都补上之后转回已完成。
+        day.toggle(0).expect("补第一项");
+        assert_eq!(day.state, DayState::Missed, "还差一项，仍是未完成");
+        day.toggle(1).expect("补第二项");
+        assert_eq!(day.state, DayState::Completed);
+
+        // 已完成之后跨天不再改判。
+        assert!(!settle(&mut day, date("2026-11-18")));
+        assert_eq!(day.state, DayState::Completed);
+    }
+
+    #[test]
+    fn an_old_day_without_the_skipped_flag_still_loads() {
+        let planned = plan(Frequency::PerWeek(3), "2026-11-16");
+        let mut day = Day::from_plan(&planned, date("2026-11-16"), Vec::new(), 0);
+        day.exercises = vec![ExerciseSnapshot {
+            name: "臀桥".to_owned(),
+            prescription: "3×10".to_owned(),
+            finding: FindingId(7),
+            site: "gluteus-medius".to_owned(),
+            side: Some(Side::Left),
+        }];
+        day.done = vec![false];
+        day.skipped.clear();
+
+        assert!(!day.is_skipped(0));
+        day.skip(0).expect("补上缺的标记再跳过");
+        assert!(day.is_skipped(0));
+        assert_eq!(day.state, DayState::Completed);
     }
 
     #[test]
