@@ -659,30 +659,12 @@ pub fn preview(text: &str) -> (String, bool) {
     (out, truncated)
 }
 
-/// 一天多少毫秒。
-pub const DAY_MS: i64 = 86_400_000;
+/// 一天多少毫秒（`domain::day::Date` 与毫秒时间戳之间的换算，日期只此一处）。
+pub use super::day::DAY_MS;
 
-/// `YYYY-MM-DD` → 当天 00:00 的 Unix 毫秒（UTC）。工具参数与状态块用同一套日期。
+/// `YYYY-MM-DD` → 当天 00:00 的 Unix 毫秒。工具参数、状态块与训练日共用同一套日期。
 pub fn parse_date(raw: &str) -> Option<Timestamp> {
-    let mut parts = raw.trim().split('-');
-    let year: i64 = parts.next()?.parse().ok()?;
-    let month: i64 = parts.next()?.parse().ok()?;
-    let day: i64 = parts.next()?.parse().ok()?;
-    if parts.next().is_some() || !(1..=12).contains(&month) || !(1..=31).contains(&day) {
-        return None;
-    }
-    days_from_civil(year, month as u32, day as u32).checked_mul(DAY_MS)
-}
-
-/// Howard Hinnant 的 `days_from_civil`（`prompt::civil_from_days` 的逆）。
-fn days_from_civil(year: i64, month: u32, day: u32) -> i64 {
-    let y = if month <= 2 { year - 1 } else { year };
-    let era = if y >= 0 { y } else { y - 399 } / 400;
-    let yoe = y - era * 400;
-    let m = month as i64;
-    let doy = (153 * (if m > 2 { m - 3 } else { m + 9 }) + 2) / 5 + day as i64 - 1;
-    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-    era * 146_097 + doe - 719_468
+    super::day::Date::from_iso(raw)?.0.checked_mul(DAY_MS)
 }
 
 fn required_string(raw: Option<&Value>, field: &str) -> Result<String, ToolError> {

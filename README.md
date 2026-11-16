@@ -49,6 +49,10 @@ App.tsx（TSX 屏：今日页） → lianlian/native（自动生成的类型） 
   同一时刻只有一个生效计划，再生成就是新版本、旧版本只读可查；每个动作挂一条判定，档案页的计划卡
   点「看判定」直接展开那个部位的时间线；训练条件不齐时工具直接拒绝（让 agent 追问，不编方案）；
   复查日到期后今日页顶部提示重新评估。
+- **#13 训练日**：计划的频次规则由 `domain::day` 展开成具体日期（每周 N 次按周一至周日的固定
+  作息铺开，1–4 次不连排；「每 N 天一次」从计划生效日算起），展开时 day 存动作**快照**
+  （名字、处方、判定、部位），改计划只影响之后新展开的天；单日可改期，原日回到休息日且不会被
+  再次展开；`Days.range` 供月历查询（#16）。
 
 ```
 App.tsx            应用外壳：读档案 → 引导 / 四个 Tab
@@ -58,14 +62,15 @@ ui/                共用零件（卡片/胶囊/按钮/输入）、表单草稿�
                    Photos/Proposals/Measurements（各自工单），全部跑在 `api` 这一个接缝下
 src/lib.rs         crate 的 UI 集合：注册对 TSX 暴露的 module
 src/api.rs         对 TSX 暴露的类型与入口（JsObject → native.d.ts，`Profile` / `Measurements` /
-                   `Findings` / `Conversations` / `Photos` / `Proposals` / `Plans` / `Settings` 模块）
+                   `Findings` / `Conversations` / `Photos` / `Proposals` / `Plans` / `Days` /
+                   `Settings` 模块）
 src/anatomy/       解剖学词表：mod.rs 放类型与规则，sites.rs 是生成的内容
 src/domain/        五轴取值、Finding/Retract、投影与聚合、档案页读模型（profile_page.rs）、测量、会话、
-                   计划（plan.rs：频次、动作、复查日）——纯函数、零 IO
+                   计划（plan.rs）、训练日与日状态机（day.rs，含日期运算）——纯函数、零 IO
 src/llm/           装配（prompt.rs，纯函数）+ DeepSeek 网关（deepseek.rs，错误分类）
 src/store/         redb：mod.rs 开库与版本、profile.rs 基本属性/训练条件、findings.rs 判定与撤回、
                    measurements.rs 测量序列、conversations.rs 会话与消息、plans.rs 计划与版本、
-                   settings.rs API key
+                   days.rs 训练日与动作快照、settings.rs API key
 scripts/gen-anatomy.py   从词表 markdown 生成 src/anatomy/sites.rs
 nsh.json           app 元信息 + 设计 token（shadcn cssVars 形式）
 design/            OpenDesign 工作区：9 屏原型 + 视觉契约

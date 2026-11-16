@@ -7,6 +7,7 @@ pub mod profile_page;
 pub mod axis;
 pub mod basics;
 pub mod conversation;
+pub mod day;
 pub mod evidence;
 pub mod finding;
 pub mod item;
@@ -27,6 +28,7 @@ pub use axis::{Axis, AxisValue, AxisValues, Mobility, Pain, Stability, Symmetry,
 #[allow(unused_imports)]
 pub use basics::{Basics, Sex};
 pub use conversation::{Conversation, ConversationId, Message, MessageId, Role};
+pub use day::{Date, Day, DayEvent, DayState, ExerciseSnapshot};
 pub use evidence::{Evidence, EvidenceDraft, EvidenceId, EvidenceKind};
 pub use finding::{Event, Finding, FindingDraft, FindingId, Retract, Side, Timestamp};
 pub use item::{Entry, StoredItem};

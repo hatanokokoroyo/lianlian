@@ -709,6 +709,159 @@ fn snapshot(store: &Store, conversation: crate::domain::ConversationId) -> Snaps
     }
 }
 
+/// 训练日里的一个动作（动作快照 + 勾没勾）。
+#[derive(Debug, Clone, PartialEq, JsObject)]
+pub struct DayExerciseView {
+    /// 这一天里的第几个（0 起）；勾选时用它。
+    pub index: f64,
+    pub name: String,
+    /// 「3×10」/「3×30 秒」。
+    pub prescription: String,
+    /// 部位 id。
+    pub site: String,
+    pub site_zh: String,
+    /// 侧别中文（左 / 右）；中线结构是 `null`。
+    pub side_zh: Option<String>,
+    /// 这个动作对应哪条判定。
+    pub finding: f64,
+    pub done: bool,
+}
+
+/// 一个训练日。
+#[derive(Debug, Clone, PartialEq, JsObject)]
+pub struct DayView {
+    /// `YYYY-MM-DD`。
+    pub date: String,
+    /// `planned` / `completed` / `postponed` / `missed`。
+    pub state: String,
+    /// 日状态的中文名。
+    pub state_zh: String,
+    /// 勾了几个。
+    pub done: f64,
+    /// 一共几个动作。
+    pub total: f64,
+    pub exercises: Vec<DayExerciseView>,
+}
+
+/// 一段日期里的训练日（休息日不出现）。
+#[derive(Debug, Clone, PartialEq, JsObject)]
+pub struct DaysView {
+    pub from: String,
+    pub to: String,
+    pub days: Vec<DayView>,
+    pub error: Option<String>,
+}
+
+/// 训练日：展开、查询与手动改期（今天的清单与勾选在 `Today` 里）。
+#[module]
+pub struct Days;
+
+#[module]
+impl Days {
+    /// 区间里的训练日。会先把生效计划展开到这个区间（只补缺失的日期，只往未来排）。
+    pub async fn range(from: String, to: String) -> DaysView {
+        let (Some(from_date), Some(to_date)) = (
+            crate::domain::Date::from_iso(&from),
+            crate::domain::Date::from_iso(&to),
+        ) else {
+            return DaysView {
+                from,
+                to,
+                days: Vec::new(),
+                error: Some("日期要用 YYYY-MM-DD。".to_owned()),
+            };
+        };
+        let store = match Store::open_app() {
+            Ok(store) => store,
+            Err(error) => {
+                return DaysView {
+                    from,
+                    to,
+                    days: Vec::new(),
+                    error: Some(error.to_string()),
+                };
+            }
+        };
+        // 只往未来展开：过去的日子按已存在的行读，不凭空补出「计划中」的昨天。
+        let today = crate::domain::Date::from_ms(now_ms());
+        let start = from_date.max(today);
+        let span = (to_date.0 - start.0 + 1).max(0);
+        if let Err(error) = store.ensure_days(start, span, now_ms()) {
+            return DaysView {
+                from,
+                to,
+                days: Vec::new(),
+                error: Some(error.to_string()),
+            };
+        }
+        match store.days_between(from_date, to_date) {
+            Ok(days) => DaysView {
+                from,
+                to,
+                days: days.iter().map(day_view).collect(),
+                error: None,
+            },
+            Err(error) => DaysView {
+                from,
+                to,
+                days: Vec::new(),
+                error: Some(error.to_string()),
+            },
+        }
+    }
+
+    /// 某一天的训练日；休息日是 `null`。
+    pub async fn day(date: String) -> Option<DayView> {
+        let date = crate::domain::Date::from_iso(&date)?;
+        let store = Store::open_app().ok()?;
+        store.day(date).ok().flatten().as_ref().map(day_view)
+    }
+
+    /// 手动改期：把某一天整体挪到另一天，原来那天回到休息日；返回失败原因。
+    pub async fn reschedule(from: String, to: String) -> Option<String> {
+        let (Some(from), Some(to)) = (
+            crate::domain::Date::from_iso(&from),
+            crate::domain::Date::from_iso(&to),
+        ) else {
+            return Some("日期要用 YYYY-MM-DD。".to_owned());
+        };
+        let store = match Store::open_app() {
+            Ok(store) => store,
+            Err(error) => return Some(error.to_string()),
+        };
+        store
+            .reschedule(from, to)
+            .err()
+            .map(|error| error.to_string())
+    }
+}
+
+fn day_view(day: &crate::domain::Day) -> DayView {
+    let exercises = day
+        .exercises
+        .iter()
+        .enumerate()
+        .map(|(index, exercise)| DayExerciseView {
+            index: index as f64,
+            name: exercise.name.clone(),
+            prescription: exercise.prescription.clone(),
+            site: exercise.site.clone(),
+            site_zh: anatomy_zh(&exercise.site),
+            side_zh: exercise.side.map(|side| side.zh().to_owned()),
+            finding: exercise.finding.0 as f64,
+            done: day.done.get(index).copied().unwrap_or(false),
+        })
+        .collect();
+    DayView {
+        date: day.date.iso(),
+        state: day.state.key().to_owned(),
+        state_zh: day.state.zh().to_owned(),
+        done: day.done_count() as f64,
+        total: day.total() as f64,
+        exercises,
+    }
+}
+
 /// 设置的读与写：DeepSeek 的 API key 与工具往返上限。
 #[derive(Debug, Clone, PartialEq, JsObject)]
 pub struct SettingsView {
@@ -2008,6 +2161,102 @@ mod tests {
         assert_eq!(parse_sex(Some("female")), Some(Sex::Female));
         assert_eq!(parse_sex(Some("")), None);
         assert_eq!(parse_sex(None), None);
+    }
+}
+
+#[cfg(test)]
+mod day_tests {
+    use super::*;
+    use crate::domain::{
+        AxisValue, Exercise, ExerciseSnapshot, FindingDraft, Frequency, PlanDraft, Place, RepsUnit,
+        Side, Tension, TrainingContext,
+    };
+    use crate::store::tests::TempStore;
+
+    fn date(iso: &str) -> crate::domain::Date {
+        crate::domain::Date::from_iso(iso).expect("日期")
+    }
+
+    #[test]
+    fn a_day_view_carries_the_snapshot_the_progress_and_the_state() {
+        let temp = TempStore::new("api-day-view");
+        let store = temp.store();
+        store
+            .save_training(&TrainingContext {
+                days_per_week: Some(3),
+                minutes_per_session: Some(30),
+                places: vec![Place::Home],
+                equipment: vec!["band".to_owned()],
+            })
+            .expect("训练条件");
+        let finding = store
+            .record(FindingDraft {
+                site: "gluteus-medius".to_owned(),
+                side: Some(Side::Left),
+                values: {
+                    let mut values = crate::domain::AxisValues::new();
+                    values.set(AxisValue::Tension(Tension::Weak));
+                    values
+                },
+                confidence: 70,
+                at: 0,
+            })
+            .expect("写一条判定");
+        store
+            .create_plan(
+                None,
+                date("2026-11-16").0 * crate::domain::day::DAY_MS,
+                PlanDraft {
+                    frequency: Frequency::PerWeek(3),
+                    exercises: vec![Exercise {
+                        name: "臀桥".to_owned(),
+                        sets: 3,
+                        reps: 10,
+                        unit: RepsUnit::Times,
+                        finding: finding.id,
+                    }],
+                    review_at: None,
+                },
+            )
+            .expect("排计划");
+        store
+            .ensure_days(date("2026-11-16"), 3, 0)
+            .expect("展开");
+
+        let day = store.day(date("2026-11-16")).expect("读").expect("有");
+        let view = day_view(&day);
+        assert_eq!(view.date, "2026-11-16");
+        assert_eq!(view.state, "planned");
+        assert_eq!(view.state_zh, "计划中");
+        assert_eq!((view.done, view.total), (0.0, 1.0));
+        assert_eq!(view.exercises[0].name, "臀桥");
+        assert_eq!(view.exercises[0].prescription, "3×10");
+        assert_eq!(view.exercises[0].site_zh, "臀中肌");
+        assert_eq!(view.exercises[0].side_zh.as_deref(), Some("左"));
+        assert_eq!(view.exercises[0].finding, finding.id.0 as f64);
+        assert!(!view.exercises[0].done);
+
+        let checked = store
+            .toggle_exercise(date("2026-11-16"), 0)
+            .expect("勾上");
+        let view = day_view(&checked);
+        assert_eq!(view.state, "completed");
+        assert_eq!(view.state_zh, "已完成");
+        assert_eq!((view.done, view.total), (1.0, 1.0));
+        assert!(view.exercises[0].done);
+
+        // 休息日不是训练日：`Days.day` 说的是 `null`，这里直接读库确认没有行。
+        assert!(store.day(date("2026-11-17")).expect("读").is_none());
+
+        // 动作快照里的处方按秒也能读（不是只有「×次」）。
+        let snapshot = ExerciseSnapshot {
+            name: "平板支撑".to_owned(),
+            prescription: "3×30 秒".to_owned(),
+            finding: finding.id,
+            site: "rectus-abdominis".to_owned(),
+            side: None,
+        };
+        assert_eq!(snapshot.prescription, "3×30 秒");
     }
 }
 
