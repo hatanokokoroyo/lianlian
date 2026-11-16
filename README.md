@@ -170,6 +170,23 @@ keystore 必须离线备份：丢了以后，已装的应用无法再覆盖升�
 本地验证更新提示时，可以把 `updater` 临时指向本机回环地址的清单；安卓默认禁止明文 HTTP，
 这种临时构建需要 `android.usesCleartextTraffic`，验证完不要提交。
 
+想手工验一份清单的签名（发布后抽查、或换机器核对）：
+
+```sh
+gh release download v0.2.0 -p 'latest.json*' -D /tmp/mf
+python3 - <<'PY'
+import base64
+raw = base64.b64decode("nsh.json 里 updater.publicKey 的值")
+der = bytes.fromhex("302a300506032b6570032100") + raw          # Ed25519 SubjectPublicKeyInfo
+open("/tmp/pub.pem", "w").write("-----BEGIN PUBLIC KEY-----\n" + base64.encodebytes(der).decode() + "-----END PUBLIC KEY-----\n")
+open("/tmp/framed.bin", "wb").write(b"nsh-updater-manifest\0" + open("/tmp/mf/latest.json", "rb").read())
+PY
+openssl pkeyutl -verify -pubin -inkey /tmp/pub.pem -rawin -in /tmp/framed.bin -sigfile /tmp/mf/sig.bin
+```
+
+签名盖的不是文件字节本身，而是 `nsh-updater-manifest\0` 前缀加清单内容（`nsh-updater` 的 `CONTEXT`，
+防止同一把钥匙签过的别的东西被挪用）。`.sig` 是 base64，验之前要先解码成 `/tmp/mf/sig.bin`。
+
 ## 踩过的坑（WSL2 + 真机）
 
 - **`nsh test` 的模块替身只有第一次 `open` 生效**：同一个测试入口在一次运行里只构建一次，
@@ -184,6 +201,8 @@ keystore 必须离线备份：丢了以后，已装的应用无法再覆盖升�
   `Unable to locate a Java Runtime`，Rust 已经编好却卡在签名这一步。
 - **清单走本机回环地址时安卓会拦**：默认禁止明文 HTTP，本地验证要临时给
   `android.usesCleartextTraffic` 并 `adb reverse` 端口，验证完还原。
+- **bash 里变量后面紧跟中文标点会被吞进变量名**：`echo "已发布 v$version：…"` 在 UTF-8 环境下
+  把全角冒号算进变量名，报 `version：: unbound variable`。用 `${version}` 括起来。
 
 - **adb 归属**：WSL 用 mirrored 网络，`adb` 复用 **Windows** 上跑的 adb server，本机 `~/.wslconfig` 是 `networkingMode=mirrored`。设备由 Windows 侧 daemon 持有，WSL 不设任何变量就能看到设备。
 - **`adb devices` 空但手机确实连着**：先杀干净多余的 daemon。真机上遇到过 Windows adb 起在 5038、独占 USB 设备，5037 的 daemon 于是一直空；`adb -P 5038 kill-server` 后 5037 立即正常。

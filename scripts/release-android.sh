@@ -53,5 +53,5 @@ if [ "$dry_run" = true ]; then
   gh run download "$run_id" -n apk -D dist
   echo "产物在 dist/"
 else
-  echo "已发布 v$version：$(gh release view "v$version" --json url --jq .url)"
+  echo "已发布 v${version}：$(gh release view "v${version}" --json url --jq .url)"
 fi
