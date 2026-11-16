@@ -1,13 +1,25 @@
 // 档案页：档案条目（判定与依据，见 findings.tsx）在前，基本属性与训练条件在后。
 // 四个字段都可以留空；留空时页面明说「未填」，不拿 0 冒充。
-import { resource, Scroll, signal, Text, token, View } from "nsh";
+import { effect, resource, Scroll, signal, Text, token, View } from "nsh";
+import type { Signal } from "nsh";
+import { createNavStack, NavPage, NavStack } from "nsh/base";
 import { Profile, Storage } from "lianlian/native";
 import type { ProfileView } from "lianlian/native";
 
 import type { ProfileDrafts } from "../ui/drafts";
 import { BasicsFields, TrainingFields, basicsPayload, trainingPayload } from "../ui/forms";
 import { FindingsSection } from "./findings";
-import { Card, Note, PrimaryButton, ScreenHeader, SectionLabel, TextButton } from "../ui/parts";
+import { MeasurementsScreen } from "./measurements";
+import { SettingsScreen } from "./settings";
+import {
+  Card,
+  Note,
+  pageStyle,
+  PrimaryButton,
+  ScreenHeader,
+  SectionLabel,
+  TextButton,
+} from "../ui/parts";
 
 /** 字节 → 「812 B」/「12.4 KB」/「3.1 MB」。 */
 function formatBytes(bytes: number): string {
@@ -20,7 +32,82 @@ function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+type ProfileRoute = { name: "root" } | { name: "measurements" } | { name: "settings" };
+
 export function ProfileScreen(props: {
+  state: ProfileView;
+  drafts: ProfileDrafts;
+  onSaved: () => void;
+  onGoConversations: () => void;
+  settingsRequest: Signal<"none" | "settings">;
+  onRootBack: () => void;
+}) {
+  const nav = createNavStack<ProfileRoute>([{ name: "root" }]);
+
+  const openPage = (name: "measurements" | "settings") => {
+    const top = nav.routes()[nav.routes().length - 1];
+    if (top?.name === name) {
+      return;
+    }
+    if (name === "measurements") {
+      nav.push({ name: "measurements" });
+    } else {
+      nav.push({ name: "settings" });
+    }
+  };
+
+  // 从对话的错误态跳过来时，切到档案后直接推进设置页。
+  effect(() => {
+    if (props.settingsRequest() !== "settings") {
+      return;
+    }
+    props.settingsRequest.set("none");
+    openPage("settings");
+  });
+
+  return (
+    <NavStack
+      state={nav}
+      style={pageStyle()}
+      onChange={(event) => {
+        if (event.routes.length === 1) {
+          props.onSaved();
+        }
+      }}
+    >
+      {(route) =>
+        route.name === "root" ? (
+          <NavPage
+            title="档案"
+            headerVisible={false}
+            popOnBack={false}
+            onBackPress={props.onRootBack}
+            style={pageStyle()}
+          >
+            <ProfileRoot
+              state={props.state}
+              drafts={props.drafts}
+              onSaved={props.onSaved}
+              onGoMeasurements={() => openPage("measurements")}
+              onGoSettings={() => openPage("settings")}
+              onGoConversations={props.onGoConversations}
+            />
+          </NavPage>
+        ) : route.name === "measurements" ? (
+          <NavPage title="测量" headerVisible={false} style={pageStyle()}>
+            <MeasurementsScreen onBack={() => nav.pop()} />
+          </NavPage>
+        ) : (
+          <NavPage title="设置" headerVisible={false} style={pageStyle()}>
+            <SettingsScreen onBack={() => nav.pop()} />
+          </NavPage>
+        )
+      }
+    </NavStack>
+  );
+}
+
+function ProfileRoot(props: {
   state: ProfileView;
   drafts: ProfileDrafts;
   onSaved: () => void;

@@ -3,6 +3,11 @@ import { Text, token, View } from "nsh";
 import type { JSX } from "nsh";
 import { Input } from "nsh/base";
 
+/** 原生页与页面栈的底色：NavPage 默认白底，必须显式铺主题背景。 */
+export function pageStyle() {
+  return { flex: 1, backgroundColor: token("background") } as const;
+}
+
 /** 小标题：10px、字距拉开的灰字。 */
 export function SectionLabel(props: { text: string; testID?: string }) {
   return (

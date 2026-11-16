@@ -71,12 +71,13 @@ App.tsx（TSX 屏：今日页） → lianlian/native（自动生成的类型） 
   两条说明按「轮次上限 > 裁剪 > 长度提醒」的优先级只留最具体的一条。
 
 ```
-App.tsx            应用外壳：读档案 → 引导 / 四个 Tab
+App.tsx            应用外壳：读档案 → 引导 / 四个 Tab；每个 Tab 用自己的 NavStack，
+                   Android 返回键沿栈回退，非今日 Tab 的根部先回今日再退出
 screens/           今日、月历/日详情、引导、档案（含 findings.tsx 的档案条目）、测量、对话列表/聊天、设置（TSX）
 ui/                共用零件（卡片/胶囊/按钮/输入）、表单草稿与日期格式（dates.ts）
 *.test.tsx         headless 测试：App（冷启动主干）、Findings（档案页）、Plan（计划）、Today（打卡）、
                    Calendar（月历/日详情）、Storage（容量/归档）、Chat/Conversations/Photos/Proposals/
-                   Measurements（各自工单），全部跑在 `api` 这一个接缝下
+                   Measurements（各自工单）、Navigation（系统返回栈），全部跑在 `api` 这一个接缝下
 src/lib.rs         crate 的 UI 集合：注册对 TSX 暴露的 module
 src/api.rs         对 TSX 暴露的类型与入口（JsObject → native.d.ts，`Profile` / `Measurements` /
                    `Findings` / `Conversations` / `Photos` / `Proposals` / `Plans` / `Days` / `Today` /

@@ -16,6 +16,7 @@ export async function ensureOnboarded(app: App) {
   if (!app.shows("id:onboarding-next")) {
     return;
   }
+  await app.clear("id:basics-age");
   await app.type("id:basics-age", "32");
   await app.press("id:onboarding-next");
   await app.waitFor("id:training-days-3");

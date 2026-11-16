@@ -6,8 +6,6 @@ import { profileDrafts } from "./ui/drafts";
 import { CalendarScreen } from "./screens/calendar";
 import { Onboarding } from "./screens/onboarding";
 import { ConversationsScreen } from "./screens/conversations";
-import { MeasurementsScreen } from "./screens/measurements";
-import { SettingsScreen } from "./screens/settings";
 import { ProfileScreen } from "./screens/profile";
 import { Today } from "./screens/today";
 import { TabBar } from "./ui/parts";
@@ -32,8 +30,8 @@ function Loading() {
 function App() {
   const profile = resource(() => Profile.load());
   const tab = signal<Tab>("today");
-  // 档案 Tab 内的页面栈：档案 → 测量（详情页用 push，见 contract §4）。
-  const profilePage = signal<"root" | "measurements" | "settings">("root");
+  // 从对话的错误态跳去设置：切 Tab 后由档案页把自己推到设置页。
+  const profileIntent = signal<"none" | "settings">("none");
 
   // 注意：accessor 的读取都写在 JSX 里——NSH 只跟踪渲染期间读到的信号，
   // 在函数体里读会让「读库完成」这件事没人订阅，页面就永远停在加载态。
@@ -57,33 +55,25 @@ function App() {
               />
             ) : null}
             {tab() === "profile" ? (
-              profilePage() === "measurements" ? (
-                <MeasurementsScreen
-                  onBack={() => {
-                    profilePage.set("root");
-                    profile.refetch();
-                  }}
-                />
-              ) : profilePage() === "settings" ? (
-                <SettingsScreen onBack={() => profilePage.set("root")} />
-              ) : (
-                <ProfileScreen
-                  state={profile()!}
-                  drafts={profileDrafts(profile()!)}
-                  onSaved={() => profile.refetch()}
-                  onGoMeasurements={() => profilePage.set("measurements")}
-                  onGoSettings={() => profilePage.set("settings")}
-                  onGoConversations={() => tab.set("conversations")}
-                />
-              )
+              <ProfileScreen
+                state={profile()!}
+                drafts={profileDrafts(profile()!)}
+                onSaved={() => profile.refetch()}
+                onGoConversations={() => tab.set("conversations")}
+                settingsRequest={profileIntent}
+                onRootBack={() => tab.set("today")}
+              />
             ) : null}
-            {tab() === "calendar" ? <CalendarScreen /> : null}
+            {tab() === "calendar" ? (
+              <CalendarScreen onRootBack={() => tab.set("today")} />
+            ) : null}
             {tab() === "conversations" ? (
               <ConversationsScreen
                 onOpenSettings={() => {
                   tab.set("profile");
-                  profilePage.set("settings");
+                  profileIntent.set("settings");
                 }}
+                onRootBack={() => tab.set("today")}
               />
             ) : null}
           </View>

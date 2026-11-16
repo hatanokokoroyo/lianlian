@@ -4,12 +4,20 @@
 // 只负责铺 35/42 格、加今天标记、把点击送进日详情。日详情本身不编辑历史动作：
 // 漏掉的那一天另开「补勾」入口，改期则在今日页。
 import { resource, signal, Text, token, View } from "nsh";
-import { Sheet } from "nsh/base";
+import { createNavStack, NavPage, NavStack, Sheet } from "nsh/base";
 import { Days, Today } from "lianlian/native";
 import type { CalendarCellView, DayView } from "lianlian/native";
 
 import { todayIso } from "../ui/dates";
-import { Card, Note, PrimaryButton, ScreenHeader, SectionLabel, TextButton } from "../ui/parts";
+import {
+  Card,
+  Note,
+  pageStyle,
+  PrimaryButton,
+  ScreenHeader,
+  SectionLabel,
+  TextButton,
+} from "../ui/parts";
 
 const WEEKDAYS = ["一", "二", "三", "四", "五", "六", "日"];
 
@@ -305,11 +313,13 @@ function DayDetail(props: {
   );
 }
 
+type CalendarRoute = { name: "month" } | { name: "day"; cell: CalendarCellView };
+
 /** 月历：默认显示本月，前后翻月；格子来自 `Days.range`。 */
-export function CalendarScreen() {
+export function CalendarScreen(props: { onRootBack: () => void }) {
   const now = new Date();
   const cursor = signal({ year: now.getFullYear(), month: now.getMonth() + 1 });
-  const selected = signal<CalendarCellView | null>(null);
+  const nav = createNavStack<CalendarRoute>([{ name: "month" }]);
   const today = todayIso();
 
   const daysInMonth = () => {
@@ -369,9 +379,35 @@ export function CalendarScreen() {
     }
   };
 
+  const openDay = (cell: CalendarCellView) => {
+    const top = nav.routes()[nav.routes().length - 1];
+    if (top?.name === "day" && top.cell.date === cell.date) {
+      return;
+    }
+    nav.push({ name: "day", cell });
+  };
+
   return (
-    <View style={{ flex: 1 }}>
-      <ScreenHeader eyebrow="月历" title={`${cursor().year}年${cursor().month}月`} />
+    <NavStack
+      state={nav}
+      style={pageStyle()}
+      onChange={(event) => {
+        if (event.routes.length === 1) {
+          data.refetch();
+        }
+      }}
+    >
+      {(route) =>
+        route.name === "month" ? (
+          <NavPage
+            title="月历"
+            headerVisible={false}
+            popOnBack={false}
+            onBackPress={props.onRootBack}
+            style={pageStyle()}
+          >
+            <View style={{ flex: 1 }}>
+              <ScreenHeader eyebrow="月历" title={`${cursor().year}年${cursor().month}月`} />
       <View
         style={{
           flexDirection: "row",
@@ -432,7 +468,11 @@ export function CalendarScreen() {
                             }`
                           : undefined
                       }
-                      onPress={item().cell ? () => selected.set(item().cell) : undefined}
+                      onPress={
+                        item().cell
+                          ? () => openDay(item().cell!)
+                          : undefined
+                      }
                       style={{
                         flex: 1,
                         height: 44,
@@ -466,30 +506,21 @@ export function CalendarScreen() {
               </View>
             )}
           </Each>
-          <Legend />
-        </View>
-      )}
-
-      {selected() ? (
-        <View
-          style={{
-            position: "absolute",
-            top: 0,
-            right: 0,
-            bottom: 0,
-            left: 0,
-            backgroundColor: token("background"),
-          }}
-        >
-          <DayDetail
-            cell={selected()!}
-            onBack={() => {
-              selected.set(null);
-              data.refetch();
-            }}
-          />
-        </View>
-      ) : null}
-    </View>
+              <Legend />
+            </View>
+          )}
+            </View>
+          </NavPage>
+        ) : (
+          <NavPage
+            title={dayLabel(route.cell.date)}
+            headerVisible={false}
+            style={pageStyle()}
+          >
+            <DayDetail cell={route.cell} onBack={() => nav.pop()} />
+          </NavPage>
+        )
+      }
+    </NavStack>
   );
 }

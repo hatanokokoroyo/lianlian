@@ -3,7 +3,8 @@
 //
 // 消息列表用 `List`（长会话靠虚拟化滚动），输入条固定在下沿。
 import { Image, List, resource, signal, Text, token, View } from "nsh";
-import { Input } from "nsh/base";
+import { createNavStack, Dialog, Input, NavPage, NavStack } from "nsh/base";
+import { BackHandler, isAvailable } from "nsh/mobile";
 import { Conversations, Photos, Proposals } from "lianlian/native";
 import type {
   ChatErrorView,
@@ -17,6 +18,7 @@ import {
   Card,
   ConfirmRow,
   Note,
+  pageStyle,
   PrimaryButton,
   ScreenHeader,
   SectionLabel,
@@ -241,33 +243,45 @@ function Chat(props: {
 
   return (
     <View style={{ flex: 1 }}>
-      {preview() ? (
+      <Dialog
+        open={preview() !== null}
+        onOpenChange={(event) => {
+          if (!event.open) {
+            preview.set(null);
+          }
+        }}
+        style={{
+          flex: 1,
+          backgroundColor: token("background"),
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 12,
+        }}
+        backdropStyle={{ backgroundColor: "rgba(0,0,0,0.6)" }}
+      >
         <View
           testID="photo-preview"
           style={{
-            position: "absolute",
-            left: 0,
-            right: 0,
-            top: 0,
-            bottom: 0,
-            zIndex: 10,
-            backgroundColor: token("background"),
+            flex: 1,
+            width: "100%",
             alignItems: "center",
             justifyContent: "center",
             gap: 12,
           }}
         >
-          <Image
-            src={preview()!}
-            style={{ width: "92%", height: "80%", objectFit: "contain" }}
-          />
+          {preview() ? (
+            <Image
+              src={preview()!}
+              style={{ width: "92%", height: "80%", objectFit: "contain" }}
+            />
+          ) : null}
           <PrimaryButton
             testID="close-photo-preview"
             label="关闭"
             onPress={() => preview.set(null)}
           />
         </View>
-      ) : null}
+      </Dialog>
       <View
         style={{
           flexDirection: "row",
@@ -808,13 +822,46 @@ function ConversationRow(props: {
   );
 }
 
-export function ConversationsScreen(props: { onOpenSettings: () => void }) {
+type ChatRoute = { name: "list" } | { name: "chat"; id: number };
+
+export function ConversationsScreen(props: {
+  onOpenSettings: () => void;
+  onRootBack: () => void;
+}) {
   const list = resource(() => Conversations.list());
-  const selected = signal<number | null>(null);
+  const nav = createNavStack<ChatRoute>([{ name: "list" }]);
   const showArchived = signal(false);
   const menu = signal<number | null>(null);
   const confirmDelete = signal<number | null>(null);
   const error = signal<string | null>(null);
+
+  // 列表里的菜单与删除确认是瞬态层：返回键先收掉它们，再轮到页面栈。
+  if (isAvailable) {
+    BackHandler.on("press", () => {
+      if (nav.routes().length > 1) {
+        return false;
+      }
+      if (confirmDelete() !== null) {
+        confirmDelete.set(null);
+        return true;
+      }
+      if (menu() !== null) {
+        menu.set(null);
+        return true;
+      }
+      return false;
+    });
+  }
+
+  const openChat = (id: number) => {
+    const top = nav.routes()[nav.routes().length - 1];
+    if (top?.name === "chat" && top.id === id) {
+      return;
+    }
+    menu.set(null);
+    confirmDelete.set(null);
+    nav.push({ name: "chat", id });
+  };
 
   const start = async () => {
     error.set(null);
@@ -823,7 +870,7 @@ export function ConversationsScreen(props: { onOpenSettings: () => void }) {
       error.set("没能新开会话：本地库打不开。");
       return;
     }
-    selected.set(id);
+    openChat(id);
     list.refetch();
   };
 
@@ -837,22 +884,28 @@ export function ConversationsScreen(props: { onOpenSettings: () => void }) {
     menu.set(null);
     confirmDelete.set(null);
     list.refetch();
-    if (selected() === id) {
-      selected.set(null);
-    }
   };
 
-  const back = () => {
-    selected.set(null);
-    list.refetch();
-  };
-
-  // 条件写在 JSX 里：NSH 只跟踪渲染期间读到的信号，在函数体里提前 return
-  // 会让「选中哪个会话」没人订阅，点进去也换不了页。
   return (
-    <View style={{ flex: 1 }}>
-      {selected() === null ? (
-        <View style={{ flex: 1 }}>
+    <NavStack
+      state={nav}
+      style={pageStyle()}
+      onChange={(event) => {
+        if (event.routes.length === 1) {
+          list.refetch();
+        }
+      }}
+    >
+      {(route) =>
+        route.name === "list" ? (
+          <NavPage
+            title="对话"
+            headerVisible={false}
+            popOnBack={false}
+            onBackPress={props.onRootBack}
+            style={pageStyle()}
+          >
+            <View style={{ flex: 1 }}>
           <ScreenHeader
             eyebrow="对话"
             title="和练练聊"
@@ -883,7 +936,7 @@ export function ConversationsScreen(props: { onOpenSettings: () => void }) {
                   conversation={conversation}
                   menuOpen={menu() === conversation.id}
                   confirmDelete={confirmDelete() === conversation.id}
-                  onOpen={() => selected.set(conversation.id)}
+                  onOpen={() => openChat(conversation.id)}
                   onToggleMenu={() =>
                     menu.set(menu() === conversation.id ? null : conversation.id)
                   }
@@ -919,7 +972,7 @@ export function ConversationsScreen(props: { onOpenSettings: () => void }) {
                         conversation={conversation}
                         menuOpen={menu() === conversation.id}
                         confirmDelete={confirmDelete() === conversation.id}
-                        onOpen={() => selected.set(conversation.id)}
+                        onOpen={() => openChat(conversation.id)}
                         onToggleMenu={() =>
                           menu.set(menu() === conversation.id ? null : conversation.id)
                         }
@@ -941,15 +994,19 @@ export function ConversationsScreen(props: { onOpenSettings: () => void }) {
               </View>
             ) : null}
           </View>
-        </View>
-      ) : (
-        <Chat
-          id={selected()!}
-          onBack={back}
-          onChanged={() => list.refetch()}
-          onOpenSettings={props.onOpenSettings}
-        />
-      )}
-    </View>
+            </View>
+          </NavPage>
+        ) : (
+          <NavPage title="对话" headerVisible={false} style={pageStyle()}>
+            <Chat
+              id={route.id}
+              onBack={() => nav.pop()}
+              onChanged={() => list.refetch()}
+              onOpenSettings={props.onOpenSettings}
+            />
+          </NavPage>
+        )
+      }
+    </NavStack>
   );
 }

@@ -4,6 +4,7 @@
 // 图表只认 design/contract.md §4：`Plot` 的 `Line` + `Dot`，不在实现里手画路径。
 import { resource, signal, Text, token, View } from "nsh";
 import { Plot, Dot, Grid, Line, PlotAxis } from "nsh/base/plot";
+import { BackHandler, isAvailable } from "nsh/mobile";
 import { Measurements } from "lianlian/native";
 import type { SeriesView } from "lianlian/native";
 
@@ -181,6 +182,17 @@ export function MeasurementsScreen(props: { onBack: () => void }) {
   const value = signal("");
   const message = signal<string | null>(null);
   const pending = signal<number | null>(null);
+
+  // 删除确认是瞬态层：返回键先取消它，再轮到页面栈。
+  if (isAvailable) {
+    BackHandler.on("press", () => {
+      if (pending() !== null) {
+        pending.set(null);
+        return true;
+      }
+      return false;
+    });
+  }
 
   const record = async () => {
     message.set(null);

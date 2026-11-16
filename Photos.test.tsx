@@ -62,6 +62,13 @@ test("照片：选图、发给模型、会话里留着，取消不留垃圾", as
   await app.waitFor("id:photo-preview");
   await app.press("id:close-photo-preview");
 
+  // 系统返回键先关最上层的图片预览，不把聊天页一起退掉。
+  await app.press("id:message-photo-1");
+  await app.waitFor("id:photo-preview");
+  await app.back();
+  await app.waitFor("id:message-input");
+  expect(app.shows("id:photo-preview")).toBe(false);
+
   // 重开会话（重新从库里读）：照片还在。
   await app.press("id:back");
   await app.waitFor("id:new-conversation");
