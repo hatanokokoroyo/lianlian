@@ -19,7 +19,9 @@ use crate::domain::{Photo, PhotoId};
 use crate::llm::agent::{self, DeepSeekModel, StoreHost};
 use crate::photos;
 use crate::llm::deepseek::GatewayError;
-use crate::llm::prompt::{Snapshot, assemble, assemble_with_turns, turns};
+use crate::llm::prompt::{
+    Length, Snapshot, assemble, assemble_with_turns, session_length, turns,
+};
 use crate::store::Store;
 use crate::store::settings::{API_KEY, TOOL_ROUNDS};
 
@@ -424,6 +426,12 @@ impl Conversations {
             .as_ref()
             .map(|(_, url)| url.clone());
         let assembly = assemble(&snapshot, &history, &text, photo_data_url.as_deref());
+
+        let length_notice = match length_gate(&assembly.items) {
+            Ok(notice) => notice,
+            Err(error) => return failure(error),
+        };
+
         let mut host = StoreHost::new(&store, conversation, at);
         // 这一轮要挂在会话上的说明（裁剪过历史 / 撞上工具轮次上限）。
         let mut notice: Option<String> = None;
@@ -464,7 +472,7 @@ impl Conversations {
 
         // 撞上工具轮次上限也要说清楚，别让用户以为对话正常收尾了；正常收尾就把
         // 上一轮留下的说明清掉（那句话说的是上一轮，不是这一轮）。
-        let notice = outcome.notice.clone().or(notice);
+        let notice = pick_notice(outcome.notice.clone(), notice, length_notice);
         let _ = store.set_conversation_notice(conversation, notice.as_deref());
 
         // 整轮一次落库：用户那句（可能带照片）、工具往返、回复。中途失败一条都不写。
@@ -499,6 +507,38 @@ impl Conversations {
             Err(error) => Some(error.to_string()),
         }
     }
+}
+
+/// 发送前的长度闸门（#18）：到 20 万提示开新会话，到 50 万直接拒绝。
+///
+/// 拒绝放在发请求之前：再发下去模型记不住也答不准，而且请求迟早会超限。新会话
+/// 第一轮就带完整档案投影（`state_block` 永远在装配里），所以新开不等于重新解释。
+fn length_gate(items: &[crate::llm::prompt::Input]) -> Result<Option<String>, GatewayError> {
+    match session_length(items) {
+        Length::Force { tokens } => Err(GatewayError::Request(format!(
+            "这段对话已经到约 {} 万 token，再发下去模型记不住也答不准。开个新会话吧：\
+             新会话第一轮就会带上你现在的完整档案（基本属性、当前判定、生效计划），\
+             不用重新解释。",
+            tokens / 10_000
+        ))),
+        Length::Warn { tokens } => Ok(Some(format!(
+            "这段对话已经很长（约 {} 万 token），建议开个新会话；新会话照样记得你的档案。",
+            tokens / 10_000
+        ))),
+        Length::Ok { .. } => Ok(None),
+    }
+}
+
+/// 会话上要留哪一条说明：越具体的那条越优先。
+///
+/// 撞上工具轮次上限 > 裁剪过历史（这一轮真的删了东西）> 长度提醒（下一轮才会发生）。
+/// 长度提醒不能把「这次只带了最近 N 轮」吞掉——那句说的正是这一轮发生了什么。
+fn pick_notice(
+    rounds: Option<String>,
+    trimming: Option<String>,
+    length: Option<String>,
+) -> Option<String> {
+    rounds.or(trimming).or(length)
 }
 
 /// 界面上的编号是 `f64`（JsObject 的约定），但只接受非负整数。
@@ -2258,6 +2298,57 @@ mod tests {
         assert_eq!(parse_sex(Some("female")), Some(Sex::Female));
         assert_eq!(parse_sex(Some("")), None);
         assert_eq!(parse_sex(None), None);
+    }
+}
+
+#[cfg(test)]
+mod chat_length_tests {
+    use super::*;
+    use crate::llm::prompt::{FORCE_TOKENS, WARN_TOKENS, Input};
+
+    #[test]
+    fn the_gate_warns_at_twenty_万_and_refuses_at_fifty_万() {
+        let long = Input::user("中".repeat(WARN_TOKENS));
+        let notice = length_gate(&[long]).expect("还不拒绝").expect("要提示");
+        assert!(notice.contains("已经很长"), "{notice}");
+        assert!(notice.contains("新会话"), "{notice}");
+
+        let huge = Input::user("中".repeat(FORCE_TOKENS));
+        let error = length_gate(&[huge]).expect_err("要拒绝继续");
+        assert_eq!(error.kind(), "request", "不是可重试错误");
+        assert!(!error.can_retry());
+        assert!(error.message().contains("开个新会话"), "{}", error.message());
+        assert!(
+            error.message().contains("完整档案"),
+            "要说清新会话不用重新解释：{}",
+            error.message()
+        );
+
+        assert_eq!(length_gate(&[Input::user("在吗")]).expect("放行"), None);
+    }
+
+    #[test]
+    fn a_more_specific_notice_is_never_swallowed_by_the_length_warning() {
+        // 这一轮真的裁剪过历史：那句话最要紧，不能被「建议开新会话」顶掉。
+        assert_eq!(
+            pick_notice(None, Some("只带了最近 2 轮".to_owned()), Some("建议开新会话".to_owned())),
+            Some("只带了最近 2 轮".to_owned())
+        );
+        // 撞上工具轮次上限比裁剪更具体（它就是这一轮的结果）。
+        assert_eq!(
+            pick_notice(
+                Some("到轮次上限".to_owned()),
+                Some("只带了最近 2 轮".to_owned()),
+                Some("建议开新会话".to_owned())
+            ),
+            Some("到轮次上限".to_owned())
+        );
+        // 什么都没有时，长度提醒才轮到。
+        assert_eq!(
+            pick_notice(None, None, Some("建议开新会话".to_owned())),
+            Some("建议开新会话".to_owned())
+        );
+        assert_eq!(pick_notice(None, None, None), None);
     }
 }
 

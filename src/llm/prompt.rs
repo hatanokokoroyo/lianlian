@@ -21,6 +21,79 @@ pub const PHOTO_PLACEHOLDER: &str = "[用户发了一张照片]";
 /// 不得不删改的一句：它是「状态放在历史之后」这套排列能成立的前提。
 pub const STATUS_AFTER_HISTORY: &str = "当前状态在最后一条消息之前给出";
 
+/// 会话长度到多少 token 时提示开新会话（`spec`「会话长度阈值」）。
+pub const WARN_TOKENS: usize = 200_000;
+/// 会话长度到多少 token 时拒绝继续，引导新开（新会话首轮就带完整档案投影）。
+pub const FORCE_TOKENS: usize = 500_000;
+/// 一张照片按多少 token 估（模型侧按图块算，这里只留个量级；规则写在这里是因为
+/// 阈值判断必须是纯函数，不许依赖真实调用）。
+pub const IMAGE_TOKENS: usize = 1_000;
+
+/// 一轮装配之后的长度判定（#18）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Length {
+    /// 还用得下去。
+    Ok { tokens: usize },
+    /// 建议开新会话。
+    Warn { tokens: usize },
+    /// 拒绝继续，引导新开。
+    Force { tokens: usize },
+}
+
+/// 估算一段装配好的输入有多少 token。
+///
+/// 近似规则（`spec`「会话长度阈值」）：中文等非 ASCII 字符约 1 字 1 token，ASCII 约
+/// 4 字符 1 token；工具参数与结果按同样规则算原文。估算宁高不宁低——它只用来决定
+/// 「该不该提醒」，算准了也没有额外好处，算低了会在超限前一无所知。
+pub fn estimate_tokens(items: &[Input]) -> usize {
+    let mut ascii = 0usize;
+    let mut wide = 0usize;
+    let mut images = 0usize;
+    let mut count = |text: &str| {
+        for character in text.chars() {
+            if character.is_ascii() {
+                ascii += 1;
+            } else {
+                wide += 1;
+            }
+        }
+    };
+    for item in items {
+        match item {
+            Input::Message(message) => match &message.content {
+                Content::Text(text) => count(text),
+                Content::Parts(parts) => {
+                    for part in parts {
+                        match part {
+                            ContentPart::InputText { text } => count(text),
+                            ContentPart::InputImage { .. } => images += 1,
+                        }
+                    }
+                }
+            },
+            Input::FunctionCall(call) => {
+                count(&call.name);
+                count(&call.arguments);
+            }
+            Input::FunctionCallOutput(output) => count(&output.output),
+            Input::Raw(value) => count(&value.to_string()),
+        }
+    }
+    wide + ascii.div_ceil(4) + images * IMAGE_TOKENS
+}
+
+/// 长度判定：阈值判断是纯函数，不联网、不看时钟。
+pub fn session_length(items: &[Input]) -> Length {
+    let tokens = estimate_tokens(items);
+    if tokens >= FORCE_TOKENS {
+        Length::Force { tokens }
+    } else if tokens >= WARN_TOKENS {
+        Length::Warn { tokens }
+    } else {
+        Length::Ok { tokens }
+    }
+}
+
 /// 系统提示。改它等于改模型的行为，别顺手改。
 pub const SYSTEM_PROMPT: &str = concat!(
     "你是「练练」里的训练教练。用中文说话。\n",
@@ -846,6 +919,54 @@ mod tests {
         let day = crate::domain::tool::parse_date("2025-11-24").expect("解析");
         assert_eq!(date(day), "2025-11-24");
         assert_eq!(date(crate::domain::tool::parse_date("2026-11-15").expect("解析")), "2026-11-15");
+    }
+
+    #[test]
+    fn tokens_are_estimated_from_characters_with_the_documented_rule() {
+        // 中文 1 字 ≈ 1 token；ASCII 4 字符 ≈ 1 token（不足 4 个也按 1 算）。
+        assert_eq!(estimate_tokens(&[Input::user("中文三")]), 3);
+        assert_eq!(estimate_tokens(&[Input::user("abcd")]), 1);
+        assert_eq!(estimate_tokens(&[Input::user("abcde")]), 2);
+        assert_eq!(estimate_tokens(&[Input::user("中abcd")]), 2);
+        // 工具往返也算：参数与输出都是要发给模型的字节。
+        let call = Input::FunctionCall(FunctionCallItem {
+            kind: "function_call",
+            call_id: "c1".to_owned(),
+            name: "search_evidence".to_owned(),
+            arguments: "{}".to_owned(),
+        });
+        // "search_evidence" + "{}" = 17 个 ASCII 字符 → 5 个 token。
+        assert_eq!(estimate_tokens(&[call]), 5);
+        // 照片按图块量级估，不是 0。
+        let photo = Input::user_with_photo("", "data:image/jpeg;base64,AAAA");
+        assert!(estimate_tokens(&[photo]) >= IMAGE_TOKENS);
+    }
+
+    #[test]
+    fn the_two_thresholds_split_ok_warn_and_force() {
+        let wide = |count: usize| Input::user("中".repeat(count));
+        assert!(matches!(
+            session_length(&[wide(WARN_TOKENS - 1)]),
+            Length::Ok { .. }
+        ));
+        assert_eq!(
+            session_length(&[wide(WARN_TOKENS)]),
+            Length::Warn {
+                tokens: WARN_TOKENS
+            }
+        );
+        assert_eq!(
+            session_length(&[wide(WARN_TOKENS + 1)]),
+            Length::Warn {
+                tokens: WARN_TOKENS + 1
+            }
+        );
+        assert_eq!(
+            session_length(&[wide(FORCE_TOKENS)]),
+            Length::Force {
+                tokens: FORCE_TOKENS
+            }
+        );
     }
 
     #[test]

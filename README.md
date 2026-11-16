@@ -56,6 +56,10 @@ App.tsx（TSX 屏：今日页） → lianlian/native（自动生成的类型） 
 - **#14 今日页与打卡**：打开就是今天的动作清单（完成度环 + `1/4 项` + 日状态），逐项勾选、即时落库
   （杀掉进程重开进度仍在），全部勾完落为「已完成」并给出打卡反馈，当天取消勾选退回「计划中」；
   今天休息时说明下一次训练是哪天，没有计划时引导去补训练条件或去对话排计划。
+- **#18 会话长度阈值**：发送前估算装配后的输入长度（非 ASCII 约 1 字 1 token、ASCII 约 4 字符
+  1 token、每张照片按 1000 估），≥20 万在会话上提示开新会话，≥50 万直接拒绝并引导新开
+  （新会话第一轮就带完整档案投影）；原有的「请求超限 → 裁掉最旧一半历史重发一次」兜底保留，
+  两条说明按「轮次上限 > 裁剪 > 长度提醒」的优先级只留最具体的一条。
 
 ```
 App.tsx            应用外壳：读档案 → 引导 / 四个 Tab
@@ -144,7 +148,7 @@ nsh run                     # 本机 Linux 宿主，最快的界面迭代
   `bindgen` 需要 `libclang.so`；没装时报 `Unable to find libclang`。`sudo apt install libclang-dev`
   之后 `LIBCLANG_PATH=/usr/lib/llvm-18/lib nsh package --target android -o dist`（NDK 里那份 libclang
   是给 Android 交叉编译的，别指给 host bindgen 用）。
-- **库里的值格式变了**：库结构与值格式的版本写在 `meta` 表的 `schema_version`（当前 10）；版本对不上时 `store` 丢表重建（骨架期不做迁移，改表就要 +1）。
+- **库里的值格式变了**：库结构与值格式的版本写在 `meta` 表的 `schema_version`（当前 12）；版本对不上时 `store` 丢表重建（骨架期不做迁移，改表就要 +1）。
 - **`nsh.test` 的 headless 宿主不给 app 私有目录**（`data_dir()` 在引擎线程上还会直接 panic），所以 `store::app_dir()` 在没有私有目录时落到系统临时目录，库与照片在测试里都是真的；照片目录跟着它走（`store::app_dir()/photos`），不要在 `cargo test` 里调 `photos_dir()`——它照样会 panic，测试里把目录当参数传进去。
 - **`nsh test` 的多个测试文件共用一个进程，也就共用一个临时库**。每个测试文件用 `beforeAll(freshDatabase)`
   （`test-helpers.ts`）在各文件开头调 `Testing.reset()`，所以文件之间互不影响，文件内仍共享（「重开 app 数据还在」
