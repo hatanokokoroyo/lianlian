@@ -1,15 +1,16 @@
-// 档案条目：当前状态按区域分组（肌肉看首要肌群、骨骼看区域），左右分开；
+// 档案页的「档案条目」区：当前状态按区域分组（肌肉看首要肌群、骨骼看区域），左右分开；
 // 展开看四段依据、时间线，并在这里做「标记已解决 / 判定有误」两个更正。
 //
 // 两个动作都是**用户**的动作，不经过 agent 会话：落库时照样写四段依据，
 // 但如实写明「未经复查」（ADR-0005 要求日志能说明它自己的来源）。
 //
 // 列表与条件用 NSH 的 `Each` / `If`：行按 key 保住，结构变化时节点按元素身份换。
-// 撤回表单不塞进会重排的行里，摆在列表上方——它只服务当前选中的那一行。
+// 撤回表单不塞进会重排的行里，摆在列表上方——它服务时间线上选中的那一条。
 import { resource, signal, Text, token, View } from "nsh";
 import { Findings } from "lianlian/native";
 import type {
   AxisChipView,
+  EvidenceSectionView,
   GroupWorstView,
   HistoryEntryView,
   SiteCardView,
@@ -22,6 +23,19 @@ import { Card, Note, PrimaryButton, SectionLabel, TextButton, TextField } from "
 function slugOf(card: SiteCardView): string {
   return card.side ? `${card.site}-${card.side}` : card.site;
 }
+
+/** 一个肌群聚合在 testID 里的写法。 */
+function groupSlug(group: GroupWorstView): string {
+  return group.side ? `${group.id}-${group.side}` : group.id;
+}
+
+/** 时间线上这条事件的动作名。 */
+function actionZh(kind: string): string {
+  return kind === "resolve" ? "解决" : kind === "retract" ? "撤回" : "写入";
+}
+
+/** 数字与日期一律等宽：滚动时列不会抖（契约 §2「数字」）。 */
+const NUMBERS: ("tabular-nums")[] = ["tabular-nums"];
 
 /** 一条轴一个标签：未测虚线、异常用 destructive，其余 muted。 */
 function AxisChips(props: { axes: AxisChipView[]; testID: string }) {
@@ -48,6 +62,7 @@ function AxisChips(props: { axes: AxisChipView[]; testID: string }) {
             <Text
               style={{
                 fontSize: 10,
+                fontVariant: NUMBERS,
                 color: axis().abnormal
                   ? token("destructive-foreground")
                   : token("muted-foreground"),
@@ -65,7 +80,7 @@ function AxisChips(props: { axes: AxisChipView[]; testID: string }) {
 }
 
 /** 四段依据，按写入时的顺序原样显示。 */
-function EvidenceLines(props: { testID: string; sections: { name: string; text: string }[] }) {
+function EvidenceLines(props: { testID: string; sections: EvidenceSectionView[] }) {
   return (
     <View testID={props.testID} style={{ gap: 4 }}>
       <Each of={props.sections} key={(section) => section.name}>
@@ -108,18 +123,22 @@ function RetractForm(props: {
           onPress={props.onCancel}
         />
       </View>
-      <Note text="撤回不是删除：这条判定仍留在时间线里，只是不再生效。" />
+      <Note text="撤回不是删除：这条判定与理由仍留在依据日志里，只是不再生效；若它是该部位最后一条生效判定，这一行会从档案上消失。" />
     </View>
   );
 }
 
-/** 时间线：最近的在前，撤回事件带理由。 */
-function Timeline(props: { slug: string; card: () => SiteCardView }) {
+/** 时间线：最近的在前，每条判定带自己的四段依据，撤回带理由。 */
+function Timeline(props: {
+  slug: string;
+  card: () => SiteCardView;
+  onRetractEntry: (finding: number) => void;
+}) {
   return (
     <View
       testID={`timeline-${props.slug}`}
       style={{
-        gap: 6,
+        gap: 8,
         backgroundColor: token("muted"),
         borderRadius: token("radius"),
         padding: 10,
@@ -127,21 +146,42 @@ function Timeline(props: { slug: string; card: () => SiteCardView }) {
     >
       <SectionLabel text="时间线 · 最近的在前" />
       <Each<HistoryEntryView> of={props.card().timeline} key="index">
-        {(entry) => (
-          <View style={{ gap: 2 }} testID={`timeline-${props.slug}-entry`}>
-            <Text style={{ fontSize: 11, color: token("foreground") }}>
-              {fullDate(entry().at)} · {entry().kind === "retract" ? "撤回" : entry().values}
-              {entry().current ? " · 当前生效" : ""}
-            </Text>
+        {(entry, index) => (
+          <View
+            style={{ gap: 3 }}
+            testID={`timeline-${props.slug}-entry`}
+          >
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+              <Text style={{ fontSize: 11, fontVariant: NUMBERS, color: token("foreground") }}>
+                {fullDate(entry().at)} · {actionZh(entry().kind)}
+              </Text>
+              <If when={entry().kind !== "retract"}>
+                <Text style={{ fontSize: 11, color: token("foreground") }}>
+                  {entry().values}
+                </Text>
+              </If>
+              <If when={entry().current}>
+                <Text style={{ fontSize: 10, color: token("primary") }}>当前生效</Text>
+              </If>
+            </View>
             <If when={entry().kind === "retract"}>
               <Text style={{ fontSize: 10, color: token("destructive") }}>
                 理由：{entry().reason ?? ""}
               </Text>
             </If>
             <If when={entry().evidence.length > 0}>
-              <Text style={{ fontSize: 10, color: token("muted-foreground") }}>
-                {entry().evidence[0].name}：{entry().evidence[0].text}
-              </Text>
+              <EvidenceLines
+                testID={`timeline-${props.slug}-evidence-${index()}`}
+                sections={entry().evidence}
+              />
+            </If>
+            <If when={entry().kind !== "retract" && !entry().current}>
+              <TextButton
+                testID={`retract-entry-${props.slug}-${index()}`}
+                label="撤回这条"
+                hint={`撤回 ${fullDate(entry().at)} 那条`}
+                onPress={() => props.onRetractEntry(entry().finding)}
+              />
             </If>
           </View>
         )}
@@ -158,8 +198,8 @@ function SiteRow(props: {
   busy: boolean;
   onToggle: () => void;
   onToggleTimeline: () => void;
-  onStartRetract: () => void;
   onResolve: () => void;
+  onStartRetract: (finding: number) => void;
 }) {
   const card = props.card;
   const slug = slugOf(card());
@@ -193,7 +233,9 @@ function SiteRow(props: {
             {card().siteZh}
           </Text>
           <If when={card().sideZh}>
-            <Text style={{ fontSize: 10, color: token("muted-foreground") }}>{card().sideZh}</Text>
+            <Text style={{ fontSize: 10, color: token("muted-foreground") }}>
+              {card().sideZh}
+            </Text>
           </If>
           <If when={card().resolved}>
             <Text
@@ -204,7 +246,7 @@ function SiteRow(props: {
             </Text>
           </If>
           <View style={{ flex: 1 }} />
-          <Text style={{ fontSize: 10, color: token("muted-foreground") }}>
+          <Text style={{ fontSize: 10, fontVariant: NUMBERS, color: token("muted-foreground") }}>
             {fullDate(card().at)}
           </Text>
         </View>
@@ -222,10 +264,7 @@ function SiteRow(props: {
             when={card().evidence.length === 0}
             else={<EvidenceLines testID={`site-${slug}-evidence`} sections={card().evidence} />}
           >
-            <Note
-              testID={`site-${slug}-no-evidence`}
-              text="这条判定没有留下依据日志（旧数据），只能看时间线。"
-            />
+            <Note text="这条判定没有留下依据日志（旧数据），只能看时间线。" />
           </If>
           <Note text={`置信度 ${card().confidence} 分。`} />
 
@@ -240,7 +279,7 @@ function SiteRow(props: {
             <TextButton
               testID={`retract-${slug}`}
               label="判定有误"
-              onPress={props.onStartRetract}
+              onPress={() => props.onStartRetract(card().finding)}
             />
             <TextButton
               testID={`open-timeline-${slug}`}
@@ -252,7 +291,7 @@ function SiteRow(props: {
           </View>
 
           <If when={props.timelineOpen}>
-            <Timeline slug={slug} card={card} />
+            <Timeline slug={slug} card={card} onRetractEntry={props.onStartRetract} />
           </If>
         </View>
       </If>
@@ -260,11 +299,12 @@ function SiteRow(props: {
   );
 }
 
-/** 肌群整体：成员逐轴取最差值，并指名最差来自哪块肌肉。 */
-function GroupRow(props: { group: () => GroupWorstView; slug: string }) {
+/** 肌群整体：成员逐轴取最差值，并指名最差的那一条来自哪里。 */
+function GroupRow(props: { group: () => GroupWorstView }) {
+  const slug = groupSlug(props.group());
   return (
     <View
-      testID={`group-${props.slug}`}
+      testID={`group-${slug}`}
       style={{
         backgroundColor: token("card"),
         borderRadius: token("radius"),
@@ -283,12 +323,14 @@ function GroupRow(props: { group: () => GroupWorstView; slug: string }) {
           </Text>
         </If>
         <View style={{ flex: 1 }} />
-        <Text style={{ fontSize: 10, color: token("muted-foreground") }}>
+        <Text style={{ fontSize: 10, fontVariant: NUMBERS, color: token("muted-foreground") }}>
           {props.group().memberCount} 块有判定
         </Text>
       </View>
-      <AxisChips axes={props.group().axes} testID={`group-${props.slug}-axis`} />
-      <Note text={`最差来自「${props.group().sourceSiteZh}」：${props.group().sourceValues}。`} />
+      <AxisChips axes={props.group().axes} testID={`group-${slug}-axis`} />
+      <Note
+        text={`最差的一条来自「${props.group().sourceSiteZh}」（${props.group().sourceValues}）；每条轴各自取成员里最差的值。`}
+      />
     </View>
   );
 }
@@ -297,16 +339,40 @@ export function FindingsSection(props: { onGoConversations: () => void }) {
   const data = resource(() => Findings.load());
   const expanded = signal<string | null>(null);
   const timeline = signal<string | null>(null);
-  const retracting = signal<string | null>(null);
+  const collapsed = signal<string[]>([]);
+  const retracting = signal<{ slug: string; finding: number } | null>(null);
   const reason = signal("");
   const busy = signal<string | null>(null);
   const message = signal<string | null>(null);
 
-  /** 正在填撤回理由的那一行；表单放在列表上方，不塞进会重排的行里。 */
-  const retractingCard = () =>
-    data()
+  /** 正在填撤回理由的那一行。 */
+  const retractingCard = () => {
+    const target = retracting();
+    if (!target) {
+      return undefined;
+    }
+    return data()
       ?.sections.flatMap((section) => section.cards)
-      .find((card) => slugOf(card) === retracting());
+      .find((card) => slugOf(card) === target.slug);
+  };
+
+  /** 撤回目标那条判定在时间线上的时刻（表单上要说清撤的是哪一条）。 */
+  const retractingAt = () => {
+    const target = retracting();
+    const card = retractingCard();
+    if (!target || !card) {
+      return null;
+    }
+    return card.timeline.find((entry) => entry.finding === target.finding)?.at ?? null;
+  };
+
+  const toggleSection = (id: string) => {
+    collapsed.set(
+      collapsed().includes(id)
+        ? collapsed().filter((each) => each !== id)
+        : [...collapsed(), id],
+    );
+  };
 
   const resolve = async (card: SiteCardView, slug: string) => {
     message.set(null);
@@ -321,20 +387,24 @@ export function FindingsSection(props: { onGoConversations: () => void }) {
     data.refetch();
   };
 
-  const retract = async (card: SiteCardView, slug: string) => {
+  const retract = async () => {
+    const target = retracting();
+    if (!target) {
+      return;
+    }
     message.set(null);
     if (reason().trim() === "") {
       message.set("撤回要写理由：错在哪，下次才知道该信什么。");
       return;
     }
-    busy.set(slug);
-    const error = await Findings.retract(card.finding, reason());
+    busy.set(target.slug);
+    const error = await Findings.retract(target.finding, reason());
     busy.set(null);
     if (error) {
       message.set(error);
       return;
     }
-    message.set("已撤回这条判定（历史仍在时间线里）。");
+    message.set("已撤回这条判定（历史仍在依据日志里）。");
     retracting.set(null);
     reason.set("");
     data.refetch();
@@ -368,28 +438,25 @@ export function FindingsSection(props: { onGoConversations: () => void }) {
             </Card>
           </If>
 
-          {retracting() !== null ? (
+          <If when={retracting() !== null}>
             <Card testID="retract-form">
               <SectionLabel
-                text={`撤回「${retractingCard()?.siteZh ?? ""}${retractingCard()?.sideZh ?? ""}」`}
+                text={`撤回「${retractingCard()?.siteZh ?? ""}${retractingCard()?.sideZh ?? ""}」${
+                  retractingAt() === null ? "" : ` ${fullDate(retractingAt() ?? 0)} 那条`
+                }`}
               />
               <RetractForm
-                slug={retracting() ?? ""}
+                slug={retracting()?.slug ?? ""}
                 reason={reason()}
                 onReason={(value) => reason.set(value)}
-                onConfirm={() => {
-                  const card = retractingCard();
-                  if (card) {
-                    retract(card, retracting() ?? "");
-                  }
-                }}
+                onConfirm={retract}
                 onCancel={() => {
                   retracting.set(null);
                   reason.set("");
                 }}
               />
             </Card>
-          ) : null}
+          </If>
 
           <If when={data()!.total === 0}>
             <Card testID="findings-empty">
@@ -407,38 +474,52 @@ export function FindingsSection(props: { onGoConversations: () => void }) {
 
           <Each of={data()!.sections} key={(section) => section.id}>
             {(section) => (
-              <View testID={`archive-section-${section().id}`} style={{ gap: 6 }}>
-                <View style={{ flexDirection: "row", alignItems: "center" }}>
+              <View style={{ gap: 6 }}>
+                <View
+                  testID={`archive-section-${section().id}`}
+                  role="button"
+                  accessibilityLabel={`${section().label}，${section().cards.length} 处`}
+                  onPress={() => toggleSection(section().id)}
+                  style={{ flexDirection: "row", alignItems: "center" }}
+                >
                   <SectionLabel text={section().label} />
                   <View style={{ flex: 1 }} />
-                  <SectionLabel text={`${section().cards.length} 处`} />
+                  <SectionLabel
+                    text={`${section().cards.length} 处 · ${
+                      collapsed().includes(section().id) ? "展开" : "收起"
+                    }`}
+                  />
                 </View>
-                <Each
-                  of={section().cards}
-                  key={(card) => (card.side ? `${card.site}-${card.side}` : card.site)}
-                >
-                  {(card) => {
-                    const slug = slugOf(card());
-                    return (
-                      <SiteRow
-                        card={card}
-                        expanded={expanded() === slug}
-                        timelineOpen={timeline() === slug}
-                        busy={busy() === slug}
-                        onToggle={() => {
-                          expanded.set(expanded() === slug ? null : slug);
-                          timeline.set(null);
-                        }}
-                        onToggleTimeline={() => timeline.set(timeline() === slug ? null : slug)}
-                        onStartRetract={() => {
-                          retracting.set(slug);
-                          reason.set("");
-                        }}
-                        onResolve={() => resolve(card(), slug)}
-                      />
-                    );
-                  }}
-                </Each>
+                <If when={!collapsed().includes(section().id)}>
+                  <Each
+                    of={section().cards}
+                    key={(card) => (card.side ? `${card.site}-${card.side}` : card.site)}
+                  >
+                    {(card) => {
+                      const slug = slugOf(card());
+                      return (
+                        <SiteRow
+                          card={card}
+                          expanded={expanded() === slug}
+                          timelineOpen={timeline() === slug}
+                          busy={busy() === slug}
+                          onToggle={() => {
+                            expanded.set(expanded() === slug ? null : slug);
+                            timeline.set(null);
+                          }}
+                          onToggleTimeline={() =>
+                            timeline.set(timeline() === slug ? null : slug)
+                          }
+                          onResolve={() => resolve(card(), slug)}
+                          onStartRetract={(finding) => {
+                            retracting.set({ slug, finding });
+                            reason.set("");
+                          }}
+                        />
+                      );
+                    }}
+                  </Each>
+                </If>
               </View>
             )}
           </Each>
@@ -446,13 +527,8 @@ export function FindingsSection(props: { onGoConversations: () => void }) {
           <If when={data()!.groups.length > 0}>
             <SectionLabel text="肌群整体 · 成员最差值" />
           </If>
-          <Each of={data()!.groups} key={(group) => `${group.id}-${group.side ?? "midline"}`}>
-            {(group) => (
-              <GroupRow
-                group={group}
-                slug={group().side ? `${group().id}-${group().side}` : group().id}
-              />
-            )}
+          <Each of={data()!.groups} key={(group) => groupSlug(group)}>
+            {(group) => <GroupRow group={group} />}
           </Each>
         </View>
       </If>

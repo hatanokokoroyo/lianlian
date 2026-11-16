@@ -41,9 +41,10 @@ App.tsx（TSX 屏：今日页） → lianlian/native（自动生成的类型） 
   `function_call_output` 回给模型；一轮的往返上限可配 1–128。
 - **#10 提议卡片**：一轮想改多条时走 `propose_findings`（1–8 项），会话末尾一张卡逐项勾选、可展开依据、
   可拒绝并说明（拒绝落证据并自动发起下一轮）；接受后留可撤销摘要，撤销追加 Correction 不删历史。
-- **#11 档案页**：按区域（肌肉看首要肌群、骨骼看区域）分组、左右分开，每行五轴（未测虚线）；
-  展开看四段依据与时间线（倒序，含撤回理由），可「标记已解决」（追加正常判定）与「判定有误」（撤回，
-  必须写理由）；肌群聚合显示成员最差值与它的来源部位。词表外的部位不会出现。
+- **#11 档案页**：按区域（肌肉看首要肌群、骨骼看区域）分组、可折叠，左右分开，每行五轴（未测虚线）；
+  展开看四段依据与时间线（倒序，每条判定带自己的依据、标明写入/解决/撤回），可「标记已解决」
+  （追加正常判定）与「判定有误」（撤回，必须写理由，时间线上任何一条都能撤）；肌群聚合显示成员的
+  最差值并指名最差那条来自哪个部位。词表外的部位不会出现。
 
 ```
 App.tsx            应用外壳：读档案 → 引导 / 四个 Tab
@@ -55,7 +56,7 @@ src/lib.rs         crate 的 UI 集合：注册对 TSX 暴露的 module
 src/api.rs         对 TSX 暴露的类型与入口（JsObject → native.d.ts，`Profile` / `Measurements` /
                    `Findings` / `Conversations` / `Photos` / `Proposals` / `Settings` 模块）
 src/anatomy/       解剖学词表：mod.rs 放类型与规则，sites.rs 是生成的内容
-src/domain/        五轴取值、Finding/Retract、投影与聚合、档案页读模型（archive.rs）、测量、会话（纯函数、零 IO）
+src/domain/        五轴取值、Finding/Retract、投影与聚合、档案页读模型（profile_page.rs）、测量、会话（纯函数、零 IO）
 src/llm/           装配（prompt.rs，纯函数）+ DeepSeek 网关（deepseek.rs，错误分类）
 src/store/         redb：mod.rs 开库与版本、profile.rs 基本属性/训练条件、findings.rs 判定与撤回、
                    measurements.rs 测量序列、conversations.rs 会话与消息、settings.rs API key

@@ -744,14 +744,14 @@ pub struct AxisChipView {
 /// 时间线上的一条：一条判定或一次撤回。
 #[derive(Debug, Clone, PartialEq, JsObject)]
 pub struct HistoryEntryView {
-    /// `finding` / `retract`。
+    /// `record`（写入）/ `resolve`（解决）/ `retract`（撤回）。
     pub kind: String,
+    /// 这条判定的编号：撤回某一条时用它。
+    pub finding: f64,
     /// Unix 毫秒。
     pub at: f64,
     /// 判定取值的可读串；撤回事件是空串。
     pub values: String,
-    /// 判定置信度；撤回事件是 0。
-    pub confidence: f64,
     /// 撤回理由；判定是 `null`。
     pub reason: Option<String>,
     /// 这条判定就是当前生效的那条。
@@ -777,7 +777,8 @@ pub struct SiteCardView {
     pub finding: f64,
     /// 那条判定的置信度。
     pub confidence: f64,
-    /// 当前取值全为正常：显示成「已解决」，不再提供「标记已解决」。
+    /// 当前生效的那条是用户点的「标记已解决」（按动作判断，不看取值）：
+    /// 显示成「已解决」，不再提供「标记已解决」。
     pub resolved: bool,
     /// 五条轴，按显示顺序。
     pub axes: Vec<AxisChipView>,
@@ -791,7 +792,7 @@ pub struct SiteCardView {
 
 /// 按区域（肌肉看首要肌群，骨骼看区域）分出来的一块。
 #[derive(Debug, Clone, PartialEq, JsObject)]
-pub struct ArchiveSectionView {
+pub struct SiteSectionView {
     /// 肌肉是肌群 id，骨骼是区域 id。
     pub id: String,
     /// 显示用的中文名。
@@ -815,8 +816,6 @@ pub struct GroupWorstView {
     pub source_site_zh: String,
     /// 最差那条判定的取值可读串。
     pub source_values: String,
-    /// 时间，Unix 毫秒。
-    pub at: f64,
     /// 有判定、参与聚合的成员数。
     pub member_count: f64,
 }
@@ -826,7 +825,7 @@ pub struct GroupWorstView {
 pub struct FindingsView {
     /// 一共有多少行（一个「部位 + 侧别」一行）。
     pub total: f64,
-    pub sections: Vec<ArchiveSectionView>,
+    pub sections: Vec<SiteSectionView>,
     /// 有判定的肌群聚合；没判定的肌群不出现。
     pub groups: Vec<GroupWorstView>,
     /// 读库失败的原因；有值时界面要提示而不是装作空档案。
@@ -889,19 +888,19 @@ fn findings_view(store: &Store, error: Option<String>) -> FindingsView {
             Vec::new()
         }
     };
-    let archive = crate::domain::Archive::build(&events, &evidence);
+    let page = crate::domain::ProfilePage::build(&events, &evidence);
     FindingsView {
-        total: archive.cards() as f64,
-        sections: archive
+        total: page.cards() as f64,
+        sections: page
             .sections
             .iter()
-            .map(|section| ArchiveSectionView {
+            .map(|section| SiteSectionView {
                 id: section.id.clone(),
                 label: section.label.clone(),
                 cards: section.cards.iter().map(site_card_view).collect(),
             })
             .collect(),
-        groups: archive.groups.iter().map(group_worst_view).collect(),
+        groups: page.groups.iter().map(group_worst_view).collect(),
         error: join_errors(errors),
     }
 }
@@ -918,7 +917,7 @@ fn empty_findings_view(error: Option<String>) -> FindingsView {
 fn site_card_view(card: &crate::domain::SiteCard) -> SiteCardView {
     SiteCardView {
         site: card.site.clone(),
-        site_zh: anatomy_zh(&card.site),
+        site_zh: card.site_zh.clone(),
         side: card.side.map(|side| side.key().to_owned()),
         side_zh: card.side.map(|side| side.zh().to_owned()),
         at: card.at as f64,
@@ -936,10 +935,10 @@ fn site_card_view(card: &crate::domain::SiteCard) -> SiteCardView {
             .history
             .iter()
             .map(|entry| HistoryEntryView {
-                kind: if entry.is_retract() { "retract" } else { "finding" }.to_owned(),
+                kind: entry.correction.key().to_owned(),
+                finding: entry.finding.0 as f64,
                 at: entry.at as f64,
                 values: axis_values_text(&entry.values),
-                confidence: f64::from(entry.confidence),
                 reason: entry.reason.clone(),
                 current: entry.current,
                 evidence: entry
@@ -955,15 +954,12 @@ fn site_card_view(card: &crate::domain::SiteCard) -> SiteCardView {
 fn group_worst_view(group: &crate::domain::GroupWorst) -> GroupWorstView {
     GroupWorstView {
         id: group.id.clone(),
-        zh: crate::anatomy::group(&group.id)
-            .map(|group| group.zh.to_owned())
-            .unwrap_or_else(|| group.id.clone()),
+        zh: group.zh.clone(),
         side: group.side.map(|side| side.key().to_owned()),
         side_zh: group.side.map(|side| side.zh().to_owned()),
         axes: axis_chips(group.values),
-        source_site_zh: anatomy_zh(&group.source_site),
-        source_values: axis_values_text(&group.source_values),
-        at: group.at as f64,
+        source_site_zh: group.source.site_zh.clone(),
+        source_values: axis_values_text(&group.source.values),
         member_count: group.sites.len() as f64,
     }
 }
@@ -2229,7 +2225,8 @@ mod findings_tests {
         assert!(card.resolved, "最新取值是正常");
         assert_eq!(card.finding, 2.0, "当前状态来自新追加的那条（#1 是原判定）");
         assert_eq!(card.timeline.len(), 2, "原判定留在时间线里");
-        assert_eq!(card.timeline[0].kind, "finding");
+        assert_eq!(card.timeline[0].kind, "resolve", "这条来自「标记已解决」");
+        assert_eq!(card.timeline[1].kind, "record");
         assert!(card.timeline[0].current, "时间线最上面是当前生效那条");
         assert_eq!(card.timeline[0].values, "张力 正常");
         assert!(!card.timeline[1].current);

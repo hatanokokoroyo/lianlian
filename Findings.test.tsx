@@ -89,6 +89,12 @@ test("档案页：分组、依据、时间线、已解决与撤回", async () =>
   expect(app.texts()).toContain("张力 紧");
   expect(app.texts()).toContain("疼痛 4 分");
 
+  // 区域可折叠（契约 §5「40+ 部位 → 按区域分组 + 折叠」）。
+  await app.press("id:archive-section-gluteal-group");
+  await app.waitUntil(() => !app.shows("id:site-gluteus-medius-left"));
+  await app.press("id:archive-section-gluteal-group");
+  await app.waitFor("id:site-gluteus-medius-left");
+
   // 展开一条：四段依据原样显示。
   await app.press("id:site-gluteus-maximus-left");
   await app.waitFor("id:site-gluteus-maximus-left-evidence");
@@ -104,9 +110,26 @@ test("档案页：分组、依据、时间线、已解决与撤回", async () =>
   await app.press("id:mark-resolved-gluteus-maximus-left");
   await app.waitUntil(() => app.shows("id:site-gluteus-maximus-left-resolved"));
   expect(app.texts()).toContain("张力 正常");
-  await app.waitUntil(() => app.texts().some((text) => text.includes("张力 正常 · 当前生效")));
-  expect(app.texts().some((text) => text.includes("张力 弱"))).toBe(true);
+  await app.waitUntil(() => app.texts().some((text) => text.includes("当前生效")));
+  // 时间线把「解决」与普通「写入」分开标，且每条判定带自己的四段依据。
+  expect(app.texts().some((text) => text.includes("解决"))).toBe(true);
+  expect(app.texts().some((text) => text.includes("写入"))).toBe(true);
+  expect(
+    app.texts().some((text) => text.includes("推理：伸髋末端发力不足，符合臀大肌上束张力弱")),
+  ).toBe(true);
   expect(app.shows("id:mark-resolved-gluteus-maximus-left")).toBe(false);
+
+  // 历史里那条判错了也能撤回（不是只能撤当前生效那条）。
+  await app.press("id:retract-entry-gluteus-maximus-left-1");
+  await app.waitFor("id:retract-reason-gluteus-maximus-left");
+  await app.type("id:retract-reason-gluteus-maximus-left", "三个月前把臀大肌看成臀中肌了");
+  await app.press("id:retract-confirm-gluteus-maximus-left");
+  await app.waitUntil(() =>
+    app.texts().some((text) => text.includes("三个月前把臀大肌看成臀中肌了")),
+  );
+  // 当前生效的仍是「已解决」那条。
+  expect(app.shows("id:site-gluteus-maximus-left-resolved")).toBe(true);
+  expect(app.texts()).toContain("张力 正常");
 
   // 「判定有误」：必须写理由；撤回后那条判定不再出现在档案里（历史留在库里）。
   await app.press("id:site-gluteus-medius-left");
@@ -120,9 +143,9 @@ test("档案页：分组、依据、时间线、已解决与撤回", async () =>
   await app.press("id:retract-confirm-gluteus-medius-left");
   await app.waitUntil(() => !app.shows("id:site-gluteus-medius-left"));
 
-  // 肌群聚合：臀大肌（正常）与臀中肌（撤回后消失）只剩一块有判定，最差值来自它。
+  // 肌群聚合：臀中肌撤回后消失，只剩臀大肌一块有判定，最差的一条来自它。
   await app.waitUntil(() => app.shows("id:group-gluteal-group-left"));
-  expect(app.texts().some((text) => text.includes("最差来自「臀大肌」"))).toBe(true);
+  expect(app.texts().some((text) => text.includes("最差的一条来自「臀大肌」"))).toBe(true);
   expect(app.texts().some((text) => text.includes("1 块有判定"))).toBe(true);
 
   // 重开 app：已解决与撤回都是落库的，不是内存里的。
@@ -140,8 +163,11 @@ test("档案页：分组、依据、时间线、已解决与撤回", async () =>
   await reopened.waitFor("id:open-timeline-gluteus-maximus-left");
   await reopened.press("id:open-timeline-gluteus-maximus-left");
   await reopened.waitFor("id:timeline-gluteus-maximus-left");
-  expect(reopened.texts().some((text) => text.includes("张力 正常 · 当前生效"))).toBe(true);
+  expect(reopened.texts().some((text) => text.includes("当前生效"))).toBe(true);
   expect(reopened.texts().some((text) => text.includes("张力 弱"))).toBe(true);
+  // 三条事件都在：写入、解决、撤回。
+  expect(reopened.texts().some((text) => text.includes("写入"))).toBe(true);
+  expect(reopened.texts().some((text) => text.includes("撤回"))).toBe(true);
 });
 
 // 空档案：不装空白列表，直接把用户送到首次评估。
