@@ -709,6 +709,103 @@ fn snapshot(store: &Store, conversation: crate::domain::ConversationId) -> Snaps
     }
 }
 
+/// 今日页要读的全部状态。
+#[derive(Debug, Clone, PartialEq, JsObject)]
+pub struct TodayView {
+    /// 今天（`YYYY-MM-DD`，设备本地）。
+    pub date: String,
+    /// 今天的训练日；休息日或还没排计划是 `null`。
+    pub day: Option<DayView>,
+    /// 今天休息时，下一次训练是哪天。
+    pub next_date: Option<String>,
+    /// 生效计划（频次与复查日）；还没有计划是 `null`。
+    pub plan: Option<PlanView>,
+    /// 训练条件齐不齐（不齐时今日页引导去补，而不是空白）。
+    pub readiness: ReadinessView,
+    /// 档案里有多少处当前生效的判定（没有判定时今日页先说「可以做首次评估」）。
+    pub findings: f64,
+    pub error: Option<String>,
+}
+
+/// 今日页：今天的清单、勾选与打卡（日状态机在 `domain::day`）。
+#[module]
+pub struct Today;
+
+#[module]
+impl Today {
+    /// 读今天：先把计划展开到今天（缺的日子补上），再读这一天。
+    pub async fn load(today: String) -> TodayView {
+        let Some(date) = crate::domain::Date::from_iso(&today) else {
+            return empty_today_view(&today, Some("日期要用 YYYY-MM-DD。".to_owned()));
+        };
+        let store = match Store::open_app() {
+            Ok(store) => store,
+            Err(error) => return empty_today_view(&today, Some(error.to_string())),
+        };
+        if let Err(error) = store.ensure_days(date, crate::domain::day::HORIZON_DAYS, now_ms()) {
+            return empty_today_view(&today, Some(error.to_string()));
+        }
+        match today_view(&store, date) {
+            Ok(view) => view,
+            Err(error) => empty_today_view(&today, Some(error.to_string())),
+        }
+    }
+
+    /// 勾 / 取消勾今天的一个动作；返回勾完之后的今日页（全部勾完就是打卡）。
+    pub async fn toggle(today: String, index: f64) -> TodayView {
+        let Some(date) = crate::domain::Date::from_iso(&today) else {
+            return empty_today_view(&today, Some("日期要用 YYYY-MM-DD。".to_owned()));
+        };
+        let index = match whole(index, "动作编号") {
+            Ok(index) => index as usize,
+            Err(message) => return empty_today_view(&today, Some(message)),
+        };
+        let store = match Store::open_app() {
+            Ok(store) => store,
+            Err(error) => return empty_today_view(&today, Some(error.to_string())),
+        };
+        let error = store
+            .toggle_exercise(date, index)
+            .err()
+            .map(|error| error.to_string());
+        match today_view(&store, date) {
+            Ok(mut view) => {
+                view.error = error;
+                view
+            }
+            Err(error) => empty_today_view(&today, Some(error.to_string())),
+        }
+    }
+}
+
+fn today_view(store: &Store, date: crate::domain::Date) -> Result<TodayView, crate::store::StoreError> {
+    let today_end = date.0 * crate::domain::day::DAY_MS + crate::domain::day::DAY_MS - 1;
+    let training = store.training()?;
+    Ok(TodayView {
+        date: date.iso(),
+        day: store.day(date)?.as_ref().map(day_view),
+        next_date: store.next_day(date)?.map(|day| day.date.iso()),
+        plan: store
+            .active_plan()?
+            .map(|plan| plan_view(store, &plan, today_end)),
+        readiness: readiness_view(&training.readiness()),
+        findings: store.projection()?.states().count() as f64,
+        error: None,
+    })
+}
+
+fn empty_today_view(today: &str, error: Option<String>) -> TodayView {
+    TodayView {
+        date: today.to_owned(),
+        day: None,
+        next_date: None,
+        plan: None,
+        readiness: readiness_view(&crate::domain::TrainingContext::new().readiness()),
+        findings: 0.0,
+        error,
+    }
+}
+
 /// 训练日里的一个动作（动作快照 + 勾没勾）。
 #[derive(Debug, Clone, PartialEq, JsObject)]
 pub struct DayExerciseView {

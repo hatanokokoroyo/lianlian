@@ -53,16 +53,19 @@ App.tsx（TSX 屏：今日页） → lianlian/native（自动生成的类型） 
   作息铺开，1–4 次不连排；「每 N 天一次」从计划生效日算起），展开时 day 存动作**快照**
   （名字、处方、判定、部位），改计划只影响之后新展开的天；单日可改期，原日回到休息日且不会被
   再次展开；`Days.range` 供月历查询（#16）。
+- **#14 今日页与打卡**：打开就是今天的动作清单（完成度环 + `1/4 项` + 日状态），逐项勾选、即时落库
+  （杀掉进程重开进度仍在），全部勾完落为「已完成」并给出打卡反馈，当天取消勾选退回「计划中」；
+  今天休息时说明下一次训练是哪天，没有计划时引导去补训练条件或去对话排计划。
 
 ```
 App.tsx            应用外壳：读档案 → 引导 / 四个 Tab
 screens/           今日、引导、档案（含 findings.tsx 的档案条目）、测量、对话列表/聊天、设置（TSX）
 ui/                共用零件（卡片/胶囊/按钮/输入）、表单草稿与日期格式（dates.ts）
-*.test.tsx         headless 测试：App（冷启动主干）、Findings（档案页）、Plan（计划）、Chat/Conversations/
-                   Photos/Proposals/Measurements（各自工单），全部跑在 `api` 这一个接缝下
+*.test.tsx         headless 测试：App（冷启动主干）、Findings（档案页）、Plan（计划）、Today（打卡）、
+                   Chat/Conversations/Photos/Proposals/Measurements（各自工单），全部跑在 `api` 这一个接缝下
 src/lib.rs         crate 的 UI 集合：注册对 TSX 暴露的 module
 src/api.rs         对 TSX 暴露的类型与入口（JsObject → native.d.ts，`Profile` / `Measurements` /
-                   `Findings` / `Conversations` / `Photos` / `Proposals` / `Plans` / `Days` /
+                   `Findings` / `Conversations` / `Photos` / `Proposals` / `Plans` / `Days` / `Today` /
                    `Settings` 模块）
 src/anatomy/       解剖学词表：mod.rs 放类型与规则，sites.rs 是生成的内容
 src/domain/        五轴取值、Finding/Retract、投影与聚合、档案页读模型（profile_page.rs）、测量、会话、

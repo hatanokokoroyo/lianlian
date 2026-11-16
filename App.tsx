@@ -66,7 +66,6 @@ function App() {
           <View style={{ flex: 1 }}>
             {tab() === "today" ? (
               <Today
-                state={profile()!}
                 onGoProfile={() => tab.set("profile")}
                 onGoConversations={() => tab.set("conversations")}
               />

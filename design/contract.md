@@ -148,7 +148,7 @@ v1 只有一种模式（深色）。全部值放在 `theme` 一节下，`light`/
 
 | 前缀 | testID |
 |---|---|
-| 今日 | `tab-today` `open-calendar` `exercise-{slug}` `checkin` `postpone` `skip-exercise` `view-evidence` `today-ready-title` `today-start-assessment` `today-needs-training-title` `today-fill-training` `today-error` |
+| 今日 | `tab-today` `open-calendar` `today-loading` `today-progress` `today-ring` `today-state` `today-state-label` `today-exercises` `exercise-{site}-{n}`（`n` 是当天第几个动作，0 起）`checkin` `today-busy` `postpone` `skip-exercise` `view-evidence` `today-review-due` `today-rest` `today-rest-title` `today-ready-title` `today-start-assessment` `today-needs-training-title` `today-fill-training` `today-error` |
 | 日历 | `tab-calendar` `day-{1..31}` `prev-month` `next-month` |
 | 档案 | `tab-profile` `profile-scroll` `archive-section-{id}`（可折叠的区域标题）`site-{site}-{left\|right}`（中线结构 `site-{site}`）`site-{slug}-resolved` `site-{slug}-evidence` `site-{slug}-axis-{axis}` `mark-resolved-{slug}` `retract-{slug}` `retract-reason-{slug}` `retract-confirm-{slug}` `retract-cancel-{slug}` `retract-form` `open-timeline-{slug}` `timeline-{slug}` `timeline-{slug}-entry` `timeline-{slug}-evidence-{n}` `retract-entry-{slug}-{n}`（`n` 是时间线里的第几条，0 起）`group-{group}-{left\|right}`（中线聚合是 `group-{group}`）`group-{slug}-axis-{axis}` `findings-empty` `findings-start-assessment` `findings-message` `findings-error` `open-measurements` `open-settings` `save-basics` `save-training` `profile-training` `profile-training-missing` `profile-error` `profile-saved` |
 | 会话 | `tab-conversations` `new-conversation` `conv-{slug}` `conv-menu` `archive-conv` `delete-conv` `message-input` `pick-photo` `photo-pending` `remove-photo` `photo-error` `message-photo-{id}` `photo-preview` `close-photo-preview` `send` `conv-actions` `undo` |
@@ -179,6 +179,7 @@ v1 只有一种模式（深色）。全部值放在 `theme` 一节下，`light`/
 | 日期 | 偏差 | 原因 |
 |---|---|---|
 | 2026-11-15 | 原型用 SVG `stroke-dasharray` 画环，实现改用 `Canvas arc` | 原型只是"看着对"；NSH 里可用 `Canvas` 的 arc + `animated value` 得到同样的视觉，且每帧由平台重绘、无 JS 开销 |
+| 2026-11-16 | 完成度环先按静态绘制（值变化直接重绘，不做 0.7s 补间） | spec「Out of Scope」写了「打卡动画：本期只做最简反馈」；环的补间属于动效，等打卡反馈一起做比现在半套更省事 |
 | 2026-11-16 | 档案卡片上的「来源会话」链接（`evidence-source`）与「修改训练条件」（`edit-training-context`）不单独实现 | 打开指定会话需要跨 Tab 定向跳转，`#6`/`#7` 没留入口（另开工单再加）；训练条件在本页就地可改，「保存训练条件」就是编辑入口 |
 | 2026-11-16 | 撤回理由表单摆在档案条目列表**上方**，不在卡片行内展开 | 行内表单会随列表重排一起重建，输入焦点与按钮容易错位；独立一块只服务当前选中的那一行 |
 | 2026-11-16 | 档案页把「档案条目」提到最前，基本属性/测量/训练条件下移，标题改为「身体档案」 | 档案的主语是判定与依据（prototype 的顺序也是条目在前）；自带的小标题足够区分两块 |

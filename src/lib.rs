@@ -26,6 +26,7 @@ fn native(registry: &mut Registry) {
     registry.module::<api::Proposals>();
     registry.module::<api::Plans>();
     registry.module::<api::Days>();
+    registry.module::<api::Today>();
     registry.module::<api::Settings>();
     registry.module::<api::Testing>();
 }
