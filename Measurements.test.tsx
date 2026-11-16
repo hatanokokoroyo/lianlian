@@ -53,7 +53,8 @@ test("测量追加入库、折线图重画、单条可删、当前值来自最�
   await app.press("id:back");
   await app.waitFor("id:save-basics");
   // 当前值来自最新一条测量，不是可编辑的草稿。
-  expect(app.texts()).toContain("当前 — cm · 62.4 kg");
+  // 回档案会先显示旧快照再 refetch；等最新一条测量替换掉占位符。
+  await app.waitUntil(() => app.texts().some((text) => text.includes("当前 — cm · 62.4 kg")));
 
   // 重开 app：测量还在库里。
   const reopened = await open("./App.tsx");
@@ -62,7 +63,9 @@ test("测量追加入库、折线图重画、单条可删、当前值来自最�
   await reopened.waitFor("id:tab-today");
   await reopened.press("id:tab-profile");
   await reopened.waitFor("id:open-measurements");
-  expect(reopened.texts()).toContain("当前 — cm · 62.4 kg");
+  await reopened.waitUntil(() =>
+    reopened.texts().some((text) => text.includes("当前 — cm · 62.4 kg")),
+  );
   await reopened.press("id:open-measurements");
   await reopened.waitFor("id:weight-chart");
   expect(reopened.texts()).toContain("62.4");
