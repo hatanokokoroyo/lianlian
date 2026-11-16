@@ -115,6 +115,12 @@ nsh run                     # 本机 Linux 宿主，最快的界面迭代
 
 - **adb 归属**：WSL 用 mirrored 网络，`adb` 复用 **Windows** 上跑的 adb server，本机 `~/.wslconfig` 是 `networkingMode=mirrored`。设备由 Windows 侧 daemon 持有，WSL 不设任何变量就能看到设备。
 - **`adb devices` 空但手机确实连着**：先杀干净多余的 daemon。真机上遇到过 Windows adb 起在 5038、独占 USB 设备，5037 的 daemon 于是一直空；`adb -P 5038 kill-server` 后 5037 立即正常。
+- **两边抢 5037（mirrored 网络）**：WSL 里一跑 `adb` 就占住 127.0.0.1:5037，Windows 侧的 adb server 于是绑不上、`adb.exe start-server` 报 `could not read ok from ADB Server`，设备在 Windows 也看不见。做法是让 Windows 的 adb 换个端口起、WSL 去连它：
+  ```sh
+  "/mnt/c/Users/<你>/AppData/Local/Android/Sdk/platform-tools/adb.exe" -P 5039 start-server
+  export ADB_SERVER_SOCKET=tcp:127.0.0.1:5039   # 当前 shell 里所有 adb / nsh run --target android 都用它
+  ```
+  换完之后 `adb devices` 与 `nsh run --target android` 都正常；不要在 WSL 里另起 `adb start-server`，会把 5039 那条路堵回去。
 - **`Directory not empty (os error 39)`**：上一次 `nsh run` 被 Ctrl-C 打断会留下 `.nsh/android/NshDev.apk-work/`，下一次装宿主时命名冲突。删掉 `.nsh/android` 再来。
 - **`no reactive runtime: signals are used on the engine thread`**：Rust 的普通 `fn`（不带 `cx`、非 `async`）跑在引擎线程，那里没有响应式运行时，读 `data_dir()` 之类的服务会 panic。要碰平台服务就写成 `async fn`（任务里跑）或在 TSX 侧用 `resource()` 消费。
 - **改了 Rust，手机上却还是旧行为**：dev server 有时判定「没变化」而不重装宿主，手机上跑的还是旧 native lib（加 `nsh.json` 的 `build` 也不一定让它重装）。可靠做法是 `adb shell pm clear com.longbridge.nsh.host` 后重开一次 dev server，等日志出现 `installed the Android development host`。代价是 app 私有目录里的库文件也被清掉——开发期无所谓。

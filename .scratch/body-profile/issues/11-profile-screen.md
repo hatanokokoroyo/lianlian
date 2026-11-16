@@ -50,6 +50,6 @@ Blocked by: 8
 
 - 手机不在时全部验收走 `nsh test`（headless，不需要设备）；真机目测留在最后。
 - 已按双轴评审补齐后关闭：[GitHub #11 交付评论](https://github.com/hatanokokoroyo/lianlian/issues/11#issuecomment-6907397443)（`06eac03`）。
-- 真机目测仍未做：`adb devices` 从 WSL 看不到设备；设备出现后跑 `nsh run --target android` 补看。
+- 真机目测已补：[#11 补看记录](https://github.com/hatanokokoroyo/lianlian/issues/11#issuecomment-6907439789)。设备连不上不是线的问题——WSL 的 adb 占着 5037，Windows 侧 adb 起不来；Windows adb 换 5039 起、WSL 用 `ADB_SERVER_SOCKET` 连它即可（坑已写进 README）。
 - 真机目测：`adb devices` 从 WSL 里看不到设备（Windows 侧 adb server 也没拿到），没收尾；
   等设备在 `adb devices` 里出现后跑 `nsh run --target android` 看一眼这屏。
