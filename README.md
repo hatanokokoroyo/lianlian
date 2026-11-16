@@ -21,7 +21,6 @@ App.tsx（TSX 屏：今日页） → lianlian/native（自动生成的类型） 
   投影与聚合（肌群取最差值、骨骼集合子项优先于父项）。档案页/工具层会用到它，界面还没接。
 - **#4 冷启动**：首启引导三步（基本属性 → 训练条件 → 首次评估）；档案页可随时改基本属性与
   训练条件；训练条件缺项时今日页提示「计划前需要先补训练条件」，齐全时提示「可以开始首次评估」。
-  月历屏还是占位（#16）。
 - **#5 测量**：身高与体重是**测量**（带时间戳的只追加序列），不再是基本属性里的两个可编辑字段。
   档案页的「当前身高/体重」永远取最新一条测量；测量页用 `Plot` 画折线（只有一个点也看得见），
   单条可删（全库唯一允许单条删除的数据）。
@@ -57,6 +56,15 @@ App.tsx（TSX 屏：今日页） → lianlian/native（自动生成的类型） 
 - **#14 今日页与打卡**：打开就是今天的动作清单（完成度环 + `1/4 项` + 日状态），逐项勾选、即时落库
   （杀掉进程重开进度仍在），全部勾完落为「已完成」并给出打卡反馈，当天取消勾选退回「计划中」；
   今天休息时说明下一次训练是哪天，没有计划时引导去补训练条件或去对话排计划。
+- **#15 推迟、跳过与跨天结算**：整天推迟到下一个空档训练日（也可手动指定），目标日已有训练时明确拒绝；
+  单个动作可跳过且不挡打卡（跳过记录留在当天）；过了本地自然日 00:00 仍未完成自动落为「未完成」，
+  当天仍可补勾、补完转为「已完成」。结算逻辑是纯函数，`Days.range` / `Today.load` 读之前先结算。
+- **#16 月历与日详情**：月历按周一开头铺 35/42 格，已完成/计划中/已推迟/未完成/休息日五种状态
+  形状 + 颜色双编码（实心点 / 空心环 / 「推迟」 / 「×」 / 无标记），今天整格描边；点任意一天进入
+  只读日详情，看当时的动作快照与勾选；跨天漏掉的训练日另开「补勾」入口，改期仍在今日页。
+- **#17 容量仪表与归档**：档案页显示本地数据总量、数据库与照片目录占用，以及每张表的大小与占比；
+  归档只影响列表，不碰档案数据；删除会话只释放消息与照片，依据日志保留，重开后在会话搜索结果里
+  仍标「来源会话已删除」。
 - **#18 会话长度阈值**：发送前估算装配后的输入长度（非 ASCII 约 1 字 1 token、ASCII 约 4 字符
   1 token、每张照片按 1000 估），≥20 万在会话上提示开新会话，≥50 万直接拒绝并引导新开
   （新会话第一轮就带完整档案投影）；原有的「请求超限 → 裁掉最旧一半历史重发一次」兜底保留，
@@ -64,14 +72,15 @@ App.tsx（TSX 屏：今日页） → lianlian/native（自动生成的类型） 
 
 ```
 App.tsx            应用外壳：读档案 → 引导 / 四个 Tab
-screens/           今日、引导、档案（含 findings.tsx 的档案条目）、测量、对话列表/聊天、设置（TSX）
+screens/           今日、月历/日详情、引导、档案（含 findings.tsx 的档案条目）、测量、对话列表/聊天、设置（TSX）
 ui/                共用零件（卡片/胶囊/按钮/输入）、表单草稿与日期格式（dates.ts）
 *.test.tsx         headless 测试：App（冷启动主干）、Findings（档案页）、Plan（计划）、Today（打卡）、
-                   Chat/Conversations/Photos/Proposals/Measurements（各自工单），全部跑在 `api` 这一个接缝下
+                   Calendar（月历/日详情）、Storage（容量/归档）、Chat/Conversations/Photos/Proposals/
+                   Measurements（各自工单），全部跑在 `api` 这一个接缝下
 src/lib.rs         crate 的 UI 集合：注册对 TSX 暴露的 module
 src/api.rs         对 TSX 暴露的类型与入口（JsObject → native.d.ts，`Profile` / `Measurements` /
                    `Findings` / `Conversations` / `Photos` / `Proposals` / `Plans` / `Days` / `Today` /
-                   `Settings` 模块）
+                   `Storage` / `Settings` 模块）
 src/anatomy/       解剖学词表：mod.rs 放类型与规则，sites.rs 是生成的内容
 src/domain/        五轴取值、Finding/Retract、投影与聚合、档案页读模型（profile_page.rs）、测量、会话、
                    计划（plan.rs）、训练日与日状态机（day.rs，含日期运算）——纯函数、零 IO
@@ -149,7 +158,7 @@ nsh run                     # 本机 Linux 宿主，最快的界面迭代
   `bindgen` 需要 `libclang.so`；没装时报 `Unable to find libclang`。`sudo apt install libclang-dev`
   之后 `LIBCLANG_PATH=/usr/lib/llvm-18/lib nsh package --target android -o dist`（NDK 里那份 libclang
   是给 Android 交叉编译的，别指给 host bindgen 用）。
-- **库里的值格式变了**：库结构与值格式的版本写在 `meta` 表的 `schema_version`（当前 12）；版本对不上时 `store` 丢表重建（骨架期不做迁移，改表就要 +1）。
+- **库里的值格式变了**：库结构与值格式的版本写在 `meta` 表的 `schema_version`（当前 13）；版本对不上时 `store` 丢表重建（骨架期不做迁移，改表就要 +1）。
 - **`nsh.test` 的 headless 宿主不给 app 私有目录**（`data_dir()` 在引擎线程上还会直接 panic），所以 `store::app_dir()` 在没有私有目录时落到系统临时目录，库与照片在测试里都是真的；照片目录跟着它走（`store::app_dir()/photos`），不要在 `cargo test` 里调 `photos_dir()`——它照样会 panic，测试里把目录当参数传进去。
 - **`nsh test` 的多个测试文件共用一个进程，也就共用一个临时库**。每个测试文件用 `beforeAll(freshDatabase)`
   （`test-helpers.ts`）在各文件开头调 `Testing.reset()`，所以文件之间互不影响，文件内仍共享（「重开 app 数据还在」

@@ -126,7 +126,7 @@ v1 只有一种模式（深色）。全部值放在 `theme` 一节下，`light`/
 | 已完成 | 实心小圆点 | `primary` |
 | 计划中 | 空心小圆环 | `muted-foreground` 描边 |
 | 已推迟 | 日历格内文字标"推迟" | `accent` |
-| 未完成 | 实心小灰点 | `border` |
+| 未完成 | 日历格内文字标"×" | `border` |
 | 休息日 | 无标记 | — |
 | 今天 | 整格描边 | `primary` |
 
@@ -148,9 +148,9 @@ v1 只有一种模式（深色）。全部值放在 `theme` 一节下，`light`/
 
 | 前缀 | testID |
 |---|---|
-| 今日 | `tab-today` `open-calendar` `today-loading` `today-progress` `today-ring` `today-state` `today-state-label` `today-exercises` `exercise-{site}-{n}`（`n` 是当天第几个动作，0 起）`checkin` `today-busy` `postpone` `skip-exercise` `view-evidence` `today-review-due` `today-rest` `today-rest-title` `today-ready` `today-ready-title` `today-start-assessment` `today-needs-training` `today-needs-training-title` `today-fill-training` `today-error` |
-| 日历 | `tab-calendar` `day-{1..31}` `prev-month` `next-month` |
-| 档案 | `tab-profile` `profile-scroll` `archive-section-{id}`（可折叠的区域标题）`site-{site}-{left\|right}`（中线结构 `site-{site}`）`site-{slug}-resolved` `site-{slug}-evidence` `site-{slug}-axis-{axis}` `mark-resolved-{slug}` `retract-{slug}` `retract-reason-{slug}` `retract-confirm-{slug}` `retract-cancel-{slug}` `retract-form` `open-timeline-{slug}` `timeline-{slug}` `timeline-{slug}-entry` `timeline-{slug}-evidence-{n}` `retract-entry-{slug}-{n}`（`n` 是时间线里的第几条，0 起）`group-{group}-{left\|right}`（中线聚合是 `group-{group}`）`group-{slug}-axis-{axis}` `findings-empty` `findings-start-assessment` `findings-message` `findings-error` `open-measurements` `open-settings` `save-basics` `save-training` `profile-training` `profile-training-missing` `profile-error` `profile-saved` |
+| 今日 | `tab-today` `open-calendar` `today-loading` `today-progress` `today-ring` `today-state` `today-state-label` `today-exercises` `exercise-{site}-{n}`（`n` 是当天第几个动作，0 起）`checkin` `today-busy` `postpone` `postpone-target` `postpone-confirm` `postpone-cancel` `postpone-error` `skip-exercise` `skip-option-{n}` `skip-cancel` `skip-error` `view-evidence` `today-review-due` `today-rest` `today-rest-title` `today-ready` `today-ready-title` `today-start-assessment` `today-needs-training` `today-needs-training-title` `today-fill-training` `today-error` |
+| 日历 | `tab-calendar` `day-{1..31}` `prev-month` `next-month` `calendar-loading` `calendar-error` `calendar-legend` `day-detail` `day-detail-state` `day-detail-postponed` `day-detail-rest` `day-detail-exercise-{n}` `day-detail-error` `make-up` `makeup-exercise-{n}` `makeup-cancel` |
+| 档案 | `tab-profile` `profile-scroll` `archive-section-{id}`（可折叠的区域标题）`site-{site}-{left\|right}`（中线结构 `site-{site}`）`site-{slug}-resolved` `site-{slug}-evidence` `site-{slug}-axis-{axis}` `mark-resolved-{slug}` `retract-{slug}` `retract-reason-{slug}` `retract-confirm-{slug}` `retract-cancel-{slug}` `retract-form` `open-timeline-{slug}` `timeline-{slug}` `timeline-{slug}-entry` `timeline-{slug}-evidence-{n}` `retract-entry-{slug}-{n}`（`n` 是时间线里的第几条，0 起）`group-{group}-{left\|right}`（中线聚合是 `group-{group}`）`group-{slug}-axis-{axis}` `findings-empty` `findings-start-assessment` `findings-message` `findings-error` `open-measurements` `open-settings` `save-basics` `save-training` `profile-measurements` `profile-body-metrics` `profile-training` `profile-training-missing` `profile-error` `profile-saved` `storage-capacity` `storage-table-{id}` |
 | 会话 | `tab-conversations` `new-conversation` `conv-{slug}` `conv-menu` `archive-conv` `delete-conv` `message-input` `pick-photo` `photo-pending` `remove-photo` `photo-error` `message-photo-{id}` `photo-preview` `close-photo-preview` `send` `conv-actions` `undo` |
 | 提议 | `proposal-card` `proposal-item-{n}` `proposal-evidence-{n}` `reject-item-{n}` `reject-proposal` `reject-reason` `cancel-reject` `accept-proposal` `accepted-proposal-{id}` `undo` `undo-reason` `undo-confirm` `cancel-undo` `proposal-error` |
 | 计划 | `plan-card` `plan-version` `plan-exercise-{n}` `plan-versions` `plan-versions-list` `plan-review-due` `plan-error` `today-review-due` |
