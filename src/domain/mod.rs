@@ -140,7 +140,7 @@ pub enum DomainError {
     UnknownPlan(u64),
     /// 训练日里没有这个动作（编号越界）。
     UnknownExercise(usize),
-    /// 这一天本来就没有训练，没有可改期 / 可勾的东西。
+    /// 这一天本来就没有训练，没有可推迟 / 可勾的东西。
     UnknownDay(String),
     /// 要改到的那天已经有训练了。
     DayTaken(String),
@@ -301,7 +301,7 @@ impl fmt::Display for DomainError {
                 write!(f, "这一天的训练里没有第 {index} 个动作。")
             }
             DomainError::UnknownDay(date) => {
-                write!(f, "{date} 没有训练安排，没有可改期的对象。")
+                write!(f, "{date} 没有训练安排，没有可推迟的对象。")
             }
             DomainError::DayTaken(date) => {
                 write!(f, "{date} 已经有训练了；一天只排一次。")

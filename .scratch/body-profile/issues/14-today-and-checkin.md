@@ -34,3 +34,13 @@ Blocked by: 11
   界面上的状态显示。
 - 测试：`Today.test.tsx` 竖切（无计划引导 → 对话排计划 → 勾选 1/2 → 重开仍在 → 打卡 2/2 →
   取消勾选退回计划中）；`cargo test` 223 通过、`nsh test` 237 通过。
+
+**2026-11-16 评审补丁（agent）**
+
+- 视觉契约：动作行的勾选框圆角从自造的 12 改成官方档位 `9999`；完成度环的 `percent` 由
+  `done/total` 在组件内算，不再由调用方传第三个字段。
+- testID 收进契约 §7：`exercise-{site}-{n}`、`today-loading`、`today-progress`、`today-ring`、
+  `today-state`、`today-state-label`、`today-exercises`、`today-busy`、`today-rest`、
+  `today-rest-title`、`today-ready`、`today-needs-training`、`plan-error`。
+- 局部变量 `slug` 改名 `exerciseId`：仓库里 `slug` 一直是「部位 + 侧别」（`slugOf`），
+  动作的身份是「部位 + 当天第几个」，两个概念不共用一个词。

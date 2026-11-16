@@ -819,7 +819,7 @@ impl Today {
 }
 
 fn today_view(store: &Store, date: crate::domain::Date) -> Result<TodayView, crate::store::StoreError> {
-    let today_end = date.0 * crate::domain::day::DAY_MS + crate::domain::day::DAY_MS - 1;
+    let today_end = date.end_ms();
     let training = store.training()?;
     Ok(TodayView {
         date: date.iso(),
@@ -889,14 +889,16 @@ pub struct DaysView {
     pub error: Option<String>,
 }
 
-/// 训练日：展开、查询与手动改期（今天的清单与勾选在 `Today` 里）。
+/// 训练日：展开、查询与整天推迟（今天的清单与勾选在 `Today` 里）。
 #[module]
 pub struct Days;
 
 #[module]
 impl Days {
     /// 区间里的训练日。会先把生效计划展开到这个区间（只补缺失的日期，只往未来排）。
-    pub async fn range(from: String, to: String) -> DaysView {
+    ///
+    /// `today` 是设备本地的今天：自然日按本地断界，展开不往过去补。
+    pub async fn range(today: String, from: String, to: String) -> DaysView {
         let (Some(from_date), Some(to_date)) = (
             crate::domain::Date::from_iso(&from),
             crate::domain::Date::from_iso(&to),
@@ -920,7 +922,14 @@ impl Days {
             }
         };
         // 只往未来展开：过去的日子按已存在的行读，不凭空补出「计划中」的昨天。
-        let today = crate::domain::Date::from_ms(now_ms());
+        let Some(today) = crate::domain::Date::from_iso(&today) else {
+            return DaysView {
+                from,
+                to,
+                days: Vec::new(),
+                error: Some("日期要用 YYYY-MM-DD。".to_owned()),
+            };
+        };
         let start = from_date.max(today);
         let span = (to_date.0 - start.0 + 1).max(0);
         if let Err(error) = store.ensure_days(start, span, now_ms()) {
@@ -954,8 +963,8 @@ impl Days {
         store.day(date).ok().flatten().as_ref().map(day_view)
     }
 
-    /// 手动改期：把某一天整体挪到另一天，原来那天回到休息日；返回失败原因。
-    pub async fn reschedule(from: String, to: String) -> Option<String> {
+    /// 整天推迟：把某一天挪到另一天，原来那天回到休息日；返回失败原因。
+    pub async fn postpone(from: String, to: String) -> Option<String> {
         let (Some(from), Some(to)) = (
             crate::domain::Date::from_iso(&from),
             crate::domain::Date::from_iso(&to),
@@ -967,7 +976,7 @@ impl Days {
             Err(error) => return Some(error.to_string()),
         };
         store
-            .reschedule(from, to)
+            .postpone(from, to)
             .err()
             .map(|error| error.to_string())
     }
@@ -1922,13 +1931,13 @@ fn plan_view(store: &Store, plan: &crate::domain::Plan, today_end: i64) -> PlanV
         exercises,
         at: plan.at as f64,
         review_at: plan.review_at as f64,
-        review_due: plan.review_at <= today_end,
+        review_due: plan.review_due(today_end),
     }
 }
 
 /// 本地今天那一天的最后一毫秒（`YYYY-MM-DD` 解析不出来时退回现在）。
 fn end_of_day(iso: &str) -> Option<i64> {
-    crate::domain::tool::parse_date(iso).map(|start| start + crate::domain::tool::DAY_MS - 1)
+    crate::domain::Date::from_iso(iso).map(crate::domain::Date::end_ms)
 }
 
 /// 档案的读写：基本属性、训练条件、引导标记。
@@ -2307,7 +2316,7 @@ mod chat_length_tests {
     use crate::llm::prompt::{FORCE_TOKENS, WARN_TOKENS, Input};
 
     #[test]
-    fn the_gate_warns_at_twenty_万_and_refuses_at_fifty_万() {
+    fn the_gate_warns_at_two_hundred_thousand_tokens_and_refuses_at_five_hundred_thousand() {
         let long = Input::user("中".repeat(WARN_TOKENS));
         let notice = length_gate(&[long]).expect("还不拒绝").expect("要提示");
         assert!(notice.contains("已经很长"), "{notice}");

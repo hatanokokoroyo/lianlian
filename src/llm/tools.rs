@@ -6,7 +6,7 @@
 
 use serde_json::{Value, json};
 
-use crate::domain::plan::{MAX_EXERCISES, MAX_REVIEW_WEEKS, MAX_SETS};
+use crate::domain::plan::{MAX_EXERCISES, MAX_REPS, MAX_REVIEW_WEEKS, MAX_SETS};
 use crate::domain::tool::{
     CORRECT_FINDING, GENERATE_PLAN, PROPOSE_FINDINGS, RECORD_FINDING, SEARCH_EVIDENCE,
 };
@@ -169,7 +169,7 @@ fn plan_spec() -> Value {
                         "properties": {
                             "name": { "type": "string", "description": "动作名（中文），如「臀桥」" },
                             "sets": { "type": "integer", "minimum": 1, "maximum": MAX_SETS, "description": "组数" },
-                            "reps": { "type": "integer", "minimum": 1, "maximum": 999, "description": "每组多少次或多少秒" },
+                            "reps": { "type": "integer", "minimum": 1, "maximum": MAX_REPS, "description": "每组多少次或多少秒" },
                             "unit": { "type": "string", "enum": ["times", "seconds"], "description": "reps 是次数还是秒数，默认 times" },
                             "finding": { "type": "integer", "description": "这个动作对应的判定编号（search_evidence 里能查到）" }
                         },

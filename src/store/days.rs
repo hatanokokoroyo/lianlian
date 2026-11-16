@@ -1,8 +1,8 @@
 //! 训练日的存储（#13）：按日期一行，值是 `Day` 的 JSON（含动作**快照**）。
 //!
 //! 展开只补缺失的日期，已有的一律不动——这是「改计划不得篡改历史」的落点：
-//! 已展开的日子留着当时的快照，新版本只影响之后新展开的天。改期是把那一行
-//! 挪到新日期，并记住原来的日期（`moved_from`），否则下一次展开会把它又排回来。
+//! 已展开的日子留着当时的快照，新版本只影响之后新展开的天。推迟是把那一行
+//! 挪到新日期，并记住原来的日期（`postponed_from`），否则下一次展开会把它又排回来。
 
 use std::collections::BTreeSet;
 
@@ -51,7 +51,7 @@ impl Store {
 
     /// 从 `today` 起把生效计划展开到 `horizon` 天。
     ///
-    /// 只插缺失的日期：已经有的一律不动（快照留在展开那一刻）；被改期搬走的
+    /// 只插缺失的日期：已经有的一律不动（快照留在展开那一刻）；被推迟搬走的
     /// 原日期也不再补回来。没有生效计划时什么都不做。
     pub fn ensure_days(
         &self,
@@ -67,7 +67,7 @@ impl Store {
         let taken: BTreeSet<Date> = existing.iter().map(|day| day.date).collect();
         let moved_away: BTreeSet<Date> = existing
             .iter()
-            .filter_map(|day| day.moved_from)
+            .filter_map(|day| day.postponed_from)
             .collect();
 
         // 快照要带部位：计划的动作只挂判定编号，部位在判定上。
@@ -112,8 +112,8 @@ impl Store {
         Ok(day)
     }
 
-    /// 把某一天整体改到另一天；原来那天回到休息日。
-    pub fn reschedule(&self, from: Date, to: Date) -> Result<Day, StoreError> {
+    /// 把某一天整天推迟到另一天；原来那天回到休息日。
+    pub fn postpone(&self, from: Date, to: Date) -> Result<Day, StoreError> {
         let mut day = self
             .day(from)?
             .ok_or_else(|| DomainError::UnknownDay(from.iso()))?;
@@ -123,7 +123,7 @@ impl Store {
         if self.day(to)?.is_some() {
             return Err(StoreError::Domain(DomainError::DayTaken(to.iso())));
         }
-        day.move_to(to);
+        day.postpone_to(to);
 
         let write = self.db().begin_write().map_err(db_error)?;
         {
@@ -296,8 +296,8 @@ mod tests {
     }
 
     #[test]
-    fn rescheduling_moves_the_day_and_frees_the_old_date_for_good() {
-        let (temp, finding) = ready_store("days-reschedule");
+    fn postponing_moves_the_day_and_frees_the_old_date_for_good() {
+        let (temp, finding) = ready_store("days-postpone");
         temp.store()
             .create_plan(
                 None,
@@ -311,13 +311,13 @@ mod tests {
 
         let moved = temp
             .store()
-            .reschedule(date("2026-11-16"), date("2026-11-17"))
-            .expect("改期");
+            .postpone(date("2026-11-16"), date("2026-11-17"))
+            .expect("推迟");
         assert_eq!(moved.date.iso(), "2026-11-17");
         assert!(temp.store().day(date("2026-11-16")).expect("读").is_none(), "原日成了休息日");
         assert!(temp.store().day(date("2026-11-17")).expect("读").is_some());
 
-        // 再展开也不会把周一补回来（它被搬走了，不是漏了）。
+        // 再展开也不会把周一补回来（它被推迟走了，不是漏了）。
         temp.store()
             .ensure_days(date("2026-11-16"), 7, AT)
             .expect("再展开");
@@ -326,7 +326,7 @@ mod tests {
         // 目标日已经有训练时拒绝。
         let taken = temp
             .store()
-            .reschedule(date("2026-11-18"), date("2026-11-17"))
+            .postpone(date("2026-11-18"), date("2026-11-17"))
             .unwrap_err();
         assert_eq!(
             taken,

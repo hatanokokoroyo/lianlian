@@ -24,11 +24,12 @@ function dayLabel(iso: string): string {
 }
 
 /** 完成度环（契约 §6.1）：96×96、r=40、线宽 8、12 点起步顺时针，数字叠在中间。 */
-function ProgressRing(props: { done: number; total: number; percent: number }) {
+function ProgressRing(props: { done: number; total: number }) {
+  const percent = props.total === 0 ? 0 : Math.round((props.done / props.total) * 100);
   return (
     <View
       testID="today-ring"
-      accessibilityLabel={`今日完成 ${props.percent}%，${props.done}/${props.total} 项`}
+      accessibilityLabel={`今日完成 ${percent}%，${props.done}/${props.total} 项`}
       style={{ width: 96, height: 96, alignItems: "center", justifyContent: "center" }}
     >
       <Canvas
@@ -41,7 +42,7 @@ function ProgressRing(props: { done: number; total: number; percent: number }) {
           cx.beginPath();
           cx.arc(center, center, 40, 0, Math.PI * 2);
           cx.stroke();
-          if (props.percent > 0) {
+          if (percent > 0) {
             cx.strokeStyle = token("primary");
             cx.beginPath();
             cx.arc(
@@ -49,7 +50,7 @@ function ProgressRing(props: { done: number; total: number; percent: number }) {
               center,
               40,
               -Math.PI / 2,
-              -Math.PI / 2 + (Math.PI * 2 * props.percent) / 100,
+              -Math.PI / 2 + (Math.PI * 2 * percent) / 100,
             );
             cx.stroke();
           }
@@ -64,7 +65,7 @@ function ProgressRing(props: { done: number; total: number; percent: number }) {
           color: token("foreground"),
         }}
       >
-        {`${props.percent}%`}
+        {`${percent}%`}
       </Text>
     </View>
   );
@@ -85,7 +86,7 @@ function CheckBox(props: { done: boolean; label: string; onPress: () => void; te
         style={{
           width: 24,
           height: 24,
-          borderRadius: 12,
+          borderRadius: 9999,
           backgroundColor: props.done ? token("primary") : "transparent",
           borderWidth: props.done ? 0 : 1,
           borderColor: token("muted-foreground"),
@@ -108,7 +109,8 @@ function ExerciseRow(props: {
   onToggle: (index: number) => void;
 }) {
   const exercise = props.day.exercises[props.index];
-  const slug = `${exercise.site}-${props.index}`;
+  // 契约 §7 的写法：`exercise-{site}-{n}`，同一天里同名部位的动作靠 n 区分。
+  const exerciseId = `${exercise.site}-${props.index}`;
   const label = `${exercise.name} ${exercise.prescription}，${exercise.siteZh}${exercise.sideZh ?? ""}`;
   return (
     <View
@@ -137,7 +139,7 @@ function ExerciseRow(props: {
         </Text>
       </View>
       <CheckBox
-        testID={`exercise-${slug}`}
+        testID={`exercise-${exerciseId}`}
         done={exercise.done}
         label={label}
         onPress={() => props.onToggle(props.index)}
@@ -154,13 +156,12 @@ function TodayDay(props: {
 }) {
   const total = props.day.total;
   const done = props.day.done;
-  const percent = total === 0 ? 0 : Math.round((done / total) * 100);
   const checkedIn = props.day.state === "completed";
   return (
     <View style={{ gap: 12 }}>
       <Card testID="today-progress">
         <View style={{ flexDirection: "row", alignItems: "center", gap: 14 }}>
-          <ProgressRing done={done} total={total} percent={percent} />
+          <ProgressRing done={done} total={total} />
           <View style={{ flex: 1, gap: 4 }}>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
               <Text style={{ fontSize: 15, fontWeight: "bold", color: token("foreground") }}>

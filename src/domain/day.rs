@@ -57,12 +57,18 @@ impl Date {
     pub fn weekday(self) -> u8 {
         (self.0 + 3).rem_euclid(7) as u8
     }
+
+    /// 这一天的最后一毫秒（Unix 毫秒）：「到今天为止」的判断都按自然日的末端算。
+    pub fn end_ms(self) -> Timestamp {
+        self.0 * DAY_MS + DAY_MS - 1
+    }
 }
 
 /// 每周 N 次排在一周里的哪几天（周一 = 0）。
 ///
-/// 1–4 次保证不连排；5–7 次时七天里塞不下 5 个互不相邻的日子（互不相邻的上限是
-/// 4 个），只能连排——这是「每周 5 练」的算术事实，不是偷懒。
+/// 1–3 次保证不连排；从 4 次起一定出现相邻的两天——七天是一个**循环**，循环里
+/// 最多只能挑出 3 个互不相邻的位置。4 次的作息是 一/三/五/日，唯一那对相邻落在
+/// 「周日 → 下周一」，周内看起来是均匀的。
 const WEEK_PATTERNS: [&[u8]; 7] = [
     &[0],
     &[0, 3],
@@ -205,9 +211,9 @@ pub struct Day {
     pub plan_version: u32,
     /// 展开时间，Unix 毫秒。
     pub at: Timestamp,
-    /// 从哪一天改期过来的。原日期据此保持「休息日」，不会被重新展开出来。
+    /// 从哪一天推迟过来的。原日期据此保持「休息日」，不会被重新展开出来。
     #[serde(default)]
-    pub moved_from: Option<Date>,
+    pub postponed_from: Option<Date>,
 }
 
 impl Day {
@@ -227,7 +233,7 @@ impl Day {
             plan_id: plan.id,
             plan_version: plan.version,
             at,
-            moved_from: None,
+            postponed_from: None,
         }
     }
 
@@ -261,9 +267,12 @@ impl Day {
         Ok(())
     }
 
-    /// 改到另一天；记住原来那天，免得它被重新展开成一个新的训练日。
-    pub fn move_to(&mut self, date: Date) {
-        self.moved_from = Some(self.moved_from.unwrap_or(self.date));
+    /// 推迟到另一天；记住原来那天，免得它被重新展开成一个新的训练日。
+    ///
+    /// 新那天的状态仍是「计划中」：「已推迟」描述的是原来那一天，等 #15 给它
+    /// 留一个占位行时再落；这里只搬走这一行。
+    pub fn postpone_to(&mut self, date: Date) {
+        self.postponed_from = Some(self.postponed_from.unwrap_or(self.date));
         self.date = date;
     }
 }
@@ -362,30 +371,51 @@ mod tests {
     }
 
     #[test]
-    fn weekly_patterns_are_table_driven_and_never_adjacent_up_to_four() {
+    fn weekly_patterns_are_table_driven_and_never_adjacent_up_to_three() {
         let anchor = date(MONDAY);
-        for count in 1..=4u8 {
-            let week: Vec<u8> = expand(
-                Frequency::PerWeek(count),
-                anchor,
-                anchor,
-                anchor.add(6),
-            )
-            .iter()
-            .map(|day| day.weekday())
-            .collect();
+        for count in 1..=3u8 {
+            let week: Vec<u8> = expand(Frequency::PerWeek(count), anchor, anchor, anchor.add(6))
+                .iter()
+                .map(|day| day.weekday())
+                .collect();
             assert_eq!(week.len(), usize::from(count));
             for pair in week.windows(2) {
-                assert!(
-                    pair[1] - pair[0] > 1,
-                    "每周 {count} 次连排了：{week:?}"
-                );
+                assert!(pair[1] - pair[0] > 1, "每周 {count} 次连排了：{week:?}");
             }
+            // 跨周也要看：周日到下周一同样是「连续两天」。
+            let wrap_gap = 7 - week[week.len() - 1] + week[0];
+            assert!(
+                wrap_gap > 1,
+                "每周 {count} 次跨周连排了（末次 {week:?}）"
+            );
         }
         // 每周 7 次就是每天。
         assert_eq!(
             expand(Frequency::PerWeek(7), anchor, anchor, anchor.add(6)).len(),
             7
+        );
+    }
+
+    #[test]
+    fn four_times_a_week_can_only_put_one_pair_of_days_side_by_side() {
+        let anchor = date(MONDAY);
+        let days = expand(Frequency::PerWeek(4), anchor, anchor, anchor.add(27));
+        // 七天一循环里最多 3 个互不相邻的日子，所以「每周 4 次」一定有一对相邻；
+        // 固定作息把那一对放在周日 → 周一（周内看起来仍是均匀的一/三/五/日）。
+        for pair in days.windows(2) {
+            let gap = pair[1].0 - pair[0].0;
+            assert!(gap == 1 || gap >= 2, "间隔不会小于一天");
+        }
+        let adjacent: Vec<String> = days
+            .windows(2)
+            .filter(|pair| pair[1].0 - pair[0].0 == 1)
+            .map(|pair| pair[0].iso())
+            .collect();
+        // 四周里恰好三处相邻，且都在周日（2026-11-22、11-29、12-06）。
+        assert_eq!(
+            adjacent,
+            vec!["2026-11-22", "2026-11-29", "2026-12-06"],
+            "相邻只落在周日 → 周一"
         );
     }
 
@@ -452,15 +482,21 @@ mod tests {
     }
 
     #[test]
-    fn a_moved_day_remembers_where_it_came_from() {
+    fn a_postponed_day_remembers_where_it_came_from() {
         let planned = plan(Frequency::PerWeek(3), "2026-11-16");
         let mut day = Day::from_plan(&planned, date("2026-11-16"), Vec::new(), 0);
-        day.move_to(date("2026-11-17"));
+        day.postpone_to(date("2026-11-17"));
         assert_eq!(day.date.iso(), "2026-11-17");
-        assert_eq!(day.moved_from.map(Date::iso), Some("2026-11-16".to_owned()));
-        // 连改两次仍然记着最早那天。
-        day.move_to(date("2026-11-18"));
-        assert_eq!(day.moved_from.map(Date::iso), Some("2026-11-16".to_owned()));
+        assert_eq!(
+            day.postponed_from.map(Date::iso),
+            Some("2026-11-16".to_owned())
+        );
+        // 连推迟两次仍然记着最早那天。
+        day.postpone_to(date("2026-11-18"));
+        assert_eq!(
+            day.postponed_from.map(Date::iso),
+            Some("2026-11-16".to_owned())
+        );
     }
 
     #[test]
