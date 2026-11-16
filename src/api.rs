@@ -2105,6 +2105,122 @@ fn end_of_day(iso: &str) -> Option<i64> {
     crate::domain::Date::from_iso(iso).map(crate::domain::Date::end_ms)
 }
 
+/// 一张表在本地库里占了多少。
+#[derive(Debug, Clone, PartialEq, JsObject)]
+pub struct TableUsageView {
+    /// redb 表名（`evidence` / `messages`…）。
+    pub id: String,
+    /// 中文名。
+    pub label: String,
+    /// 表里键值实际占的字节数。
+    pub bytes: f64,
+    /// 占本地数据总量的百分比（0–100）。
+    pub share: f64,
+}
+
+/// 本地数据占用（档案页的容量仪表）。
+#[derive(Debug, Clone, PartialEq, JsObject)]
+pub struct CapacityView {
+    /// redb 库文件大小。
+    pub database_bytes: f64,
+    /// 私有目录里的照片文件总大小。
+    pub photo_bytes: f64,
+    /// 上面两项之和。
+    pub total_bytes: f64,
+    /// 有数据的表，按占用从大到小。
+    pub tables: Vec<TableUsageView>,
+    pub error: Option<String>,
+}
+
+/// 容量：库文件、照片文件与各表占用。
+#[module]
+pub struct Storage;
+
+#[module]
+impl Storage {
+    /// 读本地数据占用：库文件、照片文件与各表字节数。
+    pub async fn load() -> CapacityView {
+        capacity_view()
+    }
+}
+
+fn capacity_view() -> CapacityView {
+    let store = match Store::open_app() {
+        Ok(store) => store,
+        Err(error) => {
+            return CapacityView {
+                database_bytes: 0.0,
+                photo_bytes: 0.0,
+                total_bytes: 0.0,
+                tables: Vec::new(),
+                error: Some(error.to_string()),
+            };
+        }
+    };
+    let mut errors = Vec::new();
+    let database_bytes = match store.file_bytes() {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            errors.push(error.to_string());
+            0
+        }
+    };
+    let photo_bytes = match crate::photos::dir_bytes(&crate::photos::photos_dir()) {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            errors.push(format!("读照片目录占用失败：{error}"));
+            0
+        }
+    };
+    let total_bytes = database_bytes + photo_bytes;
+    let tables = match store.table_usage() {
+        Ok(usage) => usage
+            .into_iter()
+            .filter(|(_, bytes)| *bytes > 0)
+            .map(|(id, bytes)| TableUsageView {
+                label: table_label(&id).to_owned(),
+                id,
+                bytes: bytes as f64,
+                share: if total_bytes == 0 {
+                    0.0
+                } else {
+                    bytes as f64 / total_bytes as f64 * 100.0
+                },
+            })
+            .collect(),
+        Err(error) => {
+            errors.push(error.to_string());
+            Vec::new()
+        }
+    };
+    CapacityView {
+        database_bytes: database_bytes as f64,
+        photo_bytes: photo_bytes as f64,
+        total_bytes: total_bytes as f64,
+        tables,
+        error: join_errors(errors),
+    }
+}
+
+fn table_label(id: &str) -> &str {
+    match id {
+        "meta" => "库元数据",
+        "profile" => "基本属性与训练条件",
+        "settings" => "本机设置",
+        "conversations" => "会话",
+        "messages" => "消息与工具往返",
+        "findings" => "档案条目",
+        "retracts" => "撤回记录",
+        "evidence" => "依据日志",
+        "photos" => "照片元数据",
+        "proposals" => "档案更新提议",
+        "measurements" => "测量",
+        "plans" => "计划",
+        "days" => "训练日",
+        _ => id,
+    }
+}
+
 /// 档案的读写：基本属性、训练条件、引导标记。
 #[module]
 pub struct Profile;

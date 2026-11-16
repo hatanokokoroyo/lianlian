@@ -1,13 +1,24 @@
 // 档案页：档案条目（判定与依据，见 findings.tsx）在前，基本属性与训练条件在后。
 // 四个字段都可以留空；留空时页面明说「未填」，不拿 0 冒充。
-import { Scroll, signal, Text, token, View } from "nsh";
-import { Profile } from "lianlian/native";
+import { resource, Scroll, signal, Text, token, View } from "nsh";
+import { Profile, Storage } from "lianlian/native";
 import type { ProfileView } from "lianlian/native";
 
 import type { ProfileDrafts } from "../ui/drafts";
 import { BasicsFields, TrainingFields, basicsPayload, trainingPayload } from "../ui/forms";
 import { FindingsSection } from "./findings";
 import { Card, Note, PrimaryButton, ScreenHeader, SectionLabel, TextButton } from "../ui/parts";
+
+/** 字节 → 「812 B」/「12.4 KB」/「3.1 MB」。 */
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) {
+    return `${Math.round(bytes)} B`;
+  }
+  if (bytes < 1024 * 1024) {
+    return `${(bytes / 1024).toFixed(1)} KB`;
+  }
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
 
 export function ProfileScreen(props: {
   state: ProfileView;
@@ -21,6 +32,7 @@ export function ProfileScreen(props: {
   const training = props.drafts.training;
   const error = signal<string | null>(null);
   const saved = signal<string | null>(null);
+  const capacity = resource(() => Storage.load());
 
   const saveBasics = async () => {
     error.set(null);
@@ -129,6 +141,60 @@ export function ProfileScreen(props: {
           )}
           <TrainingFields draft={training} />
           <PrimaryButton testID="save-training" label="保存训练条件" onPress={saveTraining} />
+        </Card>
+
+        <Card testID="storage-capacity">
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <Text style={{ fontSize: 13, fontWeight: "bold", color: token("foreground") }}>
+              本地数据
+            </Text>
+            <View style={{ flex: 1 }} />
+            <SectionLabel text="只在本机" />
+          </View>
+          {capacity() === undefined ? (
+            <Note text="正在算本地数据占用…" />
+          ) : (
+            <View style={{ gap: 6 }}>
+              <Note
+                text={`已用 ${formatBytes(capacity()!.totalBytes)} · 数据库 ${formatBytes(
+                  capacity()!.databaseBytes,
+                )} · 照片 ${formatBytes(capacity()!.photoBytes)}`}
+              />
+              {capacity()!.error ? (
+                <Note tone="error" text={capacity()!.error ?? ""} />
+              ) : null}
+              {capacity()!.tables.length === 0 ? (
+                <Note text="库里还没有可统计的数据。" />
+              ) : (
+                <Each of={capacity()!.tables} key={(table) => table.id}>
+                  {(table) => (
+                    <View
+                      testID={`storage-table-${table().id}`}
+                      style={{
+                        flexDirection: "row",
+                        alignItems: "center",
+                        paddingVertical: 3,
+                      }}
+                    >
+                      <Text style={{ flex: 1, fontSize: 11, color: token("foreground") }}>
+                        {table().label}
+                      </Text>
+                      <Text
+                        style={{
+                          fontSize: 11,
+                          fontVariant: ["tabular-nums"],
+                          color: token("muted-foreground"),
+                        }}
+                      >
+                        {`${formatBytes(table().bytes)} · ${table().share.toFixed(1)}%`}
+                      </Text>
+                    </View>
+                  )}
+                </Each>
+              )}
+              <Note text="删除会话会释放消息与照片；依据日志保留（ADR-0005），所以它会一直算在这里。" />
+            </View>
+          )}
         </Card>
       </View>
     </Scroll>

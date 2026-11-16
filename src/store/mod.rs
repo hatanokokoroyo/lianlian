@@ -22,10 +22,10 @@ pub mod proposals;
 pub mod settings;
 
 use std::fmt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use nsh_core::prelude::data_dir;
-use redb::{Database, ReadableDatabase, TableDefinition};
+use redb::{Database, ReadableDatabase, ReadableTableMetadata, TableDefinition, TableHandle};
 
 use crate::domain::DomainError;
 
@@ -78,6 +78,7 @@ pub fn app_dir() -> std::path::PathBuf {
 /// 打开着的本地库。
 pub struct Store {
     db: Database,
+    path: PathBuf,
 }
 
 impl Store {
@@ -96,11 +97,35 @@ impl Store {
     pub fn open(path: &Path) -> Result<Store, StoreError> {
         let db = Database::create(path).map_err(db_error)?;
         prepare(&db)?;
-        Ok(Store { db })
+        Ok(Store {
+            db,
+            path: path.to_path_buf(),
+        })
     }
 
     pub(crate) fn db(&self) -> &Database {
         &self.db
+    }
+
+    /// 库文件本身占了多少字节（含 redb 的页与索引开销）。
+    pub fn file_bytes(&self) -> Result<u64, StoreError> {
+        std::fs::metadata(&self.path)
+            .map(|metadata| metadata.len())
+            .map_err(|error| StoreError::Db(format!("读库文件大小失败：{error}")))
+    }
+
+    /// 各表实际存了多少字节（`TableStats::stored_bytes`，不含索引开销）。
+    pub fn table_usage(&self) -> Result<Vec<(String, u64)>, StoreError> {
+        let read = self.db.begin_read().map_err(db_error)?;
+        let mut usage = Vec::new();
+        for handle in read.list_tables().map_err(db_error)? {
+            let name = handle.name().to_owned();
+            let table = read.open_untyped_table(handle).map_err(db_error)?;
+            let stats = table.stats().map_err(db_error)?;
+            usage.push((name, stats.stored_bytes()));
+        }
+        usage.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+        Ok(usage)
     }
 
     /// 读库自己的一个标量（`schema_version`、`next_finding_id`……）。
@@ -299,5 +324,33 @@ pub(crate) mod tests {
             reopened.meta("schema_version").expect("读 meta"),
             Some(SCHEMA_VERSION.to_owned())
         );
+    }
+
+    #[test]
+    fn capacity_reports_the_file_size_and_each_table_that_holds_data() {
+        let mut temp = TempStore::new("capacity");
+        let store = temp.store();
+        let conversation = store.create_conversation(1).expect("会话");
+        store
+            .append_message(conversation.id, crate::domain::Role::User, "蹲不下去", 2)
+            .expect("消息");
+
+        assert!(store.file_bytes().expect("文件大小") > 0);
+        let usage = store.table_usage().expect("表占用");
+        let find = |name: &str| {
+            usage
+                .iter()
+                .find(|(table, _)| table == name)
+                .map(|(_, bytes)| *bytes)
+        };
+        assert!(find("conversations").expect("会话表在") > 0);
+        assert!(find("messages").expect("消息表在") > 0);
+        assert!(find("meta").expect("元数据表在") > 0);
+
+        // 重开之后读数还在（统计的是文件，不是内存里的缓存）。
+        let reopened = temp.reopen();
+        assert!(reopened.table_usage().expect("重读").iter().any(|(name, bytes)| {
+            name == "messages" && *bytes > 0
+        }));
     }
 }

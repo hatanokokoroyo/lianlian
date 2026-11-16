@@ -52,6 +52,23 @@ pub fn remove(dir: &Path, file: &str) -> std::io::Result<()> {
     }
 }
 
+/// 照片目录里所有文件的总字节数；目录不存在就是 0。
+pub fn dir_bytes(dir: &Path) -> std::io::Result<u64> {
+    let mut total = 0;
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(0),
+        Err(error) => return Err(error),
+    };
+    for entry in entries {
+        let entry = entry?;
+        if entry.file_type()?.is_file() {
+            total += entry.metadata()?.len();
+        }
+    }
+    Ok(total)
+}
+
 /// 给模型的 `input_image` 用的 data URL。
 pub fn data_url(mime: &str, bytes: &[u8]) -> String {
     format!("data:{mime};base64,{}", base64(bytes))
@@ -115,9 +132,11 @@ mod tests {
     fn saving_loading_and_removing_round_trips_and_is_idempotent() {
         let dir = std::env::temp_dir().join(format!("lianlian-photos-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(dir_bytes(&dir).expect("空目录"), 0);
 
         let name = save(&dir, PhotoId(1), "image/jpeg", b"jpeg-bytes").expect("落盘");
         assert_eq!(load(&dir, &name).expect("读回"), b"jpeg-bytes");
+        assert_eq!(dir_bytes(&dir).expect("算占用"), 10);
 
         remove(&dir, &name).expect("删掉");
         assert!(load(&dir, &name).is_err());

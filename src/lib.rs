@@ -28,5 +28,6 @@ fn native(registry: &mut Registry) {
     registry.module::<api::Days>();
     registry.module::<api::Today>();
     registry.module::<api::Settings>();
+    registry.module::<api::Storage>();
     registry.module::<api::Testing>();
 }
