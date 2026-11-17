@@ -45,21 +45,33 @@ test("首启引导、档案可改、缺项提示与重开仍在", async () => {
 
   // 档案页能看到刚填的东西，并且可以改。
   await app.press("id:tab-profile");
+  await app.waitFor("id:open-basics");
+  await app.waitUntil(() =>
+    app.texts().some((text) => text.includes("1 条基础疾病或旧伤")),
+  );
+  expect(app.texts().some((text) => text.includes("齐全 · 每周"))).toBe(true);
+
+  await app.press("id:open-basics");
   await app.waitFor("id:save-basics");
   expect(app.texts()).toContain("右侧踝关节扭伤过两次");
-  expect(app.texts()).toContain("齐全");
 
   await app.clear("id:basics-age");
   await app.type("id:basics-age", "33");
   await app.press("id:save-basics");
   // 保存会触发 refetch；等它落定再继续（成功提示是一次性的，不作为断言对象）。
   await app.wait(300);
+  await app.press("id:back");
+  await app.waitFor("id:open-basics");
+  await app.waitUntil(() => app.texts().some((text) => text.includes("33 岁")));
 
   // 把器械取消掉：训练条件变成不齐全，今日页要提示。
+  await app.press("id:open-training");
+  await app.waitFor("id:save-training");
   await app.press("id:training-equipment-band");
   await app.press("id:save-training");
+  await app.press("id:back");
   await app.waitFor("id:profile-training-missing");
-  expect(app.texts()).toContain("不齐全");
+  expect(app.texts().some((text) => text.includes("不齐全"))).toBe(true);
 
   await app.press("id:tab-today");
   await app.waitFor("id:today-needs-training-title");
@@ -71,6 +83,8 @@ test("首启引导、档案可改、缺项提示与重开仍在", async () => {
   const reopened = await open("./App.tsx");
   await reopened.waitFor("id:today-needs-training-title");
   await reopened.press("id:tab-profile");
+  await reopened.waitFor("id:open-basics");
+  await reopened.press("id:open-basics");
   await reopened.waitFor("id:save-basics");
   // 输入框里的值不进 texts()，按 value 断言；这一步同时验证它来自库而不是内存。
   expect(reopened.value("id:basics-age")).toBe("33");
@@ -82,6 +96,8 @@ test("首启引导、档案可改、缺项提示与重开仍在", async () => {
   const third = await open("./App.tsx");
   await third.waitFor("id:today-needs-training-title");
   await third.press("id:tab-profile");
+  await third.waitFor("id:open-basics");
+  await third.press("id:open-basics");
   await third.waitFor("id:save-basics");
   expect(third.value("id:basics-age")).toBe("33");
 });

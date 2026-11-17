@@ -1,0 +1,842 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>档案信息架构 · throwaway 原型</title>
+<!--
+  THROWAWAY PROTOTYPE — 档案页信息架构（profile-navigation）。
+  这不是实现稿，也不进主分支：只用来比较三种根页结构，以及“区域索引 → 区域子页”的
+  进入/返回是否顺手。真实实现按 NSH 重写，不复用这里的 innerHTML / 事件委托。
+
+  切换：底部浮动条，或键盘 ← / →。默认打开 D（组合方案）。状态写在 URL hash：
+    #variant=D&page=root
+    #variant=B&section=gluteal-group
+    #variant=C&page=plan
+-->
+<link rel="stylesheet" href="pulse.css">
+<style>
+  html, body { background: #000; }
+  body { margin: 0; }
+  .proto-switcher {
+    position: fixed;
+    left: 50%;
+    bottom: 104px;
+    z-index: 50;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 10px;
+    border-radius: 999px;
+    background: var(--color-primary);
+    color: var(--color-primary-foreground);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, .45);
+    font: 600 11px/1.2 system-ui, -apple-system, "Segoe UI", sans-serif;
+    user-select: none;
+  }
+  .proto-switcher button {
+    width: 28px;
+    height: 28px;
+    border: 0;
+    border-radius: 999px;
+    background: rgba(16, 18, 12, .12);
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+  }
+  .proto-switcher button:active { background: rgba(16, 18, 12, .24); }
+  .proto-switcher .proto-label { min-width: 150px; text-align: center; }
+  .proto-switcher .proto-label small {
+    display: block;
+    margin-top: 2px;
+    font-size: 9px;
+    font-weight: 400;
+    opacity: .72;
+  }
+  .proto-site .detail { display: none; }
+  .proto-site.open .detail { display: block; }
+  .proto-site.open .chev { transform: rotate(180deg); }
+  .proto-border-bad { border: 1px solid rgba(255, 107, 107, .45); }
+  .proto-scroll { padding-bottom: 128px; }
+</style>
+</head>
+<body>
+<div class="mx-auto flex min-h-[800px] w-[360px] flex-col bg-background text-foreground border-x border-border">
+  <main id="app" class="proto-scroll flex-1" data-testid="profile-scroll"></main>
+  <nav class="sticky bottom-0 grid grid-cols-4 border-t border-border bg-background py-2 text-center text-[10px]">
+    <a href="#" class="text-muted-foreground">今日</a>
+    <a href="#" class="text-muted-foreground">日历</a>
+    <a href="#" class="text-muted-foreground">对话</a>
+    <a href="#" class="text-primary" data-testid="tab-profile">档案</a>
+  </nav>
+</div>
+
+<div class="proto-switcher" id="switcher">
+  <button type="button" data-variant-step="-1" aria-label="上一个变体">←</button>
+  <div class="proto-label">
+    <span id="switcher-name">A · 目录</span>
+    <small id="switcher-hint">单列索引，计划在前 · 切回根页</small>
+  </div>
+  <button type="button" data-variant-step="1" aria-label="下一个变体">→</button>
+</div>
+
+<script>
+const VARIANTS = {
+  A: { name: "A · 目录", hint: "单列索引，计划在前" },
+  B: { name: "B · 关注优先", hint: "先看异常，再进网格" },
+  C: { name: "C · 筛选", hint: "密集列表 + 类型/异常筛选" },
+  D: { name: "D · 组合", hint: "计划 → 关注肌群 → 全部区域" },
+};
+
+const SECTIONS = [
+  {
+    id: "gluteal-group",
+    label: "臀肌群",
+    kind: "肌肉",
+    count: 4,
+    abnormal: 2,
+    latest: "3 天前",
+    worst: "左臀中肌 · 对称 左弱",
+    cards: [
+      {
+        site: "臀中肌", side: "左", slug: "gluteus-medius-left", at: "3 天前", abnormal: true,
+        axes: [
+          ["张力", "弱", "accent"],
+          ["对称", "左弱", "bad"],
+          ["活动度", "正常", "muted"],
+          ["疼痛", "无", "muted"],
+          ["稳定性", "未测", "unmeasured"],
+        ],
+        evidence: [
+          ["用户说法", "走路久了左胯会往下一沉。"],
+          ["验证方案", "单腿站 30 秒，左侧骨盆下沉约 3cm。"],
+          ["推理", "Trendelenburg 征阳性，臀中肌外展耐力不足。"],
+          ["不确定", "与髋屈肌紧张互为因果，先松解再看。"],
+        ],
+        resolved: false,
+      },
+      {
+        site: "臀大肌", side: "左", slug: "gluteus-maximus-left", at: "3 天前", abnormal: true,
+        axes: [
+          ["张力", "弱", "accent"],
+          ["对称", "对称", "muted"],
+          ["活动度", "正常", "muted"],
+          ["疼痛", "无", "muted"],
+          ["稳定性", "未测", "unmeasured"],
+        ],
+        evidence: [
+          ["用户说法", "单腿臀桥时左臀先发酸，做 5 个就开始抖。"],
+          ["验证方案", "俯卧屈膝抬臀 10 次 + 单腿站 30 秒，反馈左侧掉髋。"],
+          ["推理", "伸髋末端发力不足，符合臀大肌上束张力弱。"],
+          ["不确定", "未排除腘绳肌代偿，下次测坐姿腿弯举。"],
+        ],
+        resolved: false,
+      },
+      {
+        site: "臀小肌", side: "右", slug: "gluteus-minimus-right", at: "2 周前", abnormal: false,
+        axes: [
+          ["张力", "正常", "muted"],
+          ["对称", "对称", "muted"],
+          ["活动度", "正常", "muted"],
+          ["疼痛", "无", "muted"],
+          ["稳定性", "正常", "muted"],
+        ],
+        evidence: [
+          ["用户说法", "右侧没有明显不适。"],
+          ["验证方案", "单腿站 30 秒稳定，无掉髋。"],
+          ["推理", "当前未见异常。"],
+          ["不确定", "无。"],
+        ],
+        resolved: true,
+      },
+    ],
+  },
+  {
+    id: "hip-flexors",
+    label: "髋屈肌群",
+    kind: "肌肉",
+    count: 3,
+    abnormal: 1,
+    latest: "5 天前",
+    worst: "腰大肌 · 张力 紧",
+    cards: [
+      {
+        site: "腰大肌", side: "双侧", slug: "psoas-major", at: "5 天前", abnormal: true,
+        axes: [
+          ["张力", "紧", "bad"],
+          ["对称", "—", "muted"],
+          ["活动度", "受限", "bad"],
+          ["疼痛", "3/10", "bad"],
+          ["稳定性", "未测", "unmeasured"],
+        ],
+        evidence: [
+          ["用户说法", "久坐后站直时腰有牵拉感。"],
+          ["验证方案", "主动直腿抬高，右侧 65° 受限。"],
+          ["推理", "髋屈肌短缩，骨盆前倾代偿。"],
+          ["不确定", "未区分腰大肌与髂肌，下一步分开测。"],
+        ],
+        resolved: false,
+      },
+      {
+        site: "髂肌", side: "左", slug: "iliacus-left", at: "5 天前", abnormal: false,
+        axes: [
+          ["张力", "正常", "muted"],
+          ["对称", "对称", "muted"],
+          ["活动度", "正常", "muted"],
+          ["疼痛", "无", "muted"],
+          ["稳定性", "未测", "unmeasured"],
+        ],
+        evidence: [
+          ["用户说法", "左侧髋前侧没有明显疼痛。"],
+          ["验证方案", "仰卧屈髋抗阻，力量可。"],
+          ["推理", "当前未见异常。"],
+          ["不确定", "无。"],
+        ],
+        resolved: false,
+      },
+    ],
+  },
+  {
+    id: "hamstrings",
+    label: "腘绳肌",
+    kind: "肌肉",
+    count: 2,
+    abnormal: 0,
+    latest: "1 周前",
+    worst: "",
+    cards: [],
+  },
+  {
+    id: "quadriceps",
+    label: "股四头肌",
+    kind: "肌肉",
+    count: 1,
+    abnormal: 0,
+    latest: "2 周前",
+    worst: "",
+    cards: [],
+  },
+  {
+    id: "posterior-leg-superficial",
+    label: "小腿后群浅层",
+    kind: "肌肉",
+    count: 2,
+    abnormal: 1,
+    latest: "4 天前",
+    worst: "腓肠肌 左 · 张力 紧",
+    cards: [
+      {
+        site: "腓肠肌", side: "左", slug: "gastrocnemius-left", at: "4 天前", abnormal: true,
+        axes: [
+          ["张力", "紧", "bad"],
+          ["对称", "对称", "muted"],
+          ["活动度", "正常", "muted"],
+          ["疼痛", "无", "muted"],
+          ["稳定性", "未测", "unmeasured"],
+        ],
+        evidence: [
+          ["用户说法", "跑完步左小腿容易发紧。"],
+          ["验证方案", "靠墙踝背屈，左侧比右侧少约 2cm。"],
+          ["推理", "小腿后群张力偏高，踝背屈受限。"],
+          ["不确定", "未排除比目鱼肌，下一步屈膝测。"],
+        ],
+        resolved: false,
+      },
+    ],
+  },
+  {
+    id: "erector-spinae",
+    label: "竖脊肌群",
+    kind: "肌肉",
+    count: 1,
+    abnormal: 1,
+    latest: "6 天前",
+    worst: "胸段 · 张力 紧",
+    cards: [],
+  },
+  {
+    id: "rotator-cuff",
+    label: "肩袖",
+    kind: "肌肉",
+    count: 2,
+    abnormal: 0,
+    latest: "2 周前",
+    worst: "",
+    cards: [],
+  },
+  {
+    id: "shoulder-movers",
+    label: "肩关节动力肌",
+    kind: "肌肉",
+    count: 1,
+    abnormal: 0,
+    latest: "3 周前",
+    worst: "",
+    cards: [],
+  },
+  {
+    id: "spine",
+    label: "脊柱",
+    kind: "骨骼",
+    count: 3,
+    abnormal: 0,
+    latest: "1 周前",
+    worst: "",
+    cards: [],
+  },
+  {
+    id: "pelvis",
+    label: "骨盆",
+    kind: "骨骼",
+    count: 1,
+    abnormal: 0,
+    latest: "1 个月前",
+    worst: "",
+    cards: [],
+  },
+];
+
+const TOTAL = SECTIONS.reduce((sum, section) => sum + section.count, 0);
+const ATTENTION = SECTIONS.reduce((sum, section) => sum + section.abnormal, 0);
+const SECTION_BY_ID = Object.fromEntries(SECTIONS.map((section) => [section.id, section]));
+
+const DATA_PAGES = {
+  basics: ["基本属性", "32 岁 · 男 · 178 cm · 74.2 kg", "真实实现进入现有的基本属性表单。"],
+  measurements: ["测量", "体重 74.2 kg · 近 30 天 -1.4 kg", "真实实现进入现有的测量页（折线图 + 单条删除）。"],
+  training: ["训练条件", "齐全 · 每周 3 次 · 30 分钟 · 在家", "真实实现进入现有的训练条件表单。"],
+  storage: ["本地数据", "已用 1.2 MB · 数据库 812 KB · 照片 410 KB", "真实实现进入容量明细或设置里的本地数据页。"],
+  settings: ["设置与 key", "DeepSeek API key · 已保存", "真实实现进入现有的设置页；根页只留一个入口。"],
+};
+
+const state = {
+  variant: "D",
+  page: "root",
+  section: null,
+  dataPage: null,
+  filter: "all",
+};
+
+const app = document.getElementById("app");
+const switcherName = document.getElementById("switcher-name");
+const switcherHint = document.getElementById("switcher-hint");
+
+function readHash() {
+  const params = new URLSearchParams(location.hash.replace(/^#/, ""));
+  const variant = params.get("variant");
+  if (VARIANTS[variant]) state.variant = variant;
+  const page = params.get("page");
+  if (["root", "plan"].includes(page)) state.page = page;
+  const section = params.get("section");
+  if (section && SECTION_BY_ID[section]) {
+    state.page = "section";
+    state.section = section;
+  }
+  const dataPage = params.get("data");
+  if (dataPage && DATA_PAGES[dataPage]) {
+    state.page = "data";
+    state.dataPage = dataPage;
+  }
+}
+
+function writeHash() {
+  const params = new URLSearchParams();
+  params.set("variant", state.variant);
+  if (state.page === "section") params.set("section", state.section);
+  else if (state.page === "data") params.set("data", state.dataPage);
+  else if (state.page !== "root") params.set("page", state.page);
+  const next = "#" + params.toString();
+  if (location.hash === next) return;
+  try {
+    history.replaceState(null, "", next);
+  } catch {
+    location.hash = next;
+  }
+}
+
+function goRoot() {
+  state.page = "root";
+  state.section = null;
+  state.dataPage = null;
+}
+
+function header() {
+  return `
+    <header class="flex items-start justify-between px-4 pt-4">
+      <div>
+        <p class="text-[11px] text-muted-foreground">档案 · 先看分区，再看判定</p>
+        <h1 class="mt-0.5 text-[20px] font-semibold tracking-tight">身体档案</h1>
+      </div>
+      <button type="button" class="rounded-full border border-border px-2.5 py-1 text-[10px] text-muted-foreground" data-testid="open-settings" data-data="settings">设置</button>
+    </header>
+    <p class="mt-2 px-4 text-[11px] leading-relaxed text-muted-foreground">档案条目按区域收进子页；根页只保留计划、区域索引和我的数据。</p>
+  `;
+}
+
+function planCard() {
+  return `
+    <div class="mx-4 mt-4">
+      <button type="button" class="block w-full rounded-xl bg-card p-4 text-left" data-page="plan" data-testid="plan-card">
+        <div class="flex items-center justify-between">
+          <p class="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">生效计划</p>
+          <span class="text-[10px] text-muted-foreground" data-testid="plan-version">第 3 版 · 每周 3 次</span>
+        </div>
+        <p class="mt-2 text-[15px] font-medium">4 个动作 · 复查 12月8日</p>
+        <p class="mt-1 text-[11px] text-muted-foreground">还有 21 天；今天完成后，今日页会记录打卡。</p>
+        <p class="mt-2 text-[10px] text-accent">查看计划与历史版本 ›</p>
+      </button>
+    </div>
+  `;
+}
+
+function planStrip() {
+  return `
+    <div class="mx-4 mt-3">
+      <button type="button" class="flex w-full items-center justify-between rounded-xl border border-border px-4 py-3 text-left" data-page="plan" data-testid="plan-card">
+        <div>
+          <p class="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">生效计划 · 第 3 版</p>
+          <p class="mt-1 text-[13px] font-medium">每周 3 次 · 4 个动作</p>
+          <p class="mt-0.5 text-[10px] text-muted-foreground">复查 12月8日 · 还有 21 天</p>
+        </div>
+        <span class="text-[10px] text-accent">查看 ›</span>
+      </button>
+    </div>
+  `;
+}
+
+function sectionRow(section) {
+  const tone = section.abnormal > 0 ? "text-destructive" : "text-muted-foreground";
+  const dot = section.abnormal > 0 ? "bg-destructive" : "bg-border";
+  return `
+    <button type="button" class="w-full rounded-xl bg-card px-4 py-3 text-left" data-section="${section.id}" data-testid="archive-section-${section.id}">
+      <div class="flex items-center gap-2">
+        <span class="h-2 w-2 shrink-0 rounded-full ${dot}"></span>
+        <span class="min-w-0 flex-1 text-[13px] font-medium">${section.label}</span>
+        <span class="text-[10px] text-muted-foreground">${section.count} 处</span>
+        <span class="text-[11px] text-muted-foreground">›</span>
+      </div>
+      <div class="mt-1 flex items-center justify-between gap-2 pl-4">
+        <span class="truncate text-[10px] ${tone}">${section.worst || "状态平稳"}</span>
+        <span class="shrink-0 text-[10px] text-muted-foreground">${section.latest}</span>
+      </div>
+    </button>
+  `;
+}
+
+function sectionTile(section) {
+  const border = section.abnormal > 0 ? "proto-border-bad" : "";
+  const tone = section.abnormal > 0 ? "text-destructive" : "text-muted-foreground";
+  return `
+    <button type="button" class="${border} rounded-xl bg-card p-3 text-left" data-section="${section.id}" data-testid="archive-section-${section.id}">
+      <div class="flex items-start justify-between gap-2">
+        <p class="text-[12px] font-medium leading-tight">${section.label}</p>
+        <span class="text-[10px] text-muted-foreground">${section.count}</span>
+      </div>
+      <p class="mt-2 truncate text-[10px] ${tone}">${section.worst || "状态平稳"}</p>
+      <p class="mt-1 text-[10px] text-muted-foreground">${section.kind} · ${section.latest}</p>
+    </button>
+  `;
+}
+
+function dataRow(key, title, value, hint) {
+  return `
+    <button type="button" class="flex w-full items-center gap-3 px-4 py-3 text-left" data-data="${key}" data-testid="open-${key}">
+      <div class="min-w-0 flex-1">
+        <p class="text-[13px] font-medium">${title}</p>
+        <p class="mt-0.5 truncate text-[10px] text-muted-foreground">${value}</p>
+      </div>
+      <span class="text-[10px] text-muted-foreground">${hint} ›</span>
+    </button>
+  `;
+}
+
+function dataBlock() {
+  return `
+    <section class="mx-4 mt-4">
+      <p class="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">我的数据</p>
+      <div class="mt-2 divide-y divide-border overflow-hidden rounded-xl bg-card">
+        ${dataRow("basics", "基本属性", "32 岁 · 男 · 178 cm · 74.2 kg", "编辑")}
+        ${dataRow("measurements", "测量", "体重 74.2 kg · 近 30 天 -1.4 kg", "趋势")}
+        ${dataRow("training", "训练条件", "齐全 · 每周 3 次 · 30 分钟 · 家", "修改")}
+        ${dataRow("storage", "本地数据", "1.2 MB · 数据库 812 KB · 照片 410 KB", "查看")}
+      </div>
+    </section>
+  `;
+}
+
+function rootA() {
+  return `
+    ${header()}
+    ${planCard()}
+    <section class="mx-4 mt-4">
+      <div class="flex items-end justify-between gap-2">
+        <div>
+          <p class="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">档案条目</p>
+          <p class="mt-1 text-[11px] text-muted-foreground">${SECTIONS.length} 个区域 · ${TOTAL} 处判定</p>
+        </div>
+        ${ATTENTION > 0 ? `<span class="rounded-full bg-destructive/15 px-2.5 py-1 text-[10px] text-destructive">${ATTENTION} 处需关注</span>` : ""}
+      </div>
+      <div class="mt-2 space-y-2">${SECTIONS.map(sectionRow).join("")}</div>
+    </section>
+    ${dataBlock()}
+  `;
+}
+
+function rootB() {
+  const attention = SECTIONS.filter((section) => section.abnormal > 0).slice(0, 3);
+  return `
+    ${header()}
+    <section class="mx-4 mt-4 rounded-xl bg-card p-4">
+      <div class="flex items-end gap-2">
+        <p class="text-[28px] font-semibold leading-none text-destructive">${ATTENTION}</p>
+        <p class="pb-1 text-[11px] text-muted-foreground">处需要注意</p>
+      </div>
+      <p class="mt-1 text-[11px] text-muted-foreground">先处理这些区域；其余区域在下面按肌群 / 骨骼铺开。</p>
+      <div class="mt-3 space-y-2">
+        ${attention.map((section) => `
+          <button type="button" class="flex w-full items-center gap-2 rounded-lg bg-muted px-3 py-2 text-left" data-section="${section.id}">
+            <span class="h-1.5 w-1.5 shrink-0 rounded-full bg-destructive"></span>
+            <span class="min-w-0 flex-1 truncate text-[11px]">${section.label}</span>
+            <span class="truncate text-[10px] text-destructive">${section.worst}</span>
+          </button>
+        `).join("")}
+      </div>
+    </section>
+    <section class="mx-4 mt-4">
+      <div class="flex items-end justify-between">
+        <p class="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">全部区域</p>
+        <p class="text-[10px] text-muted-foreground">${SECTIONS.length} 个 · ${TOTAL} 处</p>
+      </div>
+      <div class="mt-2 grid grid-cols-2 gap-2">${SECTIONS.map(sectionTile).join("")}</div>
+    </section>
+    ${planStrip()}
+    ${dataBlock()}
+  `;
+}
+
+function filterChip(key, label, count) {
+  const active = state.filter === key;
+  const tone = active ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground";
+  return `<button type="button" class="${tone} rounded-full px-2.5 py-1 text-[10px]" data-filter="${key}">${label}${count === null ? "" : ` ${count}`}</button>`;
+}
+
+function filteredSections() {
+  return SECTIONS.filter((section) => {
+    if (state.filter === "muscle" && section.kind !== "肌肉") return false;
+    if (state.filter === "bone" && section.kind !== "骨骼") return false;
+    if (state.filter === "abnormal" && section.abnormal === 0) return false;
+    return true;
+  });
+}
+
+function rootC() {
+  const sections = filteredSections();
+  return `
+    ${header()}
+    <div class="mx-4 mt-3">
+      <div class="flex flex-wrap gap-1.5">
+        ${filterChip("all", "全部", SECTIONS.length)}
+        ${filterChip("muscle", "肌肉", SECTIONS.filter((section) => section.kind === "肌肉").length)}
+        ${filterChip("bone", "骨骼", SECTIONS.filter((section) => section.kind === "骨骼").length)}
+        ${filterChip("abnormal", "异常", ATTENTION)}
+      </div>
+    </div>
+    <section class="mx-4 mt-3">
+      <div class="flex items-end justify-between">
+        <p class="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">档案条目 · ${sections.length} 个区域</p>
+        <p class="text-[10px] text-muted-foreground">${sections.reduce((sum, section) => sum + section.count, 0)} 处</p>
+      </div>
+      <div class="mt-2 space-y-1.5">${sections.map(sectionRow).join("") || `<p class="rounded-xl bg-card px-4 py-3 text-[11px] text-muted-foreground">这个筛选下没有区域。</p>`}</div>
+    </section>
+    ${planStrip()}
+    ${dataBlock()}
+  `;
+}
+
+function rootD() {
+  const attention = SECTIONS.filter((section) => section.kind === "肌肉" && section.abnormal > 0);
+  const attentionCount = attention.reduce((sum, section) => sum + section.abnormal, 0);
+  return `
+    ${header()}
+    ${planCard()}
+    <section class="mx-4 mt-4 rounded-xl bg-card p-4">
+      <div class="flex items-start justify-between gap-2">
+        <div>
+          <p class="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">需要先处理的肌群</p>
+          <p class="mt-1 text-[11px] leading-relaxed text-muted-foreground">先看这些；处理完再回到全部区域。</p>
+        </div>
+        <span class="shrink-0 rounded-full bg-destructive/15 px-2.5 py-1 text-[10px] text-destructive">${attention.length} 个 · ${attentionCount} 处</span>
+      </div>
+      <div class="mt-3 space-y-2">
+        ${attention.length === 0 ? `<p class="rounded-lg bg-muted px-3 py-2 text-[11px] text-muted-foreground">目前没有需要优先处理的肌群。</p>` : attention.map((section) => `
+          <button type="button" class="flex w-full items-start gap-2 rounded-lg bg-muted px-3 py-2 text-left" data-section="${section.id}">
+            <span class="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-destructive"></span>
+            <span class="min-w-0 flex-1">
+              <span class="block text-[11px]">${section.label}</span>
+              <span class="mt-0.5 block truncate text-[10px] text-destructive">${section.worst}</span>
+            </span>
+            <span class="shrink-0 text-[10px] text-destructive">${section.abnormal} 处</span>
+          </button>
+        `).join("")}
+      </div>
+    </section>
+    <section class="mx-4 mt-4">
+      <div class="flex items-end justify-between">
+        <p class="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">全部区域</p>
+        <p class="text-[10px] text-muted-foreground">${SECTIONS.length} 个 · ${TOTAL} 处</p>
+      </div>
+      <div class="mt-2 grid grid-cols-2 gap-2">${SECTIONS.map(sectionTile).join("")}</div>
+    </section>
+    ${dataBlock()}
+  `;
+}
+
+function axisChip([label, value, tone]) {
+  if (tone === "unmeasured") {
+    return `<span class="rounded-full border border-dashed border-border px-2 py-0.5 text-[10px] text-muted-foreground" data-testid="site-axis">${label} 未测</span>`;
+  }
+  const classes = tone === "bad"
+    ? "bg-destructive/15 text-destructive"
+    : tone === "accent"
+      ? "bg-accent/15 text-accent"
+      : "bg-muted text-muted-foreground";
+  return `<span class="${classes} rounded-full px-2 py-0.5 text-[10px]">${label} ${value}</span>`;
+}
+
+function siteCard(card) {
+  const resolved = card.resolved
+    ? `<span class="text-[10px] text-primary" data-testid="site-${card.slug}-resolved">已解决</span>`
+    : "";
+  return `
+    <div class="proto-site rounded-xl bg-card" data-testid="site-${card.slug}">
+      <button type="button" class="w-full px-4 py-3.5 text-left" data-expand data-testid="site-${card.slug}-toggle">
+        <div class="flex items-baseline justify-between gap-2">
+          <p class="text-[15px] font-medium ${card.resolved ? "text-muted-foreground" : ""}">
+            ${card.site} <span class="text-[10px] font-normal text-muted-foreground">${card.side}</span>
+            ${resolved}
+          </p>
+          <span class="text-[10px] text-muted-foreground">${card.at}</span>
+        </div>
+        <div class="mt-2 flex flex-wrap gap-1.5">${card.axes.map(axisChip).join("")}</div>
+        <span class="chev mt-2 block text-right text-[10px] text-muted-foreground transition-transform">⌄ 展开依据</span>
+      </button>
+      <div class="detail border-t border-border px-4 py-3">
+        <p class="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">依据 · ${card.at}</p>
+        <div class="mt-1.5 space-y-1 text-[11px] leading-relaxed">
+          ${card.evidence.map(([name, text]) => `<p><span class="text-muted-foreground">${name}：</span>${text}</p>`).join("")}
+        </div>
+        <div class="mt-2.5 flex flex-wrap gap-2">
+          ${card.resolved ? "" : `<button type="button" class="rounded-full bg-muted px-2.5 py-1 text-[10px] text-muted-foreground" data-testid="mark-resolved-${card.slug}">标记已解决</button>`}
+          <button type="button" class="rounded-full bg-muted px-2.5 py-1 text-[10px] text-destructive" data-testid="retract-${card.slug}">判定有误</button>
+          <button type="button" class="rounded-full bg-muted px-2.5 py-1 text-[10px] text-muted-foreground" data-testid="open-timeline-${card.slug}">看时间线（3 条）</button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function subpageHeader(eyebrow, title, note, testid) {
+  return `
+    <div class="px-4 pt-3">
+      <button type="button" style="min-height:44px" class="text-[11px] text-accent" data-back data-testid="back">← 回档案</button>
+    </div>
+    <header class="px-4">
+      <p class="text-[11px] text-muted-foreground">${eyebrow}</p>
+      <h1 class="mt-0.5 text-[20px] font-semibold tracking-tight">${title}</h1>
+      <p class="mt-1 text-[11px] leading-relaxed text-muted-foreground">${note}</p>
+    </header>
+    <div data-testid="${testid}"></div>
+  `;
+}
+
+function sectionPage() {
+  const section = SECTION_BY_ID[state.section] || SECTIONS[0];
+  const cards = section.cards.length > 0 ? section.cards : [
+    {
+      site: section.label, side: "示例", slug: "example", at: section.latest, abnormal: false,
+      axes: [["张力", "正常", "muted"], ["对称", "对称", "muted"], ["活动度", "正常", "muted"], ["疼痛", "无", "muted"], ["稳定性", "未测", "unmeasured"]],
+      evidence: [["用户说法", "这个区域还没有展开的原型卡片。"], ["验证方案", "—"], ["推理", "—"], ["不确定", "—"]],
+      resolved: false,
+    },
+  ];
+  return `
+    ${subpageHeader("档案条目 · " + section.kind, section.label, `${section.count} 处判定 · ${section.abnormal} 处需要注意`, "section-page")}
+    ${section.abnormal > 0 ? `
+      <div class="proto-border-bad mx-4 mt-3 rounded-xl bg-card px-4 py-3">
+        <p class="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">${section.kind === "肌肉" ? "肌群整体 · 成员最差值" : "区域整体 · 最差的一条"}</p>
+        <p class="mt-1 text-[11px] text-destructive">${section.worst}</p>
+        <p class="mt-1 text-[10px] text-muted-foreground">每条轴各自取成员里最差的值；这里指名最差的那一条来自哪个部位。</p>
+      </div>
+    ` : ""}
+    <div class="mx-4 mt-3 space-y-2">${cards.map(siteCard).join("")}</div>
+    <div class="mx-4 mt-3 rounded-xl bg-card px-4 py-3">
+      <p class="text-[10px] text-muted-foreground">这一页只放本区域的部位卡。展开依据、时间线与更正都在这里完成，根页不会再被单条判定撑长。</p>
+    </div>
+  `;
+}
+
+function planPage() {
+  const exercises = [
+    ["臀桥", "3×10", "臀大肌 左", "gluteal-group"],
+    ["蚌式开合", "3×12", "臀中肌 左", "gluteal-group"],
+    ["死虫", "3×8", "腰大肌 双侧", "hip-flexors"],
+    ["提踵", "3×15", "腓肠肌 左", "posterior-leg-superficial"],
+  ];
+  return `
+    ${subpageHeader("计划", "第 3 版", "每周 3 次 · 复查 12月8日 · 还有 21 天", "plan-page")}
+    <div class="mx-4 mt-3 rounded-xl bg-card px-4 py-3">
+      <div class="flex items-center justify-between">
+        <p class="text-[13px] font-medium">每周 3 次 · 每次 30 分钟</p>
+        <span class="text-[10px] text-primary">生效中</span>
+      </div>
+      <p class="mt-1 text-[10px] text-muted-foreground">复查日到了以后，今日页会提示重新评估；旧版本只读可查。</p>
+    </div>
+    <section class="mx-4 mt-3">
+      <p class="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">动作 · 4 个</p>
+      <div class="mt-2 space-y-2">
+        ${exercises.map(([name, dose, from, section], index) => `
+          <div class="flex items-center gap-3 rounded-xl bg-card px-4 py-3">
+            <div class="min-w-0 flex-1">
+              <p class="text-[13px] font-medium">${name} · ${dose}</p>
+              <p class="mt-0.5 text-[10px] text-muted-foreground">来自「${from}」的判定</p>
+            </div>
+            <button type="button" class="text-[10px] text-accent" data-section="${section}" data-testid="plan-exercise-${index}">看判定</button>
+          </div>
+        `).join("")}
+      </div>
+    </section>
+    <section class="mx-4 mt-3 rounded-xl bg-card px-4 py-3">
+      <p class="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">历史版本 · 2</p>
+      <p class="mt-2 text-[10px] text-muted-foreground">第 2 版 · 每周 3 次 · 3 个动作（只读）</p>
+      <p class="mt-1 text-[10px] text-muted-foreground">第 1 版 · 每周 2 次 · 3 个动作（只读）</p>
+    </section>
+    <div class="mx-4 mt-3 rounded-xl bg-card px-4 py-3">
+      <p class="text-[10px] text-muted-foreground">原型：计划摘要留在根页，完整动作与历史版本进这个子页；点「看判定」直接进对应区域。</p>
+    </div>
+  `;
+}
+
+function dataPage() {
+  const [title, value, note] = DATA_PAGES[state.dataPage] || DATA_PAGES.basics;
+  return `
+    ${subpageHeader("我的数据", title, value, "data-page")}
+    <div class="mx-4 mt-3 rounded-xl bg-card px-4 py-3">
+      <p class="text-[11px] leading-relaxed text-muted-foreground">${note}</p>
+    </div>
+    <div class="mx-4 mt-3 rounded-xl bg-card px-4 py-3">
+      <p class="text-[10px] text-muted-foreground">原型只验证“根页摘要 → 子页”的进入与返回；表单、图表和容量明细沿用现有实现。</p>
+    </div>
+  `;
+}
+
+function render() {
+  switcherName.textContent = VARIANTS[state.variant].name;
+  switcherHint.textContent = VARIANTS[state.variant].hint + " · 切回根页";
+  if (state.page === "section") {
+    app.innerHTML = sectionPage();
+  } else if (state.page === "plan") {
+    app.innerHTML = planPage();
+  } else if (state.page === "data") {
+    app.innerHTML = dataPage();
+  } else if (state.variant === "B") {
+    app.innerHTML = rootB();
+  } else if (state.variant === "C") {
+    app.innerHTML = rootC();
+  } else if (state.variant === "D") {
+    app.innerHTML = rootD();
+  } else {
+    app.innerHTML = rootA();
+  }
+  writeHash();
+}
+
+function setVariant(next) {
+  state.variant = next;
+  goRoot();
+  render();
+}
+
+function stepVariant(delta) {
+  const keys = Object.keys(VARIANTS);
+  const index = keys.indexOf(state.variant);
+  setVariant(keys[(index + delta + keys.length) % keys.length]);
+}
+
+app.addEventListener("click", (event) => {
+  const variantStep = event.target.closest("[data-variant-step]");
+  if (variantStep) {
+    stepVariant(Number(variantStep.dataset.variantStep));
+    return;
+  }
+  const back = event.target.closest("[data-back]");
+  if (back) {
+    goRoot();
+    render();
+    return;
+  }
+  const section = event.target.closest("[data-section]");
+  if (section) {
+    state.page = "section";
+    state.section = section.dataset.section;
+    state.dataPage = null;
+    render();
+    return;
+  }
+  const page = event.target.closest("[data-page]");
+  if (page) {
+    state.page = page.dataset.page;
+    state.section = null;
+    state.dataPage = null;
+    render();
+    return;
+  }
+  const data = event.target.closest("[data-data]");
+  if (data) {
+    const key = data.dataset.data;
+    if (DATA_PAGES[key]) {
+      state.page = "data";
+      state.dataPage = key;
+      state.section = null;
+      render();
+    } else {
+      // 设置页不在本次原型范围内：给一个明确的占位提示。
+      state.page = "data";
+      state.dataPage = "basics";
+      render();
+    }
+    return;
+  }
+  const filter = event.target.closest("[data-filter]");
+  if (filter) {
+    state.filter = filter.dataset.filter;
+    render();
+    return;
+  }
+  const expand = event.target.closest("[data-expand]");
+  if (expand) {
+    const card = expand.closest(".proto-site");
+    card.classList.toggle("open");
+  }
+});
+
+document.getElementById("switcher").addEventListener("click", (event) => {
+  const step = event.target.closest("[data-variant-step]");
+  if (step) stepVariant(Number(step.dataset.variantStep));
+});
+
+document.addEventListener("keydown", (event) => {
+  if (event.target.matches("input, textarea, [contenteditable='true']")) return;
+  if (event.key === "ArrowLeft") {
+    event.preventDefault();
+    stepVariant(-1);
+  } else if (event.key === "ArrowRight") {
+    event.preventDefault();
+    stepVariant(1);
+  }
+});
+
+readHash();
+render();
+</script>
+</body>
+</html>

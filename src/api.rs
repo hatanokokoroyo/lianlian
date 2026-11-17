@@ -1432,6 +1432,8 @@ pub struct SiteSectionView {
     pub id: String,
     /// 显示用的中文名。
     pub label: String,
+    /// `muscle` / `bone`：界面用来区分肌群与骨骼区域。
+    pub kind: String,
     pub cards: Vec<SiteCardView>,
 }
 
@@ -1532,6 +1534,7 @@ fn findings_view(store: &Store, error: Option<String>) -> FindingsView {
             .map(|section| SiteSectionView {
                 id: section.id.clone(),
                 label: section.label.clone(),
+                kind: section.kind.key().to_owned(),
                 cards: section.cards.iter().map(site_card_view).collect(),
             })
             .collect(),
@@ -3337,6 +3340,7 @@ mod findings_tests {
         assert_eq!(view.total, 1.0);
         assert_eq!(view.sections.len(), 1);
         assert_eq!(view.sections[0].label, "臀肌群");
+        assert_eq!(view.sections[0].kind, "muscle");
         let card = &view.sections[0].cards[0];
         assert_eq!(card.site_zh, "臀中肌");
         assert_eq!(card.side.as_deref(), Some("left"));

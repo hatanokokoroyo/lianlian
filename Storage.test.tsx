@@ -73,6 +73,9 @@ test("容量仪表、归档与删除会话后的依据日志", async () => {
   await app.waitFor("id:new-conversation");
 
   await app.press("id:tab-profile");
+  await app.waitFor("id:open-storage");
+  expect(app.texts().some((text) => text.includes("已用"))).toBe(true);
+  await app.press("id:open-storage");
   await app.waitFor("id:storage-capacity");
   await app.waitFor("id:storage-table-evidence");
   expect(app.texts()).toContain("本地数据");

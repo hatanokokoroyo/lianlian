@@ -81,10 +81,20 @@ test("档案页：分组、依据、时间线、已解决与撤回", async () =>
 
   // 档案页：空档案的引导不再出现，部位按肌群分组。
   await app.press("id:tab-profile");
-  await app.waitFor("id:site-gluteus-medius-left");
+  await app.waitFor("id:archive-section-gluteal-group");
   expect(app.shows("id:findings-empty")).toBe(false);
   expect(app.shows("id:archive-section-gluteal-group")).toBe(true);
   expect(app.shows("id:archive-section-posterior-leg-superficial")).toBe(true);
+  // 根页只做索引，不直接铺部位卡。
+  expect(app.shows("id:site-gluteus-medius-left")).toBe(false);
+  // 需要先处理：臀肌群有两张异常卡，排在最前面。
+  expect(app.shows("id:profile-attention")).toBe(true);
+  expect(app.shows("id:attention-gluteal-group")).toBe(true);
+  expect(app.texts()).toContain("2 处");
+
+  // 从关注块直接进入区域页：只显示这个区域的卡片。
+  await app.press("id:attention-gluteal-group");
+  await app.waitFor("id:site-gluteus-medius-left");
   // 左右分开：只落了左侧，右侧那张卡不存在。
   expect(app.shows("id:site-gluteus-medius-right")).toBe(false);
   // 五轴都占一位，没测的写「未测」。
@@ -93,9 +103,9 @@ test("档案页：分组、依据、时间线、已解决与撤回", async () =>
   expect(app.texts()).toContain("张力 紧");
   expect(app.texts()).toContain("疼痛 4 分");
 
-  // 区域可折叠（契约 §5「40+ 部位 → 按区域分组 + 折叠」）。
-  await app.press("id:archive-section-gluteal-group");
-  await app.waitUntil(() => !app.shows("id:site-gluteus-medius-left"));
+  // 返回根页再进来：区域页能独立打开。
+  await app.press("id:back");
+  await app.waitFor("id:archive-section-gluteal-group");
   await app.press("id:archive-section-gluteal-group");
   await app.waitFor("id:site-gluteus-medius-left");
 
@@ -160,6 +170,8 @@ test("档案页：分组、依据、时间线、已解决与撤回", async () =>
   await ensureOnboarded(reopened);
   await reopened.waitFor("id:tab-today");
   await reopened.press("id:tab-profile");
+  await reopened.waitFor("id:archive-section-gluteal-group");
+  await reopened.press("id:archive-section-gluteal-group");
   await reopened.waitFor("id:site-gluteus-maximus-left");
   expect(reopened.shows("id:site-gluteus-maximus-left-resolved")).toBe(true);
   expect(reopened.shows("id:site-gluteus-medius-left")).toBe(false);
@@ -185,8 +197,71 @@ test("档案页：没有任何判定时引导去首次评估", async () => {
   await app.press("id:tab-profile");
   await app.waitFor("id:findings-empty");
   expect(app.texts()).toContain("档案还是空的");
+  expect(app.shows("id:archive-section-gluteal-group")).toBe(false);
   expect(app.shows("id:group-gluteal-group-left")).toBe(false);
 
   await app.press("id:findings-start-assessment");
   await app.waitFor("id:new-conversation");
+});
+
+// 关注块只列肌群：骨骼异常不进「需要先处理的肌群」，但仍留在全部区域里。
+test("需要先处理的肌群只列肌肉，骨骼异常仍在全部区域", async () => {
+  await freshDatabase();
+  const responses: unknown[] = [
+    {
+      status: 200,
+      body: {
+        status: "completed",
+        output: [
+          {
+            type: "function_call",
+            call_id: "call_propose",
+            name: "propose_findings",
+            arguments: JSON.stringify({
+              items: [
+                item("gluteus-medius", "left", { tension: "weak" }),
+                item("lumbar-vertebrae", null, { tension: "tight" }),
+              ],
+            }),
+          },
+        ],
+      },
+    },
+    replyWith("先看这两条。"),
+  ];
+  const app = await open("./App.tsx", {
+    network: {
+      "POST https://api.deepseek.com/responses": () => responses.shift() as never,
+    },
+  });
+  await app.waitUntil(() => app.shows("id:onboarding-next") || app.shows("id:tab-today"));
+  await ensureOnboarded(app);
+  await app.waitFor("id:tab-today");
+  await setApiKey(app);
+
+  await app.press("id:tab-conversations");
+  await app.waitFor("id:new-conversation");
+  await app.press("id:new-conversation");
+  await app.waitFor("id:message-input");
+  await app.type("id:message-input", "腰和屁股都不舒服");
+  await app.press("id:send");
+  await app.waitFor("id:proposal-card");
+  await app.press("id:accept-proposal");
+  await app.waitUntil(() => app.texts().some((text) => text.includes("已写进档案 2 项")));
+  await app.press("id:back");
+  await app.waitFor("id:new-conversation");
+
+  await app.press("id:tab-profile");
+  await app.waitFor("id:profile-attention");
+  expect(app.shows("id:attention-gluteal-group")).toBe(true);
+  expect(app.shows("id:attention-spine")).toBe(false);
+  expect(app.shows("id:archive-section-spine")).toBe(true);
+
+  await app.press("id:attention-gluteal-group");
+  await app.waitFor("id:site-gluteus-medius-left");
+  await app.press("id:back");
+  await app.waitFor("id:archive-section-spine");
+  await app.press("id:archive-section-spine");
+  await app.waitFor("id:site-lumbar-vertebrae");
+  expect(app.texts()).toContain("区域整体 · 最差的一条");
 });

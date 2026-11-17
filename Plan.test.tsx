@@ -82,10 +82,16 @@ test("计划生成：档案页可见、动作点回判定、版本可查、复�
   await app.press("id:back");
   await app.waitFor("id:new-conversation");
 
-  // 档案页可见：频次、动作与处方。
+  // 档案根页只放计划摘要：版本、频次与动作数。
   await app.press("id:tab-profile");
   await app.waitFor("id:plan-card");
   expect(app.texts().some((text) => text.includes("第 1 版 · 每周 3 次"))).toBe(true);
+  expect(app.texts().some((text) => text.includes("2 个动作"))).toBe(true);
+  expect(app.texts()).not.toContain("臀桥 · 3×10");
+
+  // 进计划页：完整动作与处方都在这里。
+  await app.press("id:open-plan");
+  await app.waitFor("id:plan-exercise-0");
   expect(app.texts()).toContain("臀桥 · 3×10");
   expect(app.texts()).toContain("蚌式开合 · 3×12");
   expect(app.texts().some((text) => text.includes("来自「臀中肌左」的判定"))).toBe(true);
@@ -96,8 +102,12 @@ test("计划生成：档案页可见、动作点回判定、版本可查、复�
   expect(app.texts().some((text) => text.includes("张力 弱"))).toBe(true);
   expect(app.texts().some((text) => text.includes("单腿站立 30 秒"))).toBe(true);
 
-  // 旧版本只读可查：现在只有一版，列表说的是「生效」。
+  // 「看判定」已经进入区域页；返回计划页再查历史版本。
+  await app.press("id:back");
+  await app.waitFor("id:plan-versions");
   await app.press("id:plan-versions");
+
+  // 旧版本只读可查：现在只有一版，列表说的是「生效」。
   await app.waitFor("id:plan-versions-list");
   expect(app.texts().some((text) => text.includes("（生效）"))).toBe(true);
 

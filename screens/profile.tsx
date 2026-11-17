@@ -8,7 +8,7 @@ import type { ProfileView } from "lianlian/native";
 
 import type { ProfileDrafts } from "../ui/drafts";
 import { BasicsFields, TrainingFields, basicsPayload, trainingPayload } from "../ui/forms";
-import { FindingsSection } from "./findings";
+import { FindingsOverview, FindingsSectionPage, PlanPage } from "./findings";
 import { MeasurementsScreen } from "./measurements";
 import { SettingsScreen } from "./settings";
 import {
@@ -32,7 +32,15 @@ function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-type ProfileRoute = { name: "root" } | { name: "measurements" } | { name: "settings" };
+type ProfileRoute =
+  | { name: "root" }
+  | { name: "section"; id: string; focus?: string }
+  | { name: "plan" }
+  | { name: "basics" }
+  | { name: "measurements" }
+  | { name: "training" }
+  | { name: "storage" }
+  | { name: "settings" };
 
 export function ProfileScreen(props: {
   state: ProfileView;
@@ -44,16 +52,22 @@ export function ProfileScreen(props: {
 }) {
   const nav = createNavStack<ProfileRoute>([{ name: "root" }]);
 
-  const openPage = (name: "measurements" | "settings") => {
+  const openPage = (
+    name: "plan" | "basics" | "measurements" | "training" | "storage" | "settings",
+  ) => {
     const top = nav.routes()[nav.routes().length - 1];
     if (top?.name === name) {
       return;
     }
-    if (name === "measurements") {
-      nav.push({ name: "measurements" });
-    } else {
-      nav.push({ name: "settings" });
+    nav.push({ name });
+  };
+
+  const openSection = (id: string, focus?: string) => {
+    const top = nav.routes()[nav.routes().length - 1];
+    if (top?.name === "section" && top.id === id && top.focus === focus) {
+      return;
     }
+    nav.push({ name: "section", id, focus });
   };
 
   // 从对话的错误态跳过来时，切到档案后直接推进设置页。
@@ -87,15 +101,54 @@ export function ProfileScreen(props: {
             <ProfileRoot
               state={props.state}
               drafts={props.drafts}
-              onSaved={props.onSaved}
+              onOpenSection={openSection}
+              onOpenPlan={() => openPage("plan")}
+              onGoBasics={() => openPage("basics")}
               onGoMeasurements={() => openPage("measurements")}
+              onGoTraining={() => openPage("training")}
+              onGoStorage={() => openPage("storage")}
               onGoSettings={() => openPage("settings")}
               onGoConversations={props.onGoConversations}
+            />
+          </NavPage>
+        ) : route.name === "section" ? (
+          <NavPage title="档案条目" headerVisible={false} style={pageStyle()}>
+            <FindingsSectionPage
+              sectionId={route.id}
+              focusSlug={route.focus}
+              onBack={() => nav.pop()}
+            />
+          </NavPage>
+        ) : route.name === "plan" ? (
+          <NavPage title="计划" headerVisible={false} style={pageStyle()}>
+            <PlanPage
+              onBack={() => nav.pop()}
+              onOpenSection={openSection}
+              onGoConversations={props.onGoConversations}
+            />
+          </NavPage>
+        ) : route.name === "basics" ? (
+          <NavPage title="基本属性" headerVisible={false} style={pageStyle()}>
+            <BasicsPage
+              drafts={props.drafts}
+              state={props.state}
+              onBack={() => nav.pop()}
             />
           </NavPage>
         ) : route.name === "measurements" ? (
           <NavPage title="测量" headerVisible={false} style={pageStyle()}>
             <MeasurementsScreen onBack={() => nav.pop()} />
+          </NavPage>
+        ) : route.name === "training" ? (
+          <NavPage title="训练条件" headerVisible={false} style={pageStyle()}>
+            <TrainingPage
+              drafts={props.drafts}
+              onBack={() => nav.pop()}
+            />
+          </NavPage>
+        ) : route.name === "storage" ? (
+          <NavPage title="本地数据" headerVisible={false} style={pageStyle()}>
+            <StoragePage onBack={() => nav.pop()} />
           </NavPage>
         ) : (
           <NavPage title="设置" headerVisible={false} style={pageStyle()}>
@@ -107,24 +160,187 @@ export function ProfileScreen(props: {
   );
 }
 
+/** 性别在摘要里的写法。 */
+function sexZh(sex: string | null | undefined): string | null {
+  if (sex === "female") {
+    return "女";
+  }
+  if (sex === "male") {
+    return "男";
+  }
+  return null;
+}
+
+/** 根页基本属性摘要：性别、年龄、基础疾病条数。 */
+function basicsSummary(state: ProfileView): string {
+  const parts: string[] = [];
+  const sex = sexZh(state.basics.sex);
+  if (sex) {
+    parts.push(sex);
+  }
+  if (state.basics.age !== null) {
+    parts.push(`${state.basics.age} 岁`);
+  }
+  if (state.basics.conditions.length > 0) {
+    parts.push(`${state.basics.conditions.length} 条基础疾病或旧伤`);
+  }
+  return parts.length > 0 ? parts.join(" · ") : "还没填";
+}
+
+/** 根页测量摘要：最新一条身高体重。 */
+function measurementsSummary(state: ProfileView): string {
+  return `当前 ${state.basics.heightCm ?? "—"} cm · ${state.basics.weightKg ?? "—"} kg`;
+}
+
+/** 根页训练条件摘要：齐不齐，以及每周几天、每次多久。 */
+function trainingSummary(state: ProfileView): string {
+  if (!state.readiness.ready) {
+    return `不齐全 · 还差：${state.readiness.missingZh.join("、")}`;
+  }
+  return `齐全 · 每周 ${state.training.daysPerWeek ?? "—"} 天 · 每次 ${
+    state.training.minutesPerSession ?? "—"
+  } 分钟`;
+}
+
+/** 根页「我的数据」的一行：摘要 + 动作词。 */
+function DataRow(props: {
+  testID: string;
+  title: string;
+  summary: string;
+  summaryTestID?: string;
+  action: string;
+  last?: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <View
+      testID={props.testID}
+      role="button"
+      accessibilityLabel={`${props.title}：${props.summary}，${props.action}`}
+      onPress={props.onPress}
+      style={{
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 12,
+        paddingVertical: 9,
+        borderBottomWidth: props.last ? 0 : 1,
+        borderColor: token("border"),
+      }}
+    >
+      <View style={{ flex: 1, gap: 2 }}>
+        <Text style={{ fontSize: 13, fontWeight: "bold", color: token("foreground") }}>
+          {props.title}
+        </Text>
+        <Text
+          testID={props.summaryTestID}
+          style={{ fontSize: 10, color: token("muted-foreground") }}
+        >
+          {props.summary}
+        </Text>
+      </View>
+      <Text style={{ fontSize: 10, color: token("accent") }}>{`${props.action} ›`}</Text>
+    </View>
+  );
+}
+
 function ProfileRoot(props: {
   state: ProfileView;
   drafts: ProfileDrafts;
-  onSaved: () => void;
+  onOpenSection: (sectionId: string, focusSlug?: string) => void;
+  onOpenPlan: () => void;
+  onGoBasics: () => void;
   onGoMeasurements: () => void;
+  onGoTraining: () => void;
+  onGoStorage: () => void;
   onGoSettings: () => void;
   onGoConversations: () => void;
 }) {
-  const basics = props.drafts.basics;
-  const training = props.drafts.training;
-  const error = signal<string | null>(null);
-  const saved = signal<string | null>(null);
   const capacity = resource(() => Storage.load());
 
-  const saveBasics = async () => {
+  return (
+    <Scroll testID="profile-scroll" style={{ flex: 1 }} contentStyle={{ paddingBottom: 24 }}>
+      <ScreenHeader
+        eyebrow="档案"
+        title="身体档案"
+        note="先看生效计划和需要处理的肌群；点区域进子页看依据与时间线。"
+      />
+
+      <View style={{ padding: 16, gap: 12 }}>
+        <View style={{ flexDirection: "row", justifyContent: "flex-end" }}>
+          <TextButton testID="open-settings" label="设置与 key" onPress={props.onGoSettings} />
+        </View>
+
+        <FindingsOverview
+          onGoConversations={props.onGoConversations}
+          onOpenSection={props.onOpenSection}
+          onOpenPlan={props.onOpenPlan}
+        />
+
+        <View style={{ gap: 6 }}>
+          <SectionLabel text="我的数据" />
+          <Card testID="profile-data">
+            <DataRow
+              testID="open-basics"
+              title="基本属性"
+              summary={basicsSummary(props.state)}
+              action="编辑"
+              onPress={props.onGoBasics}
+            />
+            <DataRow
+              testID="open-measurements"
+              title="测量"
+              summary={measurementsSummary(props.state)}
+              summaryTestID="profile-body-metrics"
+              action="趋势"
+              onPress={props.onGoMeasurements}
+            />
+            <DataRow
+              testID="open-training"
+              title="训练条件"
+              summary={trainingSummary(props.state)}
+              action="修改"
+              onPress={props.onGoTraining}
+            />
+            <DataRow
+              testID="open-storage"
+              title="本地数据"
+              summary={
+                capacity() === undefined
+                  ? "正在算占用…"
+                  : capacity()!.error
+                    ? "读不到本地占用"
+                    : `已用 ${formatBytes(capacity()!.totalBytes)}`
+              }
+              action="查看"
+              last
+              onPress={props.onGoStorage}
+            />
+            <If when={!props.state.readiness.ready}>
+              <Note
+                testID="profile-training-missing"
+                text={`还差：${props.state.readiness.missingZh.join("、")}。缺项时不排计划。`}
+              />
+            </If>
+          </Card>
+        </View>
+      </View>
+    </Scroll>
+  );
+}
+
+/** 基本属性子页：沿用草稿与保存接口，身高体重只读（来自测量）。 */
+function BasicsPage(props: {
+  state: ProfileView;
+  drafts: ProfileDrafts;
+  onBack: () => void;
+}) {
+  const error = signal<string | null>(null);
+  const saved = signal<string | null>(null);
+
+  const save = async () => {
     error.set(null);
     saved.set(null);
-    const payload = basicsPayload(basics, false);
+    const payload = basicsPayload(props.drafts.basics, false);
     const message = await Profile.saveBasics(
       payload.sex,
       payload.age,
@@ -137,13 +353,54 @@ function ProfileRoot(props: {
       return;
     }
     saved.set("基本属性已保存");
-    props.onSaved();
   };
 
-  const saveTraining = async () => {
+  return (
+    <Scroll testID="basics-scroll" style={{ flex: 1 }} contentStyle={{ paddingBottom: 24 }}>
+      <View style={{ paddingHorizontal: 16, paddingTop: 12 }}>
+        <TextButton testID="back" label="← 回档案" onPress={props.onBack} />
+      </View>
+      <ScreenHeader
+        eyebrow="我的数据"
+        title="基本属性"
+        note="身高体重来自测量记录；这里改性别、年龄与基础疾病或旧伤。"
+      />
+      <View style={{ padding: 16, gap: 12 }}>
+        {error() ? (
+          <Card testID="profile-error">
+            <Note tone="error" text={error() ?? ""} />
+          </Card>
+        ) : null}
+        {saved() ? (
+          <Card testID="profile-saved">
+            <Note tone="accent" text={saved() ?? ""} />
+          </Card>
+        ) : null}
+        <Card testID="profile-body-metrics">
+          <SectionLabel text="当前测量" />
+          <Note text={measurementsSummary(props.state)} />
+        </Card>
+        <Card>
+          <BasicsFields draft={props.drafts.basics} />
+          <PrimaryButton testID="save-basics" label="保存基本属性" onPress={save} />
+        </Card>
+      </View>
+    </Scroll>
+  );
+}
+
+/** 训练条件子页：保存后父层重取档案，根页摘要随之更新。 */
+function TrainingPage(props: {
+  drafts: ProfileDrafts;
+  onBack: () => void;
+}) {
+  const error = signal<string | null>(null);
+  const saved = signal<string | null>(null);
+
+  const save = async () => {
     error.set(null);
     saved.set(null);
-    const payload = trainingPayload(training);
+    const payload = trainingPayload(props.drafts.training);
     const message = await Profile.saveTraining(
       payload.daysPerWeek,
       payload.minutesPerSession,
@@ -155,23 +412,19 @@ function ProfileRoot(props: {
       return;
     }
     saved.set("训练条件已保存");
-    props.onSaved();
   };
 
-  const readiness = props.state.readiness;
-
   return (
-    <Scroll testID="profile-scroll" style={{ flex: 1 }} contentStyle={{ paddingBottom: 24 }}>
+    <Scroll testID="training-scroll" style={{ flex: 1 }} contentStyle={{ paddingBottom: 24 }}>
+      <View style={{ paddingHorizontal: 16, paddingTop: 12 }}>
+        <TextButton testID="back" label="← 回档案" onPress={props.onBack} />
+      </View>
       <ScreenHeader
-        eyebrow="档案"
-        title="身体档案"
-        note="上面是身体上的判定与依据（可展开、可更正），下面是你自己填的数字。"
+        eyebrow="我的数据"
+        title="训练条件"
+        note="四项都填了，agent 才能据此排计划；缺项时不排。"
       />
-
       <View style={{ padding: 16, gap: 12 }}>
-        <View style={{ flexDirection: "row", justifyContent: "flex-end" }}>
-          <TextButton testID="open-settings" label="设置与 key" onPress={props.onGoSettings} />
-        </View>
         {error() ? (
           <Card testID="profile-error">
             <Note tone="error" text={error() ?? ""} />
@@ -182,62 +435,31 @@ function ProfileRoot(props: {
             <Note tone="accent" text={saved() ?? ""} />
           </Card>
         ) : null}
-
-        <FindingsSection onGoConversations={props.onGoConversations} />
-
         <Card>
-          <Text style={{ fontSize: 13, fontWeight: "bold", color: token("foreground") }}>
-            基本属性
-          </Text>
-          <BasicsFields draft={basics} />
-          <PrimaryButton testID="save-basics" label="保存基本属性" onPress={saveBasics} />
+          <TrainingFields draft={props.drafts.training} />
+          <PrimaryButton testID="save-training" label="保存训练条件" onPress={save} />
         </Card>
+      </View>
+    </Scroll>
+  );
+}
 
-        <Card testID="profile-measurements">
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-            <Text style={{ fontSize: 13, fontWeight: "bold", color: token("foreground") }}>
-              测量
-            </Text>
-            <SectionLabel
-              testID="profile-body-metrics"
-              text={`当前 ${props.state.basics.heightCm ?? "—"} cm · ${props.state.basics.weightKg ?? "—"} kg`}
-            />
-          </View>
-          <Note text="每次记录都留一条带时间的值，折线图看变动；单条填错的可以删掉。" />
-          <PrimaryButton
-            testID="open-measurements"
-            label="查看身高体重趋势"
-            onPress={props.onGoMeasurements}
-          />
-        </Card>
+/** 本地数据子页：容量明细表从根页搬到这里，根页只留已用总量。 */
+function StoragePage(props: { onBack: () => void }) {
+  const capacity = resource(() => Storage.load());
 
-        <Card testID="profile-training">
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-            <Text style={{ fontSize: 13, fontWeight: "bold", color: token("foreground") }}>
-              训练条件
-            </Text>
-            <SectionLabel text={readiness.ready ? "齐全" : "不齐全"} />
-          </View>
-          {readiness.ready ? (
-            <Note text="四项都填了，agent 可以据此排计划。" />
-          ) : (
-            <Note
-              testID="profile-training-missing"
-              text={`还差：${readiness.missingZh.join("、")}。缺项时不排计划。`}
-            />
-          )}
-          <TrainingFields draft={training} />
-          <PrimaryButton testID="save-training" label="保存训练条件" onPress={saveTraining} />
-        </Card>
-
+  return (
+    <Scroll testID="storage-scroll" style={{ flex: 1 }} contentStyle={{ paddingBottom: 24 }}>
+      <View style={{ paddingHorizontal: 16, paddingTop: 12 }}>
+        <TextButton testID="back" label="← 回档案" onPress={props.onBack} />
+      </View>
+      <ScreenHeader
+        eyebrow="我的数据"
+        title="本地数据"
+        note="只在本机：数据库与照片各占多少，按表分开算。"
+      />
+      <View style={{ padding: 16 }}>
         <Card testID="storage-capacity">
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-            <Text style={{ fontSize: 13, fontWeight: "bold", color: token("foreground") }}>
-              本地数据
-            </Text>
-            <View style={{ flex: 1 }} />
-            <SectionLabel text="只在本机" />
-          </View>
           {capacity() === undefined ? (
             <Note text="正在算本地数据占用…" />
           ) : (

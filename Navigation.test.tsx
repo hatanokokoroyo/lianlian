@@ -36,7 +36,7 @@ test("系统返回键从测量详情回到档案根页", async () => {
 
   await app.back();
 
-  await app.waitFor("id:save-basics");
+  await app.waitFor("id:open-basics");
   expect(app.shows("id:add-measurement")).toBe(false);
 });
 

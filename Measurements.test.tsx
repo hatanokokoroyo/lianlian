@@ -51,7 +51,7 @@ test("测量追加入库、折线图重画、单条可删、当前值来自最�
 
   // 基本属性里的当前体重来自最新一条测量（这里只剩 62.4）。
   await app.press("id:back");
-  await app.waitFor("id:save-basics");
+  await app.waitFor("id:open-basics");
   // 当前值来自最新一条测量，不是可编辑的草稿。
   // 回档案会先显示旧快照再 refetch；等最新一条测量替换掉占位符。
   await app.waitUntil(() => app.texts().some((text) => text.includes("当前 — cm · 62.4 kg")));

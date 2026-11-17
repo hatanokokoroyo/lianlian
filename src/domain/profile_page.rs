@@ -111,8 +111,27 @@ pub struct SiteSection {
     pub id: String,
     /// 显示用的中文名。
     pub label: String,
+    /// 这一块来自肌肉还是骨骼。
+    pub kind: SectionKind,
     /// 这一块里的卡片，按词表顺序、左侧在前。
     pub cards: Vec<SiteCard>,
+}
+
+/// 区域来自肌肉还是骨骼：界面用它区分「肌群整体」与「区域整体」。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SectionKind {
+    Muscle,
+    Bone,
+}
+
+impl SectionKind {
+    /// 机器可读的键。
+    pub fn key(self) -> &'static str {
+        match self {
+            SectionKind::Muscle => "muscle",
+            SectionKind::Bone => "bone",
+        }
+    }
 }
 
 /// 聚合里「最差的那一条判定」来自哪里。
@@ -177,7 +196,7 @@ impl ProfilePage {
                 let Some(state) = projection.state(site.id, side) else {
                     continue;
                 };
-                let (id, label) = section_of(site);
+                let (id, label, kind) = section_of(site);
                 let card = SiteCard {
                     site: site.id.to_owned(),
                     site_zh: site.zh.to_owned(),
@@ -197,6 +216,7 @@ impl ProfilePage {
                     None => sections.push(SiteSection {
                         id: id.to_owned(),
                         label: label.to_owned(),
+                        kind,
                         cards: vec![card],
                     }),
                 }
@@ -251,15 +271,15 @@ fn sides_of(paired: bool) -> Vec<Option<Side>> {
 }
 
 /// 卡片归到哪一块：肌肉跟着首要肌群，骨骼跟着区域。
-fn section_of(site: &anatomy::Site) -> (&'static str, &'static str) {
+fn section_of(site: &anatomy::Site) -> (&'static str, &'static str, SectionKind) {
     match site.kind {
         SiteKind::Muscle => match site.groups.first().and_then(|id| anatomy::group(id)) {
-            Some(group) => (group.id, group.zh),
-            None => ("other-muscles", "其他肌肉"),
+            Some(group) => (group.id, group.zh, SectionKind::Muscle),
+            None => ("other-muscles", "其他肌肉", SectionKind::Muscle),
         },
         SiteKind::Bone => match site.region {
-            Some(region) => (region.key(), region.zh()),
-            None => ("other-bones", "其他骨骼"),
+            Some(region) => (region.key(), region.zh(), SectionKind::Bone),
+            None => ("other-bones", "其他骨骼", SectionKind::Bone),
         },
     }
 }
@@ -417,6 +437,8 @@ mod tests {
         // 分块顺序跟词表走（小腿 → 髋 → 脊柱），不跟事件时间走。
         assert_eq!(labels, vec!["小腿后群浅层（小腿三头肌）", "臀肌群", "脊柱"]);
         assert_eq!(page.cards(), 4);
+        assert_eq!(page.sections[0].kind, SectionKind::Muscle);
+        assert_eq!(page.sections[2].kind, SectionKind::Bone);
 
         let glutes = &page.sections[1];
         assert_eq!(

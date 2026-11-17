@@ -6,7 +6,7 @@
 //
 // 列表与条件用 NSH 的 `Each` / `If`：行按 key 保住，结构变化时节点按元素身份换。
 // 撤回表单不塞进会重排的行里，摆在列表上方——它服务时间线上选中的那一条。
-import { resource, signal, Text, token, View } from "nsh";
+import { resource, Scroll, signal, Text, token, View } from "nsh";
 import { Findings, Plans } from "lianlian/native";
 import type {
   AxisChipView,
@@ -15,10 +15,19 @@ import type {
   HistoryEntryView,
   PlanView,
   SiteCardView,
+  SiteSectionView,
 } from "lianlian/native";
 
 import { fullDate, todayIso } from "../ui/dates";
-import { Card, Note, PrimaryButton, SectionLabel, TextButton, TextField } from "../ui/parts";
+import {
+  Card,
+  Note,
+  PrimaryButton,
+  ScreenHeader,
+  SectionLabel,
+  TextButton,
+  TextField,
+} from "../ui/parts";
 
 /** 一个「部位 + 侧别」在 testID 里的写法。 */
 function slugOf(card: SiteCardView): string {
@@ -28,6 +37,140 @@ function slugOf(card: SiteCardView): string {
 /** 一个肌群聚合在 testID 里的写法。 */
 function groupSlug(group: GroupWorstView): string {
   return group.side ? `${group.id}-${group.side}` : group.id;
+}
+
+/** 这张卡有没有需要处理的轴。 */
+function isAbnormal(card: SiteCardView): boolean {
+  return card.axes.some((axis) => axis.abnormal);
+}
+
+/** 这个区域里有几张需要处理的卡。 */
+function abnormalCount(section: SiteSectionView): number {
+  return section.cards.filter(isAbnormal).length;
+}
+
+/** 异常轴越多越靠前；一样多时取最近的一条。 */
+function worstCard(section: SiteSectionView): SiteCardView | undefined {
+  return section.cards
+    .filter(isAbnormal)
+    .slice()
+    .sort(
+      (left, right) =>
+        right.axes.filter((axis) => axis.abnormal).length -
+          left.axes.filter((axis) => axis.abnormal).length || right.at - left.at,
+    )[0];
+}
+
+/** 最差那条的可读说法：部位 + 侧别 + 轴名 + 取值。 */
+function worstText(card: SiteCardView | undefined): string {
+  if (!card) {
+    return "状态平稳";
+  }
+  const axis = card.axes.find((each) => each.abnormal);
+  if (!axis) {
+    return "状态平稳";
+  }
+  return `${card.siteZh}${card.sideZh ?? ""} · ${axis.label} ${axis.value}`;
+}
+
+/** 区域里最近一次判定的时间。 */
+function latestAt(section: SiteSectionView): number {
+  return Math.max(...section.cards.map((card) => card.at));
+}
+
+/** 双列网格用：每两个区域一行。 */
+function pairRows(sections: SiteSectionView[]): SiteSectionView[][] {
+  const rows: SiteSectionView[][] = [];
+  for (let index = 0; index < sections.length; index += 2) {
+    rows.push(sections.slice(index, index + 2));
+  }
+  return rows;
+}
+
+/** 需要先处理：只挑有异常判定的肌群，异常处数多的排前面。 */
+function attentionSections(sections: SiteSectionView[]): SiteSectionView[] {
+  return sections
+    .filter((section) => section.kind === "muscle" && abnormalCount(section) > 0)
+    .slice()
+    .sort(
+      (left, right) =>
+        abnormalCount(right) - abnormalCount(left) || latestAt(right) - latestAt(left),
+    );
+}
+
+/** 根页的一张区域索引卡。 */
+function RegionTile(props: { section: SiteSectionView; onOpen: () => void }) {
+  const section = props.section;
+  const abnormal = abnormalCount(section);
+  const worst = worstCard(section);
+  const kind = section.kind === "bone" ? "骨骼" : "肌肉";
+  return (
+    <View
+      testID={`archive-section-${section.id}`}
+      role="button"
+      accessibilityLabel={`${section.label}，${section.cards.length} 处${
+        abnormal > 0 ? `，${abnormal} 处需要注意` : ""
+      }`}
+      onPress={props.onOpen}
+      style={{
+        flex: 1,
+        backgroundColor: token("card"),
+        borderRadius: token("radius"),
+        borderWidth: abnormal > 0 ? 1 : 0,
+        borderColor: token("destructive"),
+        padding: 12,
+        gap: 4,
+      }}
+    >
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+        <Text style={{ flex: 1, fontSize: 12, fontWeight: "bold", color: token("foreground") }}>
+          {section.label}
+        </Text>
+        <Text
+          style={{
+            fontSize: 10,
+            fontVariant: NUMBERS,
+            color: token("muted-foreground"),
+          }}
+        >
+          {section.cards.length}
+        </Text>
+      </View>
+      <Text
+        style={{
+          fontSize: 10,
+          color: abnormal > 0 ? token("destructive") : token("muted-foreground"),
+        }}
+      >
+        {worstText(worst)}
+      </Text>
+      <Text style={{ fontSize: 10, color: token("muted-foreground") }}>
+        {`${kind} · ${fullDate(latestAt(section))}`}
+      </Text>
+    </View>
+  );
+}
+
+/** 骨骼区域没有肌群聚合，只取当前最差的一张卡。 */
+function BoneWorst(props: { section: SiteSectionView }) {
+  const card = worstCard(props.section);
+  return (
+    <View
+      style={{
+        backgroundColor: token("card"),
+        borderRadius: token("radius"),
+        paddingHorizontal: 14,
+        paddingVertical: 10,
+        gap: 6,
+      }}
+    >
+      <SectionLabel text="区域整体 · 最差的一条" />
+      <Text style={{ fontSize: 11, color: card ? token("destructive") : token("muted-foreground") }}>
+        {worstText(card)}
+      </Text>
+      <Note text="骨骼区域没有肌群聚合；这里取当前最差的一张卡。" />
+    </View>
+  );
 }
 
 /** 时间线上这条事件的动作名。 */
@@ -300,17 +443,8 @@ function SiteRow(props: {
   );
 }
 
-/**
- * 计划卡片：频次、动作与复查日。每个动作都挂一条判定，点「看判定」就展开那个
- * 部位的卡片并打开它的时间线——这里和档案条目共用展开状态，所以放在这一区里。
- */
-function PlanCard(props: {
-  plan: PlanView;
-  versions: PlanView[];
-  versionsOpen: boolean;
-  onToggleVersions: () => void;
-  onFocus: (slug: string) => void;
-}) {
+/** 根页计划摘要：只留版本、频次、复查日与动作数，完整清单进计划页。 */
+function PlanSummary(props: { plan: PlanView; onOpen: () => void }) {
   return (
     <Card testID="plan-card">
       <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
@@ -328,7 +462,7 @@ function PlanCard(props: {
       </View>
       <If
         when={props.plan.reviewDue}
-        else={<Note text="每个动作后面都挂着它对应的判定；点「看判定」能翻到当时的依据。" />}
+        else={<Note text="每个动作后面都挂着它对应的判定；进计划页能翻到当时的依据。" />}
       >
         <Note
           testID="plan-review-due"
@@ -336,46 +470,8 @@ function PlanCard(props: {
           text="复查日到了：跟 agent 说一声，让它按现在的档案重新排一版。"
         />
       </If>
-      <Each of={props.plan.exercises} key={(exercise) => String(exercise.index)}>
-        {(exercise) => (
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-            <View style={{ flex: 1 }}>
-              <Text style={{ fontSize: 12, color: token("foreground") }}>
-                {`${exercise().name} · ${exercise().prescription}`}
-              </Text>
-              <Text style={{ fontSize: 10, color: token("muted-foreground") }}>
-                {`来自「${exercise().siteZh}${exercise().sideZh ?? ""}」的判定`}
-              </Text>
-            </View>
-            <TextButton
-              testID={`plan-exercise-${exercise().index}`}
-              label="看判定"
-              hint={`看「${exercise().name}」对应的判定`}
-              onPress={() => props.onFocus(exercise().slug)}
-            />
-          </View>
-        )}
-      </Each>
-      <TextButton
-        testID="plan-versions"
-        label={
-          props.versionsOpen ? "收起历史版本" : `历史版本（${props.versions.length}）`
-        }
-        onPress={props.onToggleVersions}
-      />
-      <If when={props.versionsOpen}>
-        <View testID="plan-versions-list" style={{ gap: 4 }}>
-          <Each of={props.versions} key={(version) => String(version.id)}>
-            {(version) => (
-              <Text style={{ fontSize: 10, color: token("muted-foreground") }}>
-                {`第 ${version().version} 版 · ${version().frequency} · ${version()
-                  .exercises.map((exercise) => `${exercise.name} ${exercise.prescription}`)
-                  .join("、")}${version().id === props.plan.id ? "（生效）" : "（只读）"}`}
-              </Text>
-            )}
-          </Each>
-        </View>
-      </If>
+      <Note text={`${props.plan.exercises.length} 个动作；完整处方与历史版本在计划页。`} />
+      <TextButton testID="open-plan" label="看完整计划" onPress={props.onOpen} />
     </Card>
   );
 }
@@ -416,30 +512,360 @@ function GroupRow(props: { group: () => GroupWorstView }) {
   );
 }
 
-export function FindingsSection(props: { onGoConversations: () => void }) {
+export function FindingsOverview(props: {
+  onGoConversations: () => void;
+  onOpenSection: (sectionId: string, focusSlug?: string) => void;
+  onOpenPlan: () => void;
+}) {
   const data = resource(() => Findings.load());
   const plans = resource(() => Plans.load(todayIso()));
+
+  return (
+    <View style={{ gap: 8 }}>
+      <View style={{ flexDirection: "row", alignItems: "center" }}>
+        <SectionLabel
+          text={`档案条目 · ${data() === undefined ? "…" : `${data()!.total} 处`}`}
+        />
+        <View style={{ flex: 1 }} />
+        <If when={data() !== undefined && data()!.total > 0}>
+          <SectionLabel text={`${data()!.sections.length} 个区域`} />
+        </If>
+      </View>
+
+      <If when={plans() !== undefined}>
+        <If when={plans()!.active !== null}>
+          <PlanSummary plan={plans()!.active!} onOpen={props.onOpenPlan} />
+        </If>
+        <If when={plans()!.active === null && plans()!.error === null}>
+          <Card testID="plan-empty">
+            <Text style={{ fontSize: 13, fontWeight: "bold", color: token("foreground") }}>
+              还没有计划
+            </Text>
+            <Note text="跟 agent 聊一次，让它按你的档案与训练条件排第一版。" />
+            <PrimaryButton
+              testID="plan-start"
+              label="去对话排计划"
+              onPress={props.onGoConversations}
+            />
+          </Card>
+        </If>
+        <If when={plans()!.error !== null}>
+          <Card testID="plan-error">
+            <Note tone="error" text={plans()!.error ?? ""} />
+          </Card>
+        </If>
+      </If>
+
+      <If
+        when={data() !== undefined}
+        else={
+          <Card>
+            <Note text="正在读档案…" />
+          </Card>
+        }
+      >
+        <View style={{ gap: 8 }}>
+          <If when={data()!.error}>
+            <Card testID="findings-error">
+              <Note tone="error" text={data()!.error ?? ""} />
+            </Card>
+          </If>
+
+        <If when={data()!.total === 0}>
+          <Card testID="findings-empty">
+            <Text style={{ fontSize: 13, fontWeight: "bold", color: token("foreground") }}>
+              档案还是空的
+            </Text>
+            <Note text="跟 agent 聊一次：它给你几个验证动作，你做完把感受告诉它，它才会在档案上落判定。没有判定就没有可以变的计划。" />
+            <PrimaryButton
+              testID="findings-start-assessment"
+              label="去对话做首次评估"
+              onPress={props.onGoConversations}
+            />
+          </Card>
+        </If>
+
+        <If when={data()!.total > 0}>
+          <View testID="profile-attention" style={{ gap: 6 }}>
+            <SectionLabel text="需要先处理的肌群" />
+            <If when={attentionSections(data()!.sections).length === 0}>
+              <Note text="目前没有需要优先处理的肌群。" />
+            </If>
+            <Each
+              of={attentionSections(data()!.sections)}
+              key={(section) => section.id}
+            >
+              {(section) => (
+                <View
+                  testID={`attention-${section().id}`}
+                  role="button"
+                  accessibilityLabel={`${section().label}，${abnormalCount(
+                    section(),
+                  )} 处需要注意`}
+                  onPress={() => props.onOpenSection(section().id)}
+                  style={{
+                    backgroundColor: token("card"),
+                    borderRadius: token("radius"),
+                    borderWidth: 1,
+                    borderColor: token("destructive"),
+                    paddingHorizontal: 12,
+                    paddingVertical: 10,
+                    gap: 3,
+                  }}
+                >
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                    <Text
+                      style={{
+                        flex: 1,
+                        fontSize: 12,
+                        fontWeight: "bold",
+                        color: token("foreground"),
+                      }}
+                    >
+                      {section().label}
+                    </Text>
+                    <Text
+                      style={{
+                        fontSize: 10,
+                        fontVariant: NUMBERS,
+                        color: token("destructive"),
+                      }}
+                    >
+                      {`${abnormalCount(section())} 处`}
+                    </Text>
+                  </View>
+                  <Text style={{ fontSize: 10, color: token("destructive") }}>
+                    {worstText(worstCard(section()))}
+                  </Text>
+                </View>
+              )}
+            </Each>
+          </View>
+
+          <SectionLabel text="全部区域" />
+          <Each
+            of={pairRows(data()!.sections)}
+            key={(row) => row.map((entry) => entry.id).join("|")}
+          >
+            {(row) => (
+              <View style={{ flexDirection: "row", gap: 8 }}>
+                {row().map((entry) => (
+                  <RegionTile
+                    section={entry}
+                    onOpen={() => props.onOpenSection(entry.id)}
+                  />
+                ))}
+                <If when={row().length === 1}>
+                  <View style={{ flex: 1 }} />
+                </If>
+              </View>
+            )}
+          </Each>
+        </If>
+      </View>
+    </If>
+    </View>
+  );
+}
+
+/** 计划页：完整动作、每个动作的判定入口与历史版本。 */
+export function PlanPage(props: {
+  onBack: () => void;
+  onOpenSection: (sectionId: string, focusSlug?: string) => void;
+  onGoConversations: () => void;
+}) {
+  const plans = resource(() => Plans.load(todayIso()));
+  const findings = resource(() => Findings.load());
   const versionsOpen = signal(false);
-  const expanded = signal<string | null>(null);
-  const timeline = signal<string | null>(null);
-  const collapsed = signal<string[]>([]);
+  const message = signal<string | null>(null);
+
+  /** 找到包含这个动作判定的区域，带上 focusSlug 进入区域页。 */
+  const focusFinding = async (slug: string) => {
+    const snapshot = findings() ?? (await Findings.load());
+    const section = snapshot
+      ?.sections.find((each) => each.cards.some((card) => slugOf(card) === slug));
+    if (!section) {
+      message.set("这个动作对应的判定已经不在档案上了（被撤回的判定不显示）。");
+      return;
+    }
+    message.set(null);
+    props.onOpenSection(section.id, slug);
+  };
+
+  const plan = () => plans()?.active ?? null;
+
+  return (
+    <Scroll testID="plan-scroll" style={{ flex: 1 }} contentStyle={{ paddingBottom: 24 }}>
+      <View style={{ paddingHorizontal: 16, paddingTop: 12 }}>
+        <TextButton testID="back" label="← 回档案" onPress={props.onBack} />
+      </View>
+
+      <If
+        when={plans() !== undefined}
+        else={
+          <View style={{ padding: 16 }}>
+            <Note text="正在读计划…" />
+          </View>
+        }
+      >
+        <ScreenHeader
+          eyebrow="计划"
+          title={plan() ? `第 ${plan()!.version} 版` : "还没有计划"}
+          note={
+            plan()
+              ? `${plan()!.frequency} · ${plan()!.exercises.length} 个动作 · 复查 ${fullDate(
+                  plan()!.reviewAt,
+                )}`
+              : "有判定之后，agent 才能按档案排计划。"
+          }
+        />
+
+        <View style={{ padding: 16, gap: 12 }}>
+          <If when={plans()!.error !== null}>
+            <Card testID="plan-error">
+              <Note tone="error" text={plans()!.error ?? ""} />
+            </Card>
+          </If>
+          <If when={message()}>
+            <Card testID="findings-message">
+              <Note tone="accent" text={message() ?? ""} />
+            </Card>
+          </If>
+
+          <If when={plan() === null && plans()!.error === null}>
+            <Card testID="plan-page-empty">
+              <Text style={{ fontSize: 13, fontWeight: "bold", color: token("foreground") }}>
+                还没有计划
+              </Text>
+              <Note text="先去对话做评估；有了判定，agent 才会排第一版。" />
+              <PrimaryButton
+                testID="plan-page-start"
+                label="去对话排计划"
+                onPress={props.onGoConversations}
+              />
+            </Card>
+          </If>
+
+          <If when={plan() !== null}>
+            <Card testID="plan-page">
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                <Text style={{ fontSize: 13, fontWeight: "bold", color: token("foreground") }}>
+                  生效计划
+                </Text>
+                <SectionLabel
+                  testID="plan-page-version"
+                  text={`第 ${plan()!.version} 版 · ${plan()!.frequency}`}
+                />
+                <View style={{ flex: 1 }} />
+                <Text
+                  style={{
+                    fontSize: 10,
+                    fontVariant: NUMBERS,
+                    color: token("muted-foreground"),
+                  }}
+                >
+                  复查 {fullDate(plan()!.reviewAt)}
+                </Text>
+              </View>
+              <If
+                when={plan()!.reviewDue}
+                else={<Note text="每个动作后面都挂着它对应的判定；点「看判定」能翻到当时的依据。" />}
+              >
+                <Note
+                  testID="plan-review-due"
+                  tone="accent"
+                  text="复查日到了：跟 agent 说一声，让它按现在的档案重新排一版。"
+                />
+              </If>
+              <Each of={plan()!.exercises} key={(exercise) => String(exercise.index)}>
+                {(exercise) => (
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontSize: 12, color: token("foreground") }}>
+                        {`${exercise().name} · ${exercise().prescription}`}
+                      </Text>
+                      <Text style={{ fontSize: 10, color: token("muted-foreground") }}>
+                        {`来自「${exercise().siteZh}${exercise().sideZh ?? ""}」的判定`}
+                      </Text>
+                    </View>
+                    <TextButton
+                      testID={`plan-exercise-${exercise().index}`}
+                      label="看判定"
+                      hint={`看「${exercise().name}」对应的判定`}
+                      onPress={() => focusFinding(exercise().slug)}
+                    />
+                  </View>
+                )}
+              </Each>
+            </Card>
+
+            <Card>
+              <TextButton
+                testID="plan-versions"
+                label={
+                  versionsOpen()
+                    ? "收起历史版本"
+                    : `历史版本（${plans()!.versions.length}）`
+                }
+                onPress={() => versionsOpen.set(!versionsOpen())}
+              />
+              <If when={versionsOpen()}>
+                <View testID="plan-versions-list" style={{ gap: 4 }}>
+                  <Each of={plans()!.versions} key={(version) => String(version.id)}>
+                    {(version) => (
+                      <Text style={{ fontSize: 10, color: token("muted-foreground") }}>
+                        {`第 ${version().version} 版 · ${version().frequency} · ${version()
+                          .exercises.map(
+                            (exercise) => `${exercise.name} ${exercise.prescription}`,
+                          )
+                          .join("、")}${
+                          version().id === plan()!.id ? "（生效）" : "（只读）"
+                        }`}
+                      </Text>
+                    )}
+                  </Each>
+                </View>
+              </If>
+            </Card>
+          </If>
+        </View>
+      </If>
+    </Scroll>
+  );
+}
+
+/** 区域页：只放这一个区域的卡片、聚合与更正入口。 */
+export function FindingsSectionPage(props: {
+  sectionId: string;
+  focusSlug?: string;
+  onBack: () => void;
+}) {
+  const data = resource(() => Findings.load());
+  const expanded = signal<string | null>(props.focusSlug ?? null);
+  const timeline = signal<string | null>(props.focusSlug ?? null);
   const retracting = signal<{ slug: string; finding: number } | null>(null);
   const reason = signal("");
   const busy = signal<string | null>(null);
   const message = signal<string | null>(null);
 
-  /** 正在填撤回理由的那一行。 */
+  const emptySection: SiteSectionView = {
+    id: props.sectionId,
+    label: "",
+    kind: "bone",
+    cards: [],
+  };
+  const section = () => data()?.sections.find((each) => each.id === props.sectionId);
+  const sectionCards = () => section()?.cards ?? [];
+  const groups = () => (data()?.groups ?? []).filter((group) => group.id === props.sectionId);
+
   const retractingCard = () => {
     const target = retracting();
     if (!target) {
       return undefined;
     }
-    return data()
-      ?.sections.flatMap((section) => section.cards)
-      .find((card) => slugOf(card) === target.slug);
+    return sectionCards().find((card) => slugOf(card) === target.slug);
   };
 
-  /** 撤回目标那条判定在时间线上的时刻（表单上要说清撤的是哪一条）。 */
   const retractingAt = () => {
     const target = retracting();
     const card = retractingCard();
@@ -449,27 +875,10 @@ export function FindingsSection(props: { onGoConversations: () => void }) {
     return card.timeline.find((entry) => entry.finding === target.finding)?.at ?? null;
   };
 
-  /** 从计划的某个动作跳回它对应的判定：展开那张卡并打开时间线。 */
-  const focusFinding = (slug: string) => {
-    const card = data()
-      ?.sections.flatMap((section) => section.cards)
-      .find((card) => slugOf(card) === slug);
-    if (!card) {
-      message.set("这个动作对应的判定已经不在档案上了（被撤回的判定不显示）。");
-      return;
-    }
-    message.set(null);
-    expanded.set(slug);
-    timeline.set(slug);
-  };
-
-  const toggleSection = (id: string) => {
-    collapsed.set(
-      collapsed().includes(id)
-        ? collapsed().filter((each) => each !== id)
-        : [...collapsed(), id],
-    );
-  };
+  const focusMissing = () =>
+    props.focusSlug !== undefined &&
+    data() !== undefined &&
+    !sectionCards().some((card) => slugOf(card) === props.focusSlug);
 
   const resolve = async (card: SiteCardView, slug: string) => {
     message.set(null);
@@ -508,144 +917,135 @@ export function FindingsSection(props: { onGoConversations: () => void }) {
   };
 
   return (
-    <View style={{ gap: 8 }}>
-      <View style={{ flexDirection: "row", alignItems: "center" }}>
-        <SectionLabel
-          text={`档案条目 · ${data() === undefined ? "…" : `${data()!.total} 处`}`}
-        />
-      </View>
-
-      <If when={plans() !== undefined}>
-        <If when={plans()!.active !== null}>
-          <PlanCard
-            plan={plans()!.active!}
-            versions={plans()!.versions}
-            versionsOpen={versionsOpen()}
-            onToggleVersions={() => versionsOpen.set(!versionsOpen())}
-            onFocus={focusFinding}
-          />
-        </If>
-        <If when={plans()!.error !== null}>
-          <Card testID="plan-error">
-            <Note tone="error" text={plans()!.error ?? ""} />
-          </Card>
-        </If>
-      </If>
-
-      <If
-        when={data() !== undefined}
-        else={
-          <Card>
-            <Note text="正在读档案…" />
-          </Card>
-        }
+    <View style={{ flex: 1 }}>
+      <Scroll
+        testID={`section-scroll-${props.sectionId}`}
+        style={{ flex: 1 }}
+        contentStyle={{ paddingBottom: 24 }}
       >
-        <View style={{ gap: 8 }}>
-          <If when={data()!.error}>
-            <Card testID="findings-error">
-              <Note tone="error" text={data()!.error ?? ""} />
-            </Card>
-          </If>
-          <If when={message()}>
-            <Card testID="findings-message">
-              <Note tone="accent" text={message() ?? ""} />
-            </Card>
-          </If>
+        <View style={{ paddingHorizontal: 16, paddingTop: 12 }}>
+          <TextButton testID="back" label="← 回档案" onPress={props.onBack} />
+        </View>
 
-          <If when={retracting() !== null}>
-            <Card testID="retract-form">
-              <SectionLabel
-                text={`撤回「${retractingCard()?.siteZh ?? ""}${retractingCard()?.sideZh ?? ""}」${
-                  retractingAt() === null ? "" : ` ${fullDate(retractingAt() ?? 0)} 那条`
-                }`}
-              />
-              <RetractForm
-                slug={retracting()?.slug ?? ""}
-                reason={reason()}
-                onReason={(value) => reason.set(value)}
-                onConfirm={retract}
-                onCancel={() => {
-                  retracting.set(null);
-                  reason.set("");
-                }}
-              />
-            </Card>
-          </If>
+        <If
+          when={data() !== undefined}
+          else={
+            <View style={{ padding: 16 }}>
+              <Note text="正在读档案…" />
+            </View>
+          }
+        >
+          <ScreenHeader
+            eyebrow={`档案条目 · ${
+              section()?.kind === "bone" ? "骨骼" : section() ? "肌肉" : "区域"
+            }`}
+            title={section()?.label ?? "区域"}
+            note={
+              section()
+                ? `${sectionCards().length} 处判定 · ${abnormalCount(section()!)} 处需要注意`
+                : "这个区域已经没有生效判定。"
+            }
+          />
 
-          <If when={data()!.total === 0}>
-            <Card testID="findings-empty">
-              <Text style={{ fontSize: 13, fontWeight: "bold", color: token("foreground") }}>
-                档案还是空的
-              </Text>
-              <Note text="跟 agent 聊一次：它给你几个验证动作，你做完把感受告诉它，它才会在档案上落判定。没有判定就没有可以变的计划。" />
-              <PrimaryButton
-                testID="findings-start-assessment"
-                label="去对话做首次评估"
-                onPress={props.onGoConversations}
-              />
-            </Card>
-          </If>
+          <View style={{ padding: 16, gap: 12 }}>
+            <If when={data()?.error}>
+              <Card testID="findings-error">
+                <Note tone="error" text={data()?.error ?? ""} />
+              </Card>
+            </If>
+            <If when={message()}>
+              <Card testID="findings-message">
+                <Note tone="accent" text={message() ?? ""} />
+              </Card>
+            </If>
 
-          <Each of={data()!.sections} key={(section) => section.id}>
-            {(section) => (
-              <View style={{ gap: 6 }}>
-                <View
-                  testID={`archive-section-${section().id}`}
-                  role="button"
-                  accessibilityLabel={`${section().label}，${section().cards.length} 处`}
-                  onPress={() => toggleSection(section().id)}
-                  style={{ flexDirection: "row", alignItems: "center" }}
-                >
-                  <SectionLabel text={section().label} />
-                  <View style={{ flex: 1 }} />
-                  <SectionLabel
-                    text={`${section().cards.length} 处 · ${
-                      collapsed().includes(section().id) ? "展开" : "收起"
-                    }`}
-                  />
-                </View>
-                <If when={!collapsed().includes(section().id)}>
-                  <Each
-                    of={section().cards}
-                    key={(card) => (card.side ? `${card.site}-${card.side}` : card.site)}
-                  >
-                    {(card) => {
-                      const slug = slugOf(card());
-                      return (
-                        <SiteRow
-                          card={card}
-                          expanded={expanded() === slug}
-                          timelineOpen={timeline() === slug}
-                          busy={busy() === slug}
-                          onToggle={() => {
-                            expanded.set(expanded() === slug ? null : slug);
-                            timeline.set(null);
-                          }}
-                          onToggleTimeline={() =>
-                            timeline.set(timeline() === slug ? null : slug)
-                          }
-                          onResolve={() => resolve(card(), slug)}
-                          onStartRetract={(finding) => {
-                            retracting.set({ slug, finding });
-                            reason.set("");
-                          }}
-                        />
-                      );
-                    }}
+            <If when={retracting() !== null}>
+              <Card testID="retract-form">
+                <SectionLabel
+                  text={`撤回「${retractingCard()?.siteZh ?? ""}${retractingCard()?.sideZh ?? ""}」${
+                    retractingAt() === null ? "" : ` ${fullDate(retractingAt() ?? 0)} 那条`
+                  }`}
+                />
+                <RetractForm
+                  slug={retracting()?.slug ?? ""}
+                  reason={reason()}
+                  onReason={(value) => reason.set(value)}
+                  onConfirm={retract}
+                  onCancel={() => {
+                    retracting.set(null);
+                    reason.set("");
+                  }}
+                />
+              </Card>
+            </If>
+
+            <If when={section() === undefined || sectionCards().length === 0}>
+              <Card testID="section-empty">
+                <Text style={{ fontSize: 13, fontWeight: "bold", color: token("foreground") }}>
+                  这个区域已经没有生效判定
+                </Text>
+                <Note text="撤回不会删除历史；依据日志里仍然留着它。" />
+                <PrimaryButton testID="section-back" label="回档案" onPress={props.onBack} />
+              </Card>
+            </If>
+
+            <If when={section() !== undefined && sectionCards().length > 0}>
+              <View style={{ gap: 8 }}>
+                <If when={section()?.kind === "muscle"}>
+                  <If when={groups().length > 0}>
+                    <SectionLabel text="肌群整体 · 成员最差值" />
+                  </If>
+                  <Each of={groups()} key={(group) => groupSlug(group)}>
+                    {(group) => <GroupRow group={group} />}
                   </Each>
                 </If>
-              </View>
-            )}
-          </Each>
 
-          <If when={data()!.groups.length > 0}>
-            <SectionLabel text="肌群整体 · 成员最差值" />
-          </If>
-          <Each of={data()!.groups} key={(group) => groupSlug(group)}>
-            {(group) => <GroupRow group={group} />}
-          </Each>
-        </View>
-      </If>
+                <If when={section()?.kind === "bone"}>
+                  <BoneWorst section={section() ?? emptySection} />
+                </If>
+
+                <If when={focusMissing()}>
+                  <Card testID="section-focus-missing">
+                    <Note
+                      tone="accent"
+                      text="这个动作对应的判定已经不在这个区域上了（可能被撤回）。"
+                    />
+                  </Card>
+                </If>
+
+                <Each
+                  of={sectionCards()}
+                  key={(card) => (card.side ? `${card.site}-${card.side}` : card.site)}
+                >
+                  {(card) => {
+                    const slug = slugOf(card());
+                    return (
+                      <SiteRow
+                        card={card}
+                        expanded={expanded() === slug}
+                        timelineOpen={timeline() === slug}
+                        busy={busy() === slug}
+                        onToggle={() => {
+                          expanded.set(expanded() === slug ? null : slug);
+                          timeline.set(null);
+                        }}
+                        onToggleTimeline={() =>
+                          timeline.set(timeline() === slug ? null : slug)
+                        }
+                        onResolve={() => resolve(card(), slug)}
+                        onStartRetract={(finding) => {
+                          retracting.set({ slug, finding });
+                          reason.set("");
+                        }}
+                      />
+                    );
+                  }}
+                </Each>
+              </View>
+            </If>
+          </View>
+        </If>
+      </Scroll>
     </View>
   );
 }
