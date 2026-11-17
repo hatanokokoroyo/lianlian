@@ -20,6 +20,7 @@ import {
   TextButton,
   TextField,
 } from "../ui/parts";
+import { typeScale } from "../ui/type";
 
 /** 「11月15日 周日」 */
 function todayLabel(): string {
@@ -71,7 +72,7 @@ function ProgressRing(props: { resolved: number; total: number }) {
       <Text
         accessibilityElementsHidden
         style={{
-          fontSize: 18,
+          fontSize: typeScale.display,
           fontWeight: "bold",
           fontVariant: ["tabular-nums"],
           color: token("foreground"),
@@ -117,9 +118,9 @@ function CheckBox(props: {
         }}
       >
         {props.done ? (
-          <Text style={{ fontSize: 12, color: token("primary-foreground") }}>✓</Text>
+          <Text style={{ fontSize: typeScale.body, color: token("primary-foreground") }}>✓</Text>
         ) : props.skipped ? (
-          <Text style={{ fontSize: 12, color: token("muted-foreground") }}>–</Text>
+          <Text style={{ fontSize: typeScale.body, color: token("muted-foreground") }}>–</Text>
         ) : null}
       </View>
     </View>
@@ -153,7 +154,7 @@ function ExerciseRow(props: {
       <View style={{ flex: 1, gap: 2 }}>
         <Text
           style={{
-            fontSize: 13,
+            fontSize: typeScale.item,
             color: resolved ? token("muted-foreground") : token("foreground"),
             textDecorationLine: exercise.done ? "line-through" : "none",
           }}
@@ -162,7 +163,7 @@ function ExerciseRow(props: {
         </Text>
         <Text
           style={{
-            fontSize: 10,
+            fontSize: typeScale.label,
             color: exercise.skipped ? token("accent") : token("muted-foreground"),
           }}
         >
@@ -201,13 +202,13 @@ function TodayDay(props: {
           <ProgressRing resolved={resolved} total={total} />
           <View style={{ flex: 1, gap: 4 }}>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-              <Text style={{ fontSize: 15, fontWeight: "bold", color: token("foreground") }}>
+              <Text style={{ fontSize: typeScale.item, fontWeight: "bold", color: token("foreground") }}>
                 {`${resolved}/${total} 项`}
               </Text>
               <Text
                 testID="today-state-label"
                 style={{
-                  fontSize: 10,
+                  fontSize: typeScale.label,
                   color: checkedIn ? token("primary") : token("muted-foreground"),
                 }}
               >
@@ -215,7 +216,7 @@ function TodayDay(props: {
               </Text>
             </View>
             {skipped > 0 ? (
-              <Text style={{ fontSize: 10, color: token("accent") }}>
+              <Text style={{ fontSize: typeScale.label, color: token("accent") }}>
                 {`其中 ${skipped} 项已跳过`}
               </Text>
             ) : null}
@@ -251,7 +252,7 @@ function TodayDay(props: {
 
         {checkedIn ? (
           <Card testID="checkin">
-            <Text style={{ fontSize: 15, fontWeight: "bold", color: token("primary") }}>
+            <Text style={{ fontSize: typeScale.item, fontWeight: "bold", color: token("primary") }}>
               今天这笔账结清了
             </Text>
             <Note text={`${total} 个动作都处理完了，日状态落为「已完成」。`} />
@@ -292,7 +293,7 @@ function Guidance(props: {
         <Card testID="today-rest">
           <Text
             testID="today-rest-title"
-            style={{ fontSize: 15, fontWeight: "bold", color: token("foreground") }}
+            style={{ fontSize: typeScale.item, fontWeight: "bold", color: token("foreground") }}
           >
             今天休息
           </Text>
@@ -308,7 +309,7 @@ function Guidance(props: {
         <Card testID="today-ready">
           <Text
             testID="today-ready-title"
-            style={{ fontSize: 15, fontWeight: "bold", color: token("foreground") }}
+            style={{ fontSize: typeScale.item, fontWeight: "bold", color: token("foreground") }}
           >
             {props.view.findings === 0 ? "可以开始首次评估" : "还没有计划"}
           </Text>
@@ -329,7 +330,7 @@ function Guidance(props: {
         <Card testID="today-needs-training">
           <Text
             testID="today-needs-training-title"
-            style={{ fontSize: 15, fontWeight: "bold", color: token("foreground") }}
+            style={{ fontSize: typeScale.item, fontWeight: "bold", color: token("foreground") }}
           >
             计划前需要先补训练条件
           </Text>
@@ -428,7 +429,7 @@ export function Today(props: {
 
             {data()!.plan?.reviewDue ? (
               <Card testID="today-review-due">
-                <Text style={{ fontSize: 13, fontWeight: "bold", color: token("accent") }}>
+                <Text style={{ fontSize: typeScale.item, fontWeight: "bold", color: token("accent") }}>
                   复查日到了
                 </Text>
                 <Note text="这份计划已经到期：跟 agent 说一声，让它按现在的档案重新排一版再练。" />
@@ -477,7 +478,7 @@ export function Today(props: {
         }}
         backdropStyle={{ backgroundColor: "rgba(0,0,0,0.6)" }}
       >
-        <Text style={{ fontSize: 15, fontWeight: "bold", color: token("foreground") }}>
+        <Text style={{ fontSize: typeScale.item, fontWeight: "bold", color: token("foreground") }}>
           整天推迟
         </Text>
         <Note text="把今天这一整天顺延到另一个没有训练的日子；今天的动作快照会跟着过去，原来那天回到休息日。" />
@@ -522,7 +523,7 @@ export function Today(props: {
         }}
         backdropStyle={{ backgroundColor: "rgba(0,0,0,0.6)" }}
       >
-        <Text style={{ fontSize: 15, fontWeight: "bold", color: token("foreground") }}>
+        <Text style={{ fontSize: typeScale.item, fontWeight: "bold", color: token("foreground") }}>
           跳过一项
         </Text>
         <Note text="跳过的动作不挡整天打卡；之后想补，点那一项就能补回来。" />

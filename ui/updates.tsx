@@ -10,6 +10,7 @@ import type { AppUpdate } from "nsh/updater";
 import { Updates } from "lianlian/native";
 
 import { PrimaryButton, TextButton } from "./parts";
+import { typeScale } from "./type";
 
 /** 一次检查的结果：用户跳过过的版本，加上查到的更新。 */
 export interface UpdateCheck {
@@ -63,11 +64,13 @@ export function UpdateBanner(props: {
         gap: 10,
       }}
     >
-      <Text style={{ fontSize: 13, fontWeight: "bold", color: token("primary") }}>
+      <Text style={{ fontSize: typeScale.item, fontWeight: "bold", color: token("primary") }}>
         {`新版本 ${props.found.version}`}
       </Text>
       {note ? (
-        <Text style={{ fontSize: 11, color: token("muted-foreground") }}>{note}</Text>
+        <Text style={{ fontSize: typeScale.label, color: token("muted-foreground") }}>
+          {note}
+        </Text>
       ) : null}
       <View style={{ gap: 8 }}>
         <PrimaryButton

@@ -9,6 +9,7 @@ import { ConversationsScreen } from "./screens/conversations";
 import { ProfileScreen } from "./screens/profile";
 import { Today } from "./screens/today";
 import { TabBar } from "./ui/parts";
+import { typeScale } from "./ui/type";
 import { checkForUpdates, rememberSkipped } from "./ui/updates";
 import type { UpdateCheck } from "./ui/updates";
 
@@ -24,7 +25,9 @@ function Loading() {
         justifyContent: "center",
       }}
     >
-      <Text style={{ fontSize: 12, color: token("muted-foreground") }}>正在读你的档案…</Text>
+      <Text style={{ fontSize: typeScale.body, color: token("muted-foreground") }}>
+        正在读你的档案…
+      </Text>
     </View>
   );
 }

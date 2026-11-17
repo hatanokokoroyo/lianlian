@@ -1,21 +1,23 @@
 // 屏上的共用零件。样式只取 design/contract.md §2 的 token，不写死颜色。
-import { Text, token, View } from "nsh";
+import { safeAreaInsets, Text, token, View } from "nsh";
 import type { JSX } from "nsh";
 import { Input } from "nsh/base";
+
+import { leading, typeScale } from "./type";
 
 /** 原生页与页面栈的底色：NavPage 默认白底，必须显式铺主题背景。 */
 export function pageStyle() {
   return { flex: 1, backgroundColor: token("background") } as const;
 }
 
-/** 小标题：10px、字距拉开的灰字。 */
+/** 小标题：12px、轻微字距的灰字。 */
 export function SectionLabel(props: { text: string; testID?: string }) {
   return (
     <Text
       testID={props.testID}
       style={{
-        fontSize: 10,
-        letterSpacing: 1.4,
+        fontSize: typeScale.label,
+        letterSpacing: 0.4,
         color: token("muted-foreground"),
       }}
     >
@@ -68,7 +70,7 @@ export function Chip(props: {
     >
       <Text
         style={{
-          fontSize: 11,
+          fontSize: typeScale.label,
           fontWeight: props.active ? "bold" : "normal",
           color: props.active
             ? token("primary-foreground")
@@ -116,7 +118,7 @@ export function PrimaryButton(props: {
     >
       <Text
         style={{
-          fontSize: 14,
+          fontSize: typeScale.body,
           fontWeight: "bold",
           color: props.disabled
             ? token("muted-foreground")
@@ -148,7 +150,7 @@ export function TextButton(props: {
         justifyContent: "center",
       }}
     >
-      <Text style={{ fontSize: 11, color: token("accent") }}>{props.label}</Text>
+      <Text style={{ fontSize: typeScale.label, color: token("accent") }}>{props.label}</Text>
     </View>
   );
 }
@@ -175,7 +177,7 @@ export function NumberField(props: {
           borderRadius: token("radius"),
           paddingHorizontal: 12,
           paddingVertical: 10,
-          fontSize: 14,
+          fontSize: typeScale.item,
           color: token("foreground"),
         }}
       />
@@ -203,7 +205,7 @@ export function TextField(props: {
         borderRadius: token("radius"),
         paddingHorizontal: 12,
         paddingVertical: 10,
-        fontSize: 13,
+        fontSize: typeScale.item,
         color: token("foreground"),
       }}
     />
@@ -224,7 +226,10 @@ export function Note(props: {
         ? token("accent")
         : token("muted-foreground");
   return (
-    <Text testID={props.testID} style={{ fontSize: 11, lineHeight: 18, color }}>
+    <Text
+      testID={props.testID}
+      style={{ fontSize: typeScale.body, lineHeight: leading.body, color }}
+    >
       {props.text}
     </Text>
   );
@@ -271,7 +276,8 @@ export function ScreenHeader(props: { eyebrow?: string; title: string; note?: st
       {props.eyebrow ? <SectionLabel text={props.eyebrow} /> : null}
       <Text
         style={{
-          fontSize: 20,
+          fontSize: typeScale.title,
+          lineHeight: leading.title,
           fontWeight: "bold",
           letterSpacing: -0.3,
           color: token("foreground"),
@@ -293,6 +299,7 @@ const TABS = [
 ] as const;
 
 export function TabBar(props: { current: string; onSelect: (key: string) => void }) {
+  const insets = safeAreaInsets();
   return (
     <View
       style={{
@@ -300,7 +307,7 @@ export function TabBar(props: { current: string; onSelect: (key: string) => void
         borderTopWidth: 1,
         borderColor: token("border"),
         paddingTop: 8,
-        paddingBottom: "env(safe-area-inset-bottom)",
+        paddingBottom: insets().bottom + 8,
       }}
     >
       {TABS.map((tab) => (
@@ -309,11 +316,16 @@ export function TabBar(props: { current: string; onSelect: (key: string) => void
           role="tab"
           accessibilityLabel={tab.zh}
           onPress={() => props.onSelect(tab.key)}
-          style={{ flex: 1, alignItems: "center", paddingVertical: 4 }}
+          style={{
+            flex: 1,
+            minHeight: 48,
+            alignItems: "center",
+            justifyContent: "center",
+          }}
         >
           <Text
             style={{
-              fontSize: 10,
+              fontSize: typeScale.label,
               color:
                 props.current === tab.key
                   ? token("primary")

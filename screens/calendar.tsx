@@ -18,6 +18,7 @@ import {
   SectionLabel,
   TextButton,
 } from "../ui/parts";
+import { leading, typeScale } from "../ui/type";
 
 const WEEKDAYS = ["一", "二", "三", "四", "五", "六", "日"];
 
@@ -61,12 +62,24 @@ function CellMark(props: { status: string }) {
   }
   if (props.status === "postponed") {
     return (
-      <Text style={{ fontSize: 8, lineHeight: 9, color: token("accent") }}>推迟</Text>
+      <Text
+        style={{ fontSize: typeScale.label, lineHeight: typeScale.label, color: token("accent") }}
+      >
+        推迟
+      </Text>
     );
   }
   if (props.status === "missed") {
     return (
-      <Text style={{ fontSize: 10, lineHeight: 10, color: token("border") }}>×</Text>
+      <Text
+        style={{
+          fontSize: typeScale.label,
+          lineHeight: typeScale.label,
+          color: token("muted-foreground"),
+        }}
+      >
+        ×
+      </Text>
     );
   }
   return null;
@@ -90,10 +103,17 @@ function Legend() {
             <View
               style={{ flexDirection: "row", alignItems: "center", gap: 5, minWidth: 72 }}
             >
-              <View style={{ width: 28, height: 14, alignItems: "center", justifyContent: "center" }}>
+              <View
+                style={{
+                  minWidth: 34,
+                  height: 18,
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
                 <CellMark status={row().status} />
               </View>
-              <Text style={{ fontSize: 10, color: token("muted-foreground") }}>
+              <Text style={{ fontSize: typeScale.label, color: token("muted-foreground") }}>
                 {row().label}
               </Text>
             </View>
@@ -139,10 +159,17 @@ function DayDetail(props: {
       <Scroll testID="day-detail-scroll" style={{ flex: 1 }} contentStyle={{ paddingBottom: 24 }}>
         <View style={{ paddingHorizontal: 16, paddingTop: 16, gap: 6 }}>
           <TextButton testID="back" label="← 返回月历" onPress={props.onBack} />
-          <Text style={{ fontSize: 11, color: token("muted-foreground") }}>
+          <Text style={{ fontSize: typeScale.label, color: token("muted-foreground") }}>
             {props.cell.date}
           </Text>
-          <Text style={{ fontSize: 20, fontWeight: "bold", color: token("foreground") }}>
+          <Text
+            style={{
+              fontSize: typeScale.title,
+              lineHeight: leading.title,
+              fontWeight: "bold",
+              color: token("foreground"),
+            }}
+          >
             {dayLabel(props.cell.date)}
           </Text>
         </View>
@@ -150,7 +177,7 @@ function DayDetail(props: {
         <View style={{ padding: 16, gap: 12 }}>
         {props.cell.status === "postponed" && !detail() ? (
           <Card testID="day-detail-postponed">
-            <Text style={{ fontSize: 13, fontWeight: "bold", color: token("accent") }}>
+            <Text style={{ fontSize: typeScale.item, fontWeight: "bold", color: token("accent") }}>
               这一天推迟了
             </Text>
             <Note
@@ -170,7 +197,7 @@ function DayDetail(props: {
         ) : detail() === null ? (
           props.cell.status === "postponed" ? null : (
             <Card testID="day-detail-rest">
-              <Text style={{ fontSize: 13, fontWeight: "bold", color: token("foreground") }}>
+              <Text style={{ fontSize: typeScale.item, fontWeight: "bold", color: token("foreground") }}>
                 这天没有安排
               </Text>
               <Note text="休息日也算训练的一部分；要改计划或补训练，去今日页或跟 agent 说。" />
@@ -180,13 +207,13 @@ function DayDetail(props: {
           <View style={{ gap: 10 }}>
             <Card testID="day-detail-state">
               <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                <Text style={{ fontSize: 13, fontWeight: "bold", color: token("foreground") }}>
+                <Text style={{ fontSize: typeScale.item, fontWeight: "bold", color: token("foreground") }}>
                   {detail()!.stateZh}
                 </Text>
                 <View style={{ flex: 1 }} />
                 <Text
                   style={{
-                    fontSize: 11,
+                    fontSize: typeScale.label,
                     fontVariant: ["tabular-nums"],
                     color: token("muted-foreground"),
                   }}
@@ -225,7 +252,7 @@ function DayDetail(props: {
                   <Text
                     style={{
                       width: 20,
-                      fontSize: 12,
+                      fontSize: typeScale.body,
                       color: exercise().done
                         ? token("primary")
                         : exercise().skipped
@@ -238,7 +265,7 @@ function DayDetail(props: {
                   <View style={{ flex: 1, gap: 2 }}>
                     <Text
                       style={{
-                        fontSize: 13,
+                        fontSize: typeScale.body,
                         color:
                           exercise().done || exercise().skipped
                             ? token("muted-foreground")
@@ -248,7 +275,7 @@ function DayDetail(props: {
                     >
                       {`${exercise().name} · ${exercise().prescription}`}
                     </Text>
-                    <Text style={{ fontSize: 10, color: token("muted-foreground") }}>
+                    <Text style={{ fontSize: typeScale.label, color: token("muted-foreground") }}>
                       {exercise().skipped
                         ? "已跳过"
                         : `来自「${exercise().siteZh}${exercise().sideZh ?? ""}」的判定`}
@@ -294,7 +321,7 @@ function DayDetail(props: {
         }}
         backdropStyle={{ backgroundColor: "rgba(0,0,0,0.6)" }}
       >
-        <Text style={{ fontSize: 15, fontWeight: "bold", color: token("foreground") }}>
+        <Text style={{ fontSize: typeScale.item, fontWeight: "bold", color: token("foreground") }}>
           补勾 {dayLabel(props.cell.date)}
         </Text>
         <Note text="只补勾，不改当时的动作快照；全部补完就转回已完成。" />
@@ -445,7 +472,7 @@ export function CalendarScreen(props: { onRootBack: () => void }) {
             <Each of={WEEKDAYS} key={(weekday) => weekday}>
               {(weekday) => (
                 <View style={{ flex: 1, alignItems: "center" }}>
-                  <Text style={{ fontSize: 10, color: token("muted-foreground") }}>
+                  <Text style={{ fontSize: typeScale.label, color: token("muted-foreground") }}>
                     {weekday()}
                   </Text>
                 </View>
@@ -489,7 +516,7 @@ export function CalendarScreen(props: { onRootBack: () => void }) {
                       {item().day > 0 ? (
                         <Text
                           style={{
-                            fontSize: 13,
+                            fontSize: typeScale.item,
                             fontVariant: ["tabular-nums"],
                             color: item().cell?.isToday
                               ? token("primary")

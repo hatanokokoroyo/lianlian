@@ -22,6 +22,7 @@ import {
   SectionLabel,
   TextButton,
 } from "../ui/parts";
+import { typeScale } from "../ui/type";
 
 const STEP_TITLES = ["先认识你一下", "你平时怎么练", "接下来是第一次评估"];
 
@@ -141,7 +142,7 @@ export function Onboarding(props: {
                 {step === 3 ? (
                   <Card testID="onboarding-step-3">
                     <Text
-                      style={{ fontSize: 13, fontWeight: "bold", color: token("foreground") }}
+                      style={{ fontSize: typeScale.item, fontWeight: "bold", color: token("foreground") }}
                     >
                       第一次评估大概这样
                     </Text>

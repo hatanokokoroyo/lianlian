@@ -13,6 +13,7 @@ import {
   TextButton,
   TextField,
 } from "./parts";
+import { typeScale } from "./type";
 
 /** 性别选项：「不填」是 null。 */
 const SEXES = [
@@ -196,7 +197,7 @@ export function BasicsFields(props: { draft: BasicsDraft }) {
                 paddingVertical: 9,
               }}
             >
-              <Text style={{ flex: 1, fontSize: 12, color: token("foreground") }}>
+              <Text style={{ flex: 1, fontSize: typeScale.body, color: token("foreground") }}>
                 {condition}
               </Text>
               <Text
@@ -208,7 +209,7 @@ export function BasicsFields(props: { draft: BasicsDraft }) {
                     draft.conditions().filter((item) => item !== condition),
                   )
                 }
-                style={{ fontSize: 12, color: token("destructive") }}
+                style={{ fontSize: typeScale.body, color: token("destructive") }}
               >
                 删
               </Text>

@@ -7,6 +7,7 @@ import { resource, Scroll, signal, Text, token, View } from "nsh";
 import { Settings } from "lianlian/native";
 
 import { Card, Note, PrimaryButton, ScreenHeader, SectionLabel, TextButton, TextField } from "../ui/parts";
+import { typeScale } from "../ui/type";
 
 export function SettingsScreen(props: { onBack: () => void }) {
   const settings = resource(() => Settings.load());
@@ -84,7 +85,7 @@ export function SettingsScreen(props: { onBack: () => void }) {
 
           <Card testID="settings-key">
             <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-              <Text style={{ fontSize: 13, fontWeight: "bold", color: token("foreground") }}>
+              <Text style={{ fontSize: typeScale.item, fontWeight: "bold", color: token("foreground") }}>
                 DeepSeek API key
               </Text>
               <SectionLabel text={settings()?.hasKey ? "已保存" : "未填"} />
@@ -135,7 +136,7 @@ export function SettingsScreen(props: { onBack: () => void }) {
 
           <Card testID="settings-tools">
             <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-              <Text style={{ fontSize: 13, fontWeight: "bold", color: token("foreground") }}>
+              <Text style={{ fontSize: typeScale.item, fontWeight: "bold", color: token("foreground") }}>
                 工具往返上限
               </Text>
               <SectionLabel text={`${settings()?.toolRounds ?? settings()?.roundsDefault ?? 6} 轮`} />

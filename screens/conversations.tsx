@@ -37,6 +37,7 @@ import {
   TextButton,
   TextField,
 } from "../ui/parts";
+import { leading, typeScale } from "../ui/type";
 
 /** 相对时间：今天 / 昨天 / N 天前 / 月-日。 */
 function relativeDay(at: number): string {
@@ -81,7 +82,9 @@ function MessagePhoto(props: { id: number; onOpen: () => void }) {
       {data() ? (
         <Image src={data()!} style={{ width: 200, height: 150, objectFit: "cover" }} />
       ) : (
-        <Text style={{ fontSize: 11, color: token("muted-foreground") }}>读照片…</Text>
+        <Text style={{ fontSize: typeScale.label, color: token("muted-foreground") }}>
+          读照片…
+        </Text>
       )}
     </View>
   );
@@ -116,8 +119,8 @@ function MessageRow(props: { message: MessageView; onOpenPhoto: (id: number) => 
         {props.message.text.trim() === "" ? null : (
           <Text
             style={{
-              fontSize: 13,
-              lineHeight: 20,
+              fontSize: typeScale.body,
+              lineHeight: leading.body,
               color: mine ? token("primary-foreground") : token("foreground"),
             }}
           >
@@ -126,7 +129,7 @@ function MessageRow(props: { message: MessageView; onOpenPhoto: (id: number) => 
         )}
         <Text
           style={{
-            fontSize: 9,
+            fontSize: typeScale.label,
             color: mine ? token("primary-foreground") : token("muted-foreground"),
             fontVariant: ["tabular-nums"],
           }}
@@ -157,7 +160,13 @@ function ThinkingBubble() {
           paddingVertical: 9,
         }}
       >
-        <Text style={{ fontSize: 13, lineHeight: 20, color: token("muted-foreground") }}>
+        <Text
+          style={{
+            fontSize: typeScale.body,
+            lineHeight: leading.body,
+            color: token("muted-foreground"),
+          }}
+        >
           思考中…
         </Text>
       </View>
@@ -390,7 +399,7 @@ function Chat(props: {
         <Text
           style={{
             flex: 1,
-            fontSize: 13,
+            fontSize: typeScale.item,
             fontWeight: "bold",
             color: token("foreground"),
           }}
@@ -546,9 +555,9 @@ function Chat(props: {
                   borderRadius: token("radius"),
                   paddingHorizontal: 12,
                   paddingVertical: 9,
-                  fontSize: 13,
-                  lineHeight: 20,
-                  height: Math.max(composerHeight(), 20) + 18,
+                  fontSize: typeScale.item,
+                  lineHeight: leading.item,
+                  height: Math.max(composerHeight(), leading.item) + 18,
                   color: token("foreground"),
                 }}
               />
@@ -621,7 +630,14 @@ function ProposalCard(props: {
     <View style={{ paddingHorizontal: 16, paddingBottom: 8 }}>
       <Card testID="proposal-card">
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-          <Text style={{ flex: 1, fontSize: 13, fontWeight: "bold", color: token("foreground") }}>
+          <Text
+            style={{
+              flex: 1,
+              fontSize: typeScale.item,
+              fontWeight: "bold",
+              color: token("foreground"),
+            }}
+          >
             {props.proposal.items.some((item) => item.state === "accepted")
               ? `已写进 ${props.proposal.items.filter((item) => item.state === "accepted").length} 项，还剩 ${pending.length} 项可审`
               : `它想改这 ${props.proposal.items.length} 处`}
@@ -648,7 +664,7 @@ function ProposalCard(props: {
               >
                 <CheckBubble checked={decided ? item.state === "accepted" : checked(item)} />
                 <View style={{ flex: 1, gap: 2 }}>
-                  <Text style={{ fontSize: 13, color: token("foreground") }}>
+                  <Text style={{ fontSize: typeScale.body, color: token("foreground") }}>
                     {item.siteZh}
                     {item.sideZh ?? ""}：{item.values}
                   </Text>
@@ -674,7 +690,13 @@ function ProposalCard(props: {
               {open ? (
                 <View style={{ paddingLeft: 30, gap: 4 }}>
                   {item.evidence.map((section) => (
-                    <Text style={{ fontSize: 11, lineHeight: 16, color: token("muted-foreground") }}>
+                    <Text
+                      style={{
+                        fontSize: typeScale.label,
+                        lineHeight: leading.label,
+                        color: token("muted-foreground"),
+                      }}
+                    >
                       {section.name}：{section.text}
                     </Text>
                   ))}
@@ -707,7 +729,7 @@ function ProposalCard(props: {
                       borderRadius: token("radius"),
                       paddingHorizontal: 12,
                       paddingVertical: 8,
-                      fontSize: 12,
+                      fontSize: typeScale.item,
                       color: token("foreground"),
                     }}
                   />
@@ -797,7 +819,7 @@ function AcceptedProposal(props: {
   return (
     <View style={{ paddingHorizontal: 16, paddingBottom: 8 }}>
       <Card testID={`accepted-proposal-${props.proposal.id}`}>
-        <Text style={{ fontSize: 12, color: token("foreground") }}>
+        <Text style={{ fontSize: typeScale.body, color: token("foreground") }}>
           已写进档案 {accepted.length} 项：
           {accepted.map((item) => `${item.siteZh}${item.sideZh ?? ""}`).join("、")}
         </Text>
@@ -859,7 +881,7 @@ function ConversationRow(props: {
           <Text
             style={{
               flex: 1,
-              fontSize: 13,
+              fontSize: typeScale.item,
               fontWeight: "bold",
               color: token("foreground"),
             }}

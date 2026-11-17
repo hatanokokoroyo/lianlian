@@ -28,6 +28,7 @@ import {
   TextButton,
   TextField,
 } from "../ui/parts";
+import { leading, typeScale } from "../ui/type";
 
 /** 一个「部位 + 侧别」在 testID 里的写法。 */
 function slugOf(card: SiteCardView): string {
@@ -123,12 +124,19 @@ function RegionTile(props: { section: SiteSectionView; onOpen: () => void }) {
       }}
     >
       <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-        <Text style={{ flex: 1, fontSize: 12, fontWeight: "bold", color: token("foreground") }}>
+        <Text
+          style={{
+            flex: 1,
+            fontSize: typeScale.body,
+            fontWeight: "bold",
+            color: token("foreground"),
+          }}
+        >
           {section.label}
         </Text>
         <Text
           style={{
-            fontSize: 10,
+            fontSize: typeScale.label,
             fontVariant: NUMBERS,
             color: token("muted-foreground"),
           }}
@@ -138,13 +146,13 @@ function RegionTile(props: { section: SiteSectionView; onOpen: () => void }) {
       </View>
       <Text
         style={{
-          fontSize: 10,
+          fontSize: typeScale.label,
           color: abnormal > 0 ? token("destructive") : token("muted-foreground"),
         }}
       >
         {worstText(worst)}
       </Text>
-      <Text style={{ fontSize: 10, color: token("muted-foreground") }}>
+      <Text style={{ fontSize: typeScale.label, color: token("muted-foreground") }}>
         {`${kind} · ${fullDate(latestAt(section))}`}
       </Text>
     </View>
@@ -165,7 +173,12 @@ function BoneWorst(props: { section: SiteSectionView }) {
       }}
     >
       <SectionLabel text="区域整体 · 最差的一条" />
-      <Text style={{ fontSize: 11, color: card ? token("destructive") : token("muted-foreground") }}>
+      <Text
+        style={{
+          fontSize: typeScale.label,
+          color: card ? token("destructive") : token("muted-foreground"),
+        }}
+      >
         {worstText(card)}
       </Text>
       <Note text="骨骼区域没有肌群聚合；这里取当前最差的一张卡。" />
@@ -205,7 +218,7 @@ function AxisChips(props: { axes: AxisChipView[]; testID: string }) {
           >
             <Text
               style={{
-                fontSize: 10,
+                fontSize: typeScale.label,
                 fontVariant: NUMBERS,
                 color: axis().abnormal
                   ? token("destructive-foreground")
@@ -229,7 +242,13 @@ function EvidenceLines(props: { testID: string; sections: EvidenceSectionView[] 
     <View testID={props.testID} style={{ gap: 4 }}>
       <Each of={props.sections} key={(section) => section.name}>
         {(section) => (
-          <Text style={{ fontSize: 11, lineHeight: 17, color: token("muted-foreground") }}>
+          <Text
+            style={{
+              fontSize: typeScale.label,
+              lineHeight: leading.label,
+              color: token("muted-foreground"),
+            }}
+          >
             {section().name}：{section().text}
           </Text>
         )}
@@ -296,20 +315,24 @@ function Timeline(props: {
             testID={`timeline-${props.slug}-entry`}
           >
             <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-              <Text style={{ fontSize: 11, fontVariant: NUMBERS, color: token("foreground") }}>
+              <Text
+                style={{ fontSize: typeScale.label, fontVariant: NUMBERS, color: token("foreground") }}
+              >
                 {fullDate(entry().at)} · {actionZh(entry().kind)}
               </Text>
               <If when={entry().kind !== "retract"}>
-                <Text style={{ fontSize: 11, color: token("foreground") }}>
+                <Text style={{ fontSize: typeScale.label, color: token("foreground") }}>
                   {entry().values}
                 </Text>
               </If>
               <If when={entry().current}>
-                <Text style={{ fontSize: 10, color: token("primary") }}>当前生效</Text>
+                <Text style={{ fontSize: typeScale.label, color: token("primary") }}>
+                  当前生效
+                </Text>
               </If>
             </View>
             <If when={entry().kind === "retract"}>
-              <Text style={{ fontSize: 10, color: token("destructive") }}>
+              <Text style={{ fontSize: typeScale.label, color: token("destructive") }}>
                 理由：{entry().reason ?? ""}
               </Text>
             </If>
@@ -369,7 +392,7 @@ function SiteRow(props: {
         <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
           <Text
             style={{
-              fontSize: 15,
+              fontSize: typeScale.item,
               fontWeight: "bold",
               color: card().resolved ? token("muted-foreground") : token("foreground"),
             }}
@@ -377,20 +400,26 @@ function SiteRow(props: {
             {card().siteZh}
           </Text>
           <If when={card().sideZh}>
-            <Text style={{ fontSize: 10, color: token("muted-foreground") }}>
+            <Text style={{ fontSize: typeScale.label, color: token("muted-foreground") }}>
               {card().sideZh}
             </Text>
           </If>
           <If when={card().resolved}>
             <Text
               testID={`site-${slug}-resolved`}
-              style={{ fontSize: 10, color: token("primary") }}
+              style={{ fontSize: typeScale.label, color: token("primary") }}
             >
               已解决
             </Text>
           </If>
           <View style={{ flex: 1 }} />
-          <Text style={{ fontSize: 10, fontVariant: NUMBERS, color: token("muted-foreground") }}>
+          <Text
+            style={{
+              fontSize: typeScale.label,
+              fontVariant: NUMBERS,
+              color: token("muted-foreground"),
+            }}
+          >
             {fullDate(card().at)}
           </Text>
         </View>
@@ -448,7 +477,7 @@ function PlanSummary(props: { plan: PlanView; onOpen: () => void }) {
   return (
     <Card testID="plan-card">
       <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-        <Text style={{ fontSize: 13, fontWeight: "bold", color: token("foreground") }}>
+        <Text style={{ fontSize: typeScale.item, fontWeight: "bold", color: token("foreground") }}>
           计划
         </Text>
         <SectionLabel
@@ -456,7 +485,13 @@ function PlanSummary(props: { plan: PlanView; onOpen: () => void }) {
           text={`第 ${props.plan.version} 版 · ${props.plan.frequency}`}
         />
         <View style={{ flex: 1 }} />
-        <Text style={{ fontSize: 10, fontVariant: NUMBERS, color: token("muted-foreground") }}>
+        <Text
+          style={{
+            fontSize: typeScale.label,
+            fontVariant: NUMBERS,
+            color: token("muted-foreground"),
+          }}
+        >
           复查 {fullDate(props.plan.reviewAt)}
         </Text>
       </View>
@@ -491,16 +526,22 @@ function GroupRow(props: { group: () => GroupWorstView }) {
       }}
     >
       <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-        <Text style={{ fontSize: 13, fontWeight: "bold", color: token("foreground") }}>
+        <Text style={{ fontSize: typeScale.item, fontWeight: "bold", color: token("foreground") }}>
           {props.group().zh}
         </Text>
         <If when={props.group().sideZh}>
-          <Text style={{ fontSize: 10, color: token("muted-foreground") }}>
+          <Text style={{ fontSize: typeScale.label, color: token("muted-foreground") }}>
             {props.group().sideZh}
           </Text>
         </If>
         <View style={{ flex: 1 }} />
-        <Text style={{ fontSize: 10, fontVariant: NUMBERS, color: token("muted-foreground") }}>
+        <Text
+          style={{
+            fontSize: typeScale.label,
+            fontVariant: NUMBERS,
+            color: token("muted-foreground"),
+          }}
+        >
           {props.group().memberCount} 块有判定
         </Text>
       </View>
@@ -538,7 +579,9 @@ export function FindingsOverview(props: {
         </If>
         <If when={plans()!.active === null && plans()!.error === null}>
           <Card testID="plan-empty">
-            <Text style={{ fontSize: 13, fontWeight: "bold", color: token("foreground") }}>
+            <Text
+              style={{ fontSize: typeScale.item, fontWeight: "bold", color: token("foreground") }}
+            >
               还没有计划
             </Text>
             <Note text="跟 agent 聊一次，让它按你的档案与训练条件排第一版。" />
@@ -573,7 +616,9 @@ export function FindingsOverview(props: {
 
         <If when={data()!.total === 0}>
           <Card testID="findings-empty">
-            <Text style={{ fontSize: 13, fontWeight: "bold", color: token("foreground") }}>
+            <Text
+              style={{ fontSize: typeScale.item, fontWeight: "bold", color: token("foreground") }}
+            >
               档案还是空的
             </Text>
             <Note text="跟 agent 聊一次：它给你几个验证动作，你做完把感受告诉它，它才会在档案上落判定。没有判定就没有可以变的计划。" />
@@ -617,7 +662,7 @@ export function FindingsOverview(props: {
                     <Text
                       style={{
                         flex: 1,
-                        fontSize: 12,
+                        fontSize: typeScale.body,
                         fontWeight: "bold",
                         color: token("foreground"),
                       }}
@@ -626,7 +671,7 @@ export function FindingsOverview(props: {
                     </Text>
                     <Text
                       style={{
-                        fontSize: 10,
+                        fontSize: typeScale.label,
                         fontVariant: NUMBERS,
                         color: token("destructive"),
                       }}
@@ -634,7 +679,7 @@ export function FindingsOverview(props: {
                       {`${abnormalCount(section())} 处`}
                     </Text>
                   </View>
-                  <Text style={{ fontSize: 10, color: token("destructive") }}>
+                  <Text style={{ fontSize: typeScale.label, color: token("destructive") }}>
                     {worstText(worstCard(section()))}
                   </Text>
                 </View>
@@ -734,7 +779,9 @@ export function PlanPage(props: {
 
           <If when={plan() === null && plans()!.error === null}>
             <Card testID="plan-page-empty">
-              <Text style={{ fontSize: 13, fontWeight: "bold", color: token("foreground") }}>
+              <Text
+                style={{ fontSize: typeScale.item, fontWeight: "bold", color: token("foreground") }}
+              >
                 还没有计划
               </Text>
               <Note text="先去对话做评估；有了判定，agent 才会排第一版。" />
@@ -749,7 +796,9 @@ export function PlanPage(props: {
           <If when={plan() !== null}>
             <Card testID="plan-page">
               <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                <Text style={{ fontSize: 13, fontWeight: "bold", color: token("foreground") }}>
+                <Text
+                  style={{ fontSize: typeScale.item, fontWeight: "bold", color: token("foreground") }}
+                >
                   生效计划
                 </Text>
                 <SectionLabel
@@ -759,7 +808,7 @@ export function PlanPage(props: {
                 <View style={{ flex: 1 }} />
                 <Text
                   style={{
-                    fontSize: 10,
+                    fontSize: typeScale.label,
                     fontVariant: NUMBERS,
                     color: token("muted-foreground"),
                   }}
@@ -781,10 +830,10 @@ export function PlanPage(props: {
                 {(exercise) => (
                   <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
                     <View style={{ flex: 1 }}>
-                      <Text style={{ fontSize: 12, color: token("foreground") }}>
+                      <Text style={{ fontSize: typeScale.body, color: token("foreground") }}>
                         {`${exercise().name} · ${exercise().prescription}`}
                       </Text>
-                      <Text style={{ fontSize: 10, color: token("muted-foreground") }}>
+                      <Text style={{ fontSize: typeScale.label, color: token("muted-foreground") }}>
                         {`来自「${exercise().siteZh}${exercise().sideZh ?? ""}」的判定`}
                       </Text>
                     </View>
@@ -813,7 +862,7 @@ export function PlanPage(props: {
                 <View testID="plan-versions-list" style={{ gap: 4 }}>
                   <Each of={plans()!.versions} key={(version) => String(version.id)}>
                     {(version) => (
-                      <Text style={{ fontSize: 10, color: token("muted-foreground") }}>
+                      <Text style={{ fontSize: typeScale.label, color: token("muted-foreground") }}>
                         {`第 ${version().version} 版 · ${version().frequency} · ${version()
                           .exercises.map(
                             (exercise) => `${exercise.name} ${exercise.prescription}`,
@@ -981,7 +1030,9 @@ export function FindingsSectionPage(props: {
 
             <If when={section() === undefined || sectionCards().length === 0}>
               <Card testID="section-empty">
-                <Text style={{ fontSize: 13, fontWeight: "bold", color: token("foreground") }}>
+                <Text
+                  style={{ fontSize: typeScale.item, fontWeight: "bold", color: token("foreground") }}
+                >
                   这个区域已经没有生效判定
                 </Text>
                 <Note text="撤回不会删除历史；依据日志里仍然留着它。" />

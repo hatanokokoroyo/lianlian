@@ -10,6 +10,7 @@ import type { SeriesView } from "lianlian/native";
 
 import { fullDate, shortDate } from "../ui/dates";
 import { Card, Chip, ChipRow, Note, NumberField, PrimaryButton, ScreenHeader, SectionLabel, TextButton } from "../ui/parts";
+import { typeScale } from "../ui/type";
 
 /** 一位或两位小数：体重 74.2，身高 168。 */
 function numberText(value: number): string {
@@ -52,15 +53,15 @@ function Chart(props: { series: SeriesView }) {
             format={(index: number) =>
               shortDate(props.series.points[Math.round(index)]?.at ?? 0)
             }
-            labelStyle={{ fontSize: 10, color: token("muted-foreground") }}
+            labelStyle={{ fontSize: typeScale.label, color: token("muted-foreground") }}
           />
         </Plot>
       </View>
       <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
-        <Text style={{ fontSize: 10, color: token("muted-foreground") }}>
+        <Text style={{ fontSize: typeScale.label, color: token("muted-foreground") }}>
           {shortDate(props.series.points[0].at)}
         </Text>
-        <Text style={{ fontSize: 10, color: token("muted-foreground") }}>
+        <Text style={{ fontSize: typeScale.label, color: token("muted-foreground") }}>
           {shortDate(props.series.points[props.series.points.length - 1].at)}
         </Text>
       </View>
@@ -83,7 +84,7 @@ function SeriesSection(props: {
         <Text
           testID={`measurement-current-${props.series.kind}`}
           style={{
-            fontSize: 26,
+            fontSize: typeScale.display,
             fontWeight: "bold",
             fontVariant: ["tabular-nums"],
             color: token("foreground"),
@@ -93,13 +94,15 @@ function SeriesSection(props: {
             ? "—"
             : numberText(props.series.current)}
         </Text>
-        <Text style={{ fontSize: 11, color: token("muted-foreground"), paddingBottom: 4 }}>
+        <Text
+          style={{ fontSize: typeScale.label, color: token("muted-foreground"), paddingBottom: 4 }}
+        >
           {props.series.unit}
         </Text>
         {props.series.change === null || props.series.change === undefined ? null : (
           <Text
             style={{
-              fontSize: 11,
+              fontSize: typeScale.label,
               color: props.series.change > 0 ? token("destructive") : token("primary"),
               paddingBottom: 4,
             }}
@@ -135,14 +138,14 @@ function SeriesSection(props: {
             <Text
               style={{
                 flex: 1,
-                fontSize: 12,
+                fontSize: typeScale.body,
                 fontVariant: ["tabular-nums"],
                 color: token("foreground"),
               }}
             >
               {numberText(point.value)} {props.series.unit}
             </Text>
-            <Text style={{ fontSize: 10, color: token("muted-foreground") }}>
+            <Text style={{ fontSize: typeScale.label, color: token("muted-foreground") }}>
               {fullDate(point.at)}
             </Text>
             {props.pending === point.id ? (

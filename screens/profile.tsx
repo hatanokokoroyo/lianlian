@@ -20,6 +20,7 @@ import {
   SectionLabel,
   TextButton,
 } from "../ui/parts";
+import { typeScale } from "../ui/type";
 
 /** 字节 → 「812 B」/「12.4 KB」/「3.1 MB」。 */
 function formatBytes(bytes: number): string {
@@ -228,17 +229,19 @@ function DataRow(props: {
       }}
     >
       <View style={{ flex: 1, gap: 2 }}>
-        <Text style={{ fontSize: 13, fontWeight: "bold", color: token("foreground") }}>
+        <Text style={{ fontSize: typeScale.item, fontWeight: "bold", color: token("foreground") }}>
           {props.title}
         </Text>
         <Text
           testID={props.summaryTestID}
-          style={{ fontSize: 10, color: token("muted-foreground") }}
+          style={{ fontSize: typeScale.label, color: token("muted-foreground") }}
         >
           {props.summary}
         </Text>
       </View>
-      <Text style={{ fontSize: 10, color: token("accent") }}>{`${props.action} ›`}</Text>
+      <Text
+        style={{ fontSize: typeScale.label, color: token("accent") }}
+      >{`${props.action} ›`}</Text>
     </View>
   );
 }
@@ -485,12 +488,12 @@ function StoragePage(props: { onBack: () => void }) {
                         paddingVertical: 3,
                       }}
                     >
-                      <Text style={{ flex: 1, fontSize: 11, color: token("foreground") }}>
+                      <Text style={{ flex: 1, fontSize: typeScale.label, color: token("foreground") }}>
                         {table().label}
                       </Text>
                       <Text
                         style={{
-                          fontSize: 11,
+                          fontSize: typeScale.label,
                           fontVariant: ["tabular-nums"],
                           color: token("muted-foreground"),
                         }}

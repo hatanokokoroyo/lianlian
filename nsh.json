@@ -1,7 +1,7 @@
 {
   "name": "练练",
   "id": "com.lianlian.app",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "build": 2,
   "updater": {
     "github": "hatanokokoroyo/lianlian",
@@ -12,19 +12,19 @@
     "cssVars": {
       "theme": {
         "radius": "20px",
-        "background": "#0f1114",
+        "background": "#14171c",
         "foreground": "#e8edf2",
-        "card": "#171a1f",
+        "card": "#1e232b",
         "card-foreground": "#e8edf2",
-        "muted": "#1e2229",
-        "muted-foreground": "#8a93a0",
+        "muted": "#272d36",
+        "muted-foreground": "#aab2bd",
         "primary": "#c8f04a",
         "primary-foreground": "#10120c",
         "accent": "#6ee7f0",
         "accent-foreground": "#06201f",
         "destructive": "#ff6b6b",
         "destructive-foreground": "#1a0b0b",
-        "border": "#23272e"
+        "border": "#353c47"
       }
     }
   }
