@@ -82,6 +82,10 @@ test("今日页：清单、勾选、打卡、重开仍在与没有计划时的�
   await app.press("id:send");
   await app.waitUntil(() => app.texts().some((text) => text.includes("计划排好了")));
 
+  // 聊天是整屏详情页：先回列表，底部 Tab 才出现。
+  await app.press("id:back");
+  await app.waitFor("id:new-conversation");
+
   // 今日页：今天的清单在，进度 0/2，状态是计划中。
   await app.press("id:tab-today");
   await app.waitFor("id:exercise-gluteus-medius-0");
@@ -189,6 +193,9 @@ async function openWithPlan() {
   await app.type("id:message-input", "帮我排计划");
   await app.press("id:send");
   await app.waitUntil(() => app.texts().some((text) => text.includes("计划排好了")));
+  // 聊天是整屏详情页：先回列表，底部 Tab 才出现。
+  await app.press("id:back");
+  await app.waitFor("id:new-conversation");
   await app.press("id:tab-today");
   await app.waitFor("id:exercise-gluteus-medius-0");
   return app;

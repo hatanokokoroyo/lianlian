@@ -2,7 +2,7 @@
 //
 // 测量是全库唯一允许单条删除的数据（ADR-0003 的例外），所以「删」只在这一屏。
 // 图表只认 design/contract.md §4：`Plot` 的 `Line` + `Dot`，不在实现里手画路径。
-import { resource, signal, Text, token, View } from "nsh";
+import { resource, Scroll, signal, Text, token, View } from "nsh";
 import { Plot, Dot, Grid, Line, PlotAxis } from "nsh/base/plot";
 import { BackHandler, isAvailable } from "nsh/mobile";
 import { Measurements } from "lianlian/native";
@@ -222,75 +222,77 @@ export function MeasurementsScreen(props: { onBack: () => void }) {
 
   return (
     <View style={{ flex: 1 }}>
-      <View style={{ paddingHorizontal: 16, paddingTop: 12 }}>
-        <TextButton testID="back" label="← 回档案" onPress={props.onBack} />
-      </View>
-      <ScreenHeader
-        eyebrow="测量"
-        title="身高与体重"
-        note="每次记录都留一条带时间的值，不覆盖旧的。"
-      />
-
-      {data() === undefined ? (
-        <View style={{ padding: 16 }}>
-          <Note text="正在读测量…" />
+      <Scroll testID="measurements-scroll" style={{ flex: 1 }} contentStyle={{ paddingBottom: 24 }}>
+        <View style={{ paddingHorizontal: 16, paddingTop: 12 }}>
+          <TextButton testID="back" label="← 回档案" onPress={props.onBack} />
         </View>
-      ) : (
-        <View style={{ padding: 16, gap: 12 }}>
-          {data()!.error ? (
-            <Card testID="measurements-error">
-              <Note tone="error" text={data()!.error ?? ""} />
-            </Card>
-          ) : null}
-          {message() ? (
-            <Card testID="measurements-message">
-              <Note tone="error" text={message()!} />
-            </Card>
-          ) : null}
+        <ScreenHeader
+          eyebrow="测量"
+          title="身高与体重"
+          note="每次记录都留一条带时间的值，不覆盖旧的。"
+        />
 
-          <Card>
-            <SectionLabel text="记一次" />
-            <ChipRow>
-              <Chip
-                testID="measurement-kind-weight"
-                label="体重"
-                active={kind() === "weight"}
-                onPress={() => kind.set("weight")}
-              />
-              <Chip
-                testID="measurement-kind-height"
-                label="身高"
-                active={kind() === "height"}
-                onPress={() => kind.set("height")}
-              />
-            </ChipRow>
-            <NumberField
-              testID="measurement-value"
-              label={kind() === "weight" ? "体重 kg" : "身高 cm"}
-              value={value()}
-              onChange={(next) => value.set(next)}
-              placeholder="例如 62.4"
-            />
-            <PrimaryButton testID="add-measurement" label="记一次" onPress={record} />
-          </Card>
+        {data() === undefined ? (
+          <View style={{ padding: 16 }}>
+            <Note text="正在读测量…" />
+          </View>
+        ) : (
+          <View style={{ padding: 16, gap: 12 }}>
+            {data()!.error ? (
+              <Card testID="measurements-error">
+                <Note tone="error" text={data()!.error ?? ""} />
+              </Card>
+            ) : null}
+            {message() ? (
+              <Card testID="measurements-message">
+                <Note tone="error" text={message()!} />
+              </Card>
+            ) : null}
 
-          {kind() === "weight" ? (
-            <SeriesSection
-              series={data()!.weight}
-              onDelete={remove}
-              pending={pending()}
-              setPending={(id) => pending.set(id)}
-            />
-          ) : (
-            <SeriesSection
-              series={data()!.height}
-              onDelete={remove}
-              pending={pending()}
-              setPending={(id) => pending.set(id)}
-            />
-          )}
-        </View>
-      )}
+            <Card>
+              <SectionLabel text="记一次" />
+              <ChipRow>
+                <Chip
+                  testID="measurement-kind-weight"
+                  label="体重"
+                  active={kind() === "weight"}
+                  onPress={() => kind.set("weight")}
+                />
+                <Chip
+                  testID="measurement-kind-height"
+                  label="身高"
+                  active={kind() === "height"}
+                  onPress={() => kind.set("height")}
+                />
+              </ChipRow>
+              <NumberField
+                testID="measurement-value"
+                label={kind() === "weight" ? "体重 kg" : "身高 cm"}
+                value={value()}
+                onChange={(next) => value.set(next)}
+                placeholder="例如 62.4"
+              />
+              <PrimaryButton testID="add-measurement" label="记一次" onPress={record} />
+            </Card>
+
+            {kind() === "weight" ? (
+              <SeriesSection
+                series={data()!.weight}
+                onDelete={remove}
+                pending={pending()}
+                setPending={(id) => pending.set(id)}
+              />
+            ) : (
+              <SeriesSection
+                series={data()!.height}
+                onDelete={remove}
+                pending={pending()}
+                setPending={(id) => pending.set(id)}
+              />
+            )}
+          </View>
+        )}
+      </Scroll>
     </View>
   );
 }

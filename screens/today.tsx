@@ -3,7 +3,7 @@
 // 三件事在这屏上分工明确：Rust 侧的 `Today.load` 决定「今天有没有训练、有哪几个动作、
 // 勾到哪了」，日状态机在 `domain::day`（全部勾完 = 已完成，取消勾选回到计划中）；
 // 这一屏只负责把它摆出来、把点击送回去。
-import { Canvas, resource, signal, Text, token, View } from "nsh";
+import { Canvas, resource, Scroll, signal, Text, token, View } from "nsh";
 import { Sheet } from "nsh/base";
 import { Today as TodayApi } from "lianlian/native";
 import type { DayView, TodayView } from "lianlian/native";
@@ -195,7 +195,7 @@ function TodayDay(props: {
   const resolved = props.day.done + props.day.skipped;
   const skipped = props.day.skipped;
   return (
-    <View style={{ gap: 12 }}>
+    <View style={{ flex: 1, gap: 12 }}>
       <Card testID="today-progress">
         <View style={{ flexDirection: "row", alignItems: "center", gap: 14 }}>
           <ProgressRing resolved={resolved} total={total} />
@@ -234,40 +234,46 @@ function TodayDay(props: {
         </View>
       </Card>
 
-      <SectionLabel testID="today-exercises" text="今天的动作" />
-      <Each
-        of={Array.from({ length: total }, (_, index) => index)}
-        key={(index) => index}
+      <Scroll
+        testID="today-exercises-scroll"
+        style={{ flex: 1 }}
+        contentStyle={{ gap: 12, paddingBottom: 24 }}
       >
-        {(index) => (
-          <ExerciseRow day={props.day} index={index()} onToggle={props.onToggle} />
-        )}
-      </Each>
-
-      {checkedIn ? (
-        <Card testID="checkin">
-          <Text style={{ fontSize: 15, fontWeight: "bold", color: token("primary") }}>
-            今天这笔账结清了
-          </Text>
-          <Note text={`${total} 个动作都处理完了，日状态落为「已完成」。`} />
-        </Card>
-      ) : null}
-
-      {checkedIn ? null : (
-        <View
-          style={{
-            flexDirection: "row",
-            justifyContent: "center",
-            gap: 24,
-            paddingVertical: 4,
-          }}
+        <SectionLabel testID="today-exercises" text="今天的动作" />
+        <Each
+          of={Array.from({ length: total }, (_, index) => index)}
+          key={(index) => index}
         >
-          <TextButton testID="postpone" label="整天推迟" onPress={props.onPostpone} />
-          <TextButton testID="skip-exercise" label="跳过一项" onPress={props.onSkip} />
-        </View>
-      )}
+          {(index) => (
+            <ExerciseRow day={props.day} index={index()} onToggle={props.onToggle} />
+          )}
+        </Each>
 
-      {props.busy ? <Note testID="today-busy" text="正在记下…" /> : null}
+        {checkedIn ? (
+          <Card testID="checkin">
+            <Text style={{ fontSize: 15, fontWeight: "bold", color: token("primary") }}>
+              今天这笔账结清了
+            </Text>
+            <Note text={`${total} 个动作都处理完了，日状态落为「已完成」。`} />
+          </Card>
+        ) : null}
+
+        {checkedIn ? null : (
+          <View
+            style={{
+              flexDirection: "row",
+              justifyContent: "center",
+              gap: 24,
+              paddingVertical: 4,
+            }}
+          >
+            <TextButton testID="postpone" label="整天推迟" onPress={props.onPostpone} />
+            <TextButton testID="skip-exercise" label="跳过一项" onPress={props.onSkip} />
+          </View>
+        )}
+
+        {props.busy ? <Note testID="today-busy" text="正在记下…" /> : null}
+      </Scroll>
     </View>
   );
 }
@@ -413,7 +419,7 @@ export function Today(props: {
             <Note text="正在读今天的安排…" />
           </Card>
         ) : (
-          <View style={{ gap: 12 }}>
+          <View style={{ flex: 1, gap: 12 }}>
             {data()!.error ? (
               <Card testID="today-error">
                 <Note tone="error" text={data()!.error ?? ""} />

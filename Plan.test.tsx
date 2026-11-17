@@ -78,6 +78,10 @@ test("计划生成：档案页可见、动作点回判定、版本可查、复�
   await app.press("id:send");
   await app.waitUntil(() => app.texts().some((text) => text.includes("计划排好了")));
 
+  // 聊天是整屏详情页：先回列表，底部 Tab 才出现。
+  await app.press("id:back");
+  await app.waitFor("id:new-conversation");
+
   // 档案页可见：频次、动作与处方。
   await app.press("id:tab-profile");
   await app.waitFor("id:plan-card");

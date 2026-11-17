@@ -65,7 +65,7 @@ v1 只有一种模式（深色）。全部值放在 `theme` 一节下，`light`/
 | `div` 容器 / 卡片 | `View` + `bg-card` `rounded-(--radius)` | 一律 flexbox，禁用 grid 做主体布局 |
 | 文字 | `Text` | 数字必须 `fontVariant: tabular-nums` |
 | 可点区域 | `View` + `role="button"` + `onPress` | 命中区 ≥ 44px；禁用态用 `disabled` 属性而不是只改颜色 |
-| 底部 Tab（4 项） | **自绘**：`View` 一行 4 个 press 区 | 不用 `nsh/mobile` 的 `TabBar`——系统 tab 样式与原型差异大；若日后要系统一致性再换，改这一处即可 |
+| 底部 Tab（4 项） | **自绘**：`View` 一行 4 个 press 区 | 不用 `nsh/mobile` 的 `TabBar`——系统 tab 样式与原型差异大；若日后要系统一致性再换，改这一处即可。只在四个顶层页显示；进入单个会话时隐藏 |
 | 页面切换 | `NavStack` / `NavPage` | 每个 Tab 一个页面；详情页（日详情、设置、体重）用 push |
 | 完成度环 | **`Canvas` + `arc` + `lineCap: round`**，数字用 `Text` 绝对定位叠在上面 | 见 §6.1；不要 `fillText` |
 | 动作列表 | 短列表用 `View` 序列，长列表用 `List` | 今日页 ≤ 10 项，用 View |
@@ -138,6 +138,9 @@ v1 只有一种模式（深色）。全部值放在 `theme` 一节下，`light`/
 
 4 项固定顺序：今日 / 日历 / 对话 / 档案。当前项 `primary`，其余 `muted-foreground`；切 Tab 不重置各自页面栈。
 
+单个会话是详情页：进入时隐藏底部 Tab，聊天占满整屏；返回会话列表后恢复。
+输入条随软键盘上浮，最高五行，超过五行后在框内滚动。
+
 ## 7. testID 规范
 
 - kebab-case、语义命名、**英文 id + 中文由 agent 翻译**；与领域词表对齐（用 `site-` `exercise-` `proposal-` 这类前缀）。
@@ -148,17 +151,17 @@ v1 只有一种模式（深色）。全部值放在 `theme` 一节下，`light`/
 
 | 前缀 | testID |
 |---|---|
-| 今日 | `tab-today` `open-calendar` `today-loading` `today-progress` `today-ring` `today-state` `today-state-label` `today-exercises` `exercise-{site}-{n}`（`n` 是当天第几个动作，0 起）`checkin` `today-busy` `postpone` `postpone-target` `postpone-confirm` `postpone-cancel` `postpone-error` `skip-exercise` `skip-option-{n}` `skip-cancel` `skip-error` `view-evidence` `today-review-due` `today-rest` `today-rest-title` `today-ready` `today-ready-title` `today-start-assessment` `today-needs-training` `today-needs-training-title` `today-fill-training` `today-error` |
-| 日历 | `tab-calendar` `day-{1..31}` `prev-month` `next-month` `calendar-loading` `calendar-error` `calendar-legend` `day-detail` `day-detail-state` `day-detail-postponed` `day-detail-rest` `day-detail-exercise-{n}` `day-detail-error` `make-up` `makeup-exercise-{n}` `makeup-cancel` |
+| 今日 | `tab-today` `open-calendar` `today-loading` `today-progress` `today-ring` `today-state` `today-state-label` `today-exercises` `today-exercises-scroll` `exercise-{site}-{n}`（`n` 是当天第几个动作，0 起）`checkin` `today-busy` `postpone` `postpone-target` `postpone-confirm` `postpone-cancel` `postpone-error` `skip-exercise` `skip-option-{n}` `skip-cancel` `skip-error` `view-evidence` `today-review-due` `today-rest` `today-rest-title` `today-ready` `today-ready-title` `today-start-assessment` `today-needs-training` `today-needs-training-title` `today-fill-training` `today-error` |
+| 日历 | `tab-calendar` `day-{1..31}` `prev-month` `next-month` `calendar-loading` `calendar-error` `calendar-legend` `day-detail` `day-detail-scroll` `day-detail-state` `day-detail-postponed` `day-detail-rest` `day-detail-exercise-{n}` `day-detail-error` `make-up` `makeup-exercise-{n}` `makeup-cancel` |
 | 档案 | `tab-profile` `profile-scroll` `archive-section-{id}`（可折叠的区域标题）`site-{site}-{left\|right}`（中线结构 `site-{site}`）`site-{slug}-resolved` `site-{slug}-evidence` `site-{slug}-axis-{axis}` `mark-resolved-{slug}` `retract-{slug}` `retract-reason-{slug}` `retract-confirm-{slug}` `retract-cancel-{slug}` `retract-form` `open-timeline-{slug}` `timeline-{slug}` `timeline-{slug}-entry` `timeline-{slug}-evidence-{n}` `retract-entry-{slug}-{n}`（`n` 是时间线里的第几条，0 起）`group-{group}-{left\|right}`（中线聚合是 `group-{group}`）`group-{slug}-axis-{axis}` `findings-empty` `findings-start-assessment` `findings-message` `findings-error` `open-measurements` `open-settings` `save-basics` `save-training` `profile-measurements` `profile-body-metrics` `profile-training` `profile-training-missing` `profile-error` `profile-saved` `storage-capacity` `storage-table-{id}` |
-| 会话 | `tab-conversations` `new-conversation` `conv-{slug}` `conv-menu` `archive-conv` `delete-conv` `message-input` `pick-photo` `photo-pending` `remove-photo` `photo-error` `message-photo-{id}` `photo-preview` `close-photo-preview` `send` `conv-actions` `undo` |
+| 会话 | `tab-conversations` `conversation-list-scroll` `new-conversation` `conv-{slug}` `conv-menu` `archive-conv` `delete-conv` `message-input` `pick-photo` `photo-pending` `remove-photo` `photo-error` `message-photo-{id}` `photo-preview` `close-photo-preview` `send` `conv-actions` `undo` |
 | 提议 | `proposal-card` `proposal-item-{n}` `proposal-evidence-{n}` `reject-item-{n}` `reject-proposal` `reject-reason` `cancel-reject` `accept-proposal` `accepted-proposal-{id}` `undo` `undo-reason` `undo-confirm` `cancel-undo` `proposal-error` |
 | 计划 | `plan-card` `plan-version` `plan-exercise-{n}` `plan-versions` `plan-versions-list` `plan-review-due` `plan-error` `today-review-due` |
-| 体重 | `weight-chart` `add-measurement` `delete-measurement` |
+| 体重 | `measurements-scroll` `weight-chart` `add-measurement` `delete-measurement` |
 | 引导 | `onboarding-next` `onboarding-prev` `onboarding-step-3` `onboarding-error` |
 | 基本属性 | `basics-sex-{female\|male\|none}` `basics-age` `basics-height` `basics-weight` `condition-input` `condition-add` `condition-remove-{n}` |
 | 训练条件 | `training-days-{2\|3\|4\|5}` `training-minutes-{15\|30\|45}` `training-place-{home\|gym\|office\|outdoor}` `training-equipment-{band\|dumbbell-8kg\|mat\|foam-roller\|nothing}` |
-| 设置 | `api-key` `reveal-key` `settings-tools` `tool-rounds` `save-tool-rounds` |
+| 设置 | `settings-scroll` `api-key` `reveal-key` `settings-tools` `tool-rounds` `save-tool-rounds` |
 | 通用 | `back` `open-conversations` |
 
 ## 8. 不可迁移项与替代（原型里"能做"、NSH 里"别做"）

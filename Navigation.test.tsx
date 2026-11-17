@@ -69,8 +69,12 @@ test("系统返回键从聊天回到会话列表", async () => {
   await app.waitFor("id:new-conversation");
   await app.press("id:new-conversation");
   await app.waitFor("id:message-input");
+  // 聊天是整屏详情页：底部 Tab 让位给输入条。
+  expect(app.shows("id:tab-today")).toBe(false);
 
   await app.back();
+  await app.waitFor("id:new-conversation");
+  expect(app.shows("id:tab-today")).toBe(true);
 
   await app.waitFor("id:new-conversation");
   expect(app.shows("id:message-input")).toBe(false);

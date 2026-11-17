@@ -140,6 +140,9 @@ test("请求超长自动裁剪最旧的历史重发一次，并提示开新会�
   expect(body(1).input.length).toBe(5); // 系统 + 2 条历史 + 状态 + 本轮
   expect(body(2).input.length).toBe(3); // 裁掉历史后重发：系统 + 状态 + 本轮
   expect(body(0).input[0].content).toContain("当前状态在最后一条消息之前给出");
+  expect(body(0).input[0].content).toContain("scapula 肩胛骨");
+  expect(body(0).input[0].content).toContain("不要向用户询问、复述或确认部位名");
+  expect(body(0).input[0].content).toContain("这个我不聊");
   expect(body(0).input[1].content).toContain("【当前状态】");
   expect(body(0).input[2].content).toContain("超长测试");
 

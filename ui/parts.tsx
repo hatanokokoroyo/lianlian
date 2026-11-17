@@ -108,6 +108,7 @@ export function PrimaryButton(props: {
       onPress={props.onPress}
       style={{
         borderRadius: 999,
+        paddingHorizontal: 20,
         paddingVertical: 14,
         alignItems: "center",
         backgroundColor: props.disabled ? token("muted") : token("primary"),
@@ -141,6 +142,11 @@ export function TextButton(props: {
       role="button"
       accessibilityLabel={props.hint ?? props.label}
       onPress={props.onPress}
+      style={{
+        minWidth: 44,
+        minHeight: 44,
+        justifyContent: "center",
+      }}
     >
       <Text style={{ fontSize: 11, color: token("accent") }}>{props.label}</Text>
     </View>

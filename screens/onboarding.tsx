@@ -132,7 +132,12 @@ export function Onboarding(props: {
                     </View>
                   </View>
                 ) : null}
-                {step === 2 ? <TrainingFields draft={training} /> : null}
+                {step === 2 ? (
+                  <View style={{ gap: 16 }}>
+                    <TrainingFields draft={training} />
+                    <Note text="缺这几项，agent 会先问你，不会直接给你排计划。" />
+                  </View>
+                ) : null}
                 {step === 3 ? (
                   <Card testID="onboarding-step-3">
                     <Text

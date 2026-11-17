@@ -3,7 +3,7 @@
 // 格子状态由 Rust 侧的 `Days.range` 算好（`domain::day::calendar_cell`），这一屏
 // 只负责铺 35/42 格、加今天标记、把点击送进日详情。日详情本身不编辑历史动作：
 // 漏掉的那一天另开「补勾」入口，改期则在今日页。
-import { resource, signal, Text, token, View } from "nsh";
+import { resource, Scroll, signal, Text, token, View } from "nsh";
 import { createNavStack, NavPage, NavStack, Sheet } from "nsh/base";
 import { Days, Today } from "lianlian/native";
 import type { CalendarCellView, DayView } from "lianlian/native";
@@ -90,7 +90,7 @@ function Legend() {
             <View
               style={{ flexDirection: "row", alignItems: "center", gap: 5, minWidth: 72 }}
             >
-              <View style={{ width: 14, height: 14, alignItems: "center", justifyContent: "center" }}>
+              <View style={{ width: 28, height: 14, alignItems: "center", justifyContent: "center" }}>
                 <CellMark status={row().status} />
               </View>
               <Text style={{ fontSize: 10, color: token("muted-foreground") }}>
@@ -136,17 +136,18 @@ function DayDetail(props: {
 
   return (
     <View style={{ flex: 1 }} testID="day-detail">
-      <View style={{ paddingHorizontal: 16, paddingTop: 16, gap: 6 }}>
-        <TextButton testID="back" label="← 返回月历" onPress={props.onBack} />
-        <Text style={{ fontSize: 11, color: token("muted-foreground") }}>
-          {props.cell.date}
-        </Text>
-        <Text style={{ fontSize: 20, fontWeight: "bold", color: token("foreground") }}>
-          {dayLabel(props.cell.date)}
-        </Text>
-      </View>
+      <Scroll testID="day-detail-scroll" style={{ flex: 1 }} contentStyle={{ paddingBottom: 24 }}>
+        <View style={{ paddingHorizontal: 16, paddingTop: 16, gap: 6 }}>
+          <TextButton testID="back" label="← 返回月历" onPress={props.onBack} />
+          <Text style={{ fontSize: 11, color: token("muted-foreground") }}>
+            {props.cell.date}
+          </Text>
+          <Text style={{ fontSize: 20, fontWeight: "bold", color: token("foreground") }}>
+            {dayLabel(props.cell.date)}
+          </Text>
+        </View>
 
-      <View style={{ flex: 1, padding: 16, gap: 12 }}>
+        <View style={{ padding: 16, gap: 12 }}>
         {props.cell.status === "postponed" && !detail() ? (
           <Card testID="day-detail-postponed">
             <Text style={{ fontSize: 13, fontWeight: "bold", color: token("accent") }}>
@@ -274,7 +275,8 @@ function DayDetail(props: {
             {message() ? <Note tone="error" testID="day-detail-error" text={message() ?? ""} /> : null}
           </View>
         )}
-      </View>
+        </View>
+      </Scroll>
 
       <Sheet
         open={makingUp()}

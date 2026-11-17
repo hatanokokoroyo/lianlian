@@ -75,6 +75,10 @@ test("档案页：分组、依据、时间线、已解决与撤回", async () =>
   await app.press("id:accept-proposal");
   await app.waitUntil(() => app.texts().some((text) => text.includes("已写进档案 3 项")));
 
+  // 聊天是整屏详情页：先回列表，底部 Tab 才出现。
+  await app.press("id:back");
+  await app.waitFor("id:new-conversation");
+
   // 档案页：空档案的引导不再出现，部位按肌群分组。
   await app.press("id:tab-profile");
   await app.waitFor("id:site-gluteus-medius-left");

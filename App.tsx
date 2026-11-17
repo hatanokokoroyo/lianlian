@@ -36,6 +36,13 @@ function App() {
   const update = resource(() => checkForUpdates());
   // 从对话的错误态跳去设置：切 Tab 后由档案页把自己推到设置页。
   const profileIntent = signal<"none" | "settings">("none");
+  // 聊天是详情页：它占满整屏，底部 Tab 只在四个顶层页出现。
+  const chatOpen = signal(false);
+
+  const selectTab = (next: Tab) => {
+    tab.set(next);
+    chatOpen.set(false);
+  };
 
   // 注意：accessor 的读取都写在 JSX 里——NSH 只跟踪渲染期间读到的信号，
   // 在函数体里读会让「读库完成」这件事没人订阅，页面就永远停在加载态。
@@ -54,8 +61,8 @@ function App() {
           <View style={{ flex: 1 }}>
             {tab() === "today" ? (
               <Today
-                onGoProfile={() => tab.set("profile")}
-                onGoConversations={() => tab.set("conversations")}
+                onGoProfile={() => selectTab("profile")}
+                onGoConversations={() => selectTab("conversations")}
                 update={update()}
                 onDismissUpdate={(version) => {
                   // 先落盘再重查：跳过的版本由 Rust 侧记住，重查后提示条自己消失。
@@ -76,25 +83,28 @@ function App() {
                 state={profile()!}
                 drafts={profileDrafts(profile()!)}
                 onSaved={() => profile.refetch()}
-                onGoConversations={() => tab.set("conversations")}
+                onGoConversations={() => selectTab("conversations")}
                 settingsRequest={profileIntent}
-                onRootBack={() => tab.set("today")}
+                onRootBack={() => selectTab("today")}
               />
             ) : null}
             {tab() === "calendar" ? (
-              <CalendarScreen onRootBack={() => tab.set("today")} />
+              <CalendarScreen onRootBack={() => selectTab("today")} />
             ) : null}
             {tab() === "conversations" ? (
               <ConversationsScreen
                 onOpenSettings={() => {
-                  tab.set("profile");
+                  selectTab("profile");
                   profileIntent.set("settings");
                 }}
-                onRootBack={() => tab.set("today")}
+                onRootBack={() => selectTab("today")}
+                onChatOpenChange={(open) => chatOpen.set(open)}
               />
             ) : null}
           </View>
-          <TabBar current={tab()} onSelect={(next) => tab.set(next as Tab)} />
+          {tab() === "conversations" && chatOpen() ? null : (
+            <TabBar current={tab()} onSelect={(next) => selectTab(next as Tab)} />
+          )}
         </View>
       ) : (
         <Onboarding

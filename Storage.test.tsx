@@ -68,6 +68,10 @@ test("容量仪表、归档与删除会话后的依据日志", async () => {
   const id = (await Conversations.list()).active[0].id;
   expect((await Findings.load()).total).toBe(1);
 
+  // 聊天是整屏详情页：先回列表，底部 Tab 才出现。
+  await app.press("id:back");
+  await app.waitFor("id:new-conversation");
+
   await app.press("id:tab-profile");
   await app.waitFor("id:storage-capacity");
   await app.waitFor("id:storage-table-evidence");

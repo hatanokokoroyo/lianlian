@@ -2,7 +2,18 @@
 // 归档的折叠在底部；删除清消息正文与照片，依据日志保留（ADR-0005 修订）。
 //
 // 消息列表用 `List`（长会话靠虚拟化滚动），输入条固定在下沿。
-import { Image, List, resource, signal, Text, token, View } from "nsh";
+import {
+  Image,
+  keyboardFrame,
+  List,
+  resource,
+  safeAreaInsets,
+  Scroll,
+  signal,
+  Text,
+  token,
+  View,
+} from "nsh";
 import { createNavStack, Dialog, Input, NavPage, NavStack } from "nsh/base";
 import { BackHandler, isAvailable } from "nsh/mobile";
 import { Conversations, Photos, Proposals } from "lianlian/native";
@@ -140,7 +151,12 @@ function Chat(props: {
   onOpenSettings: () => void;
 }) {
   const detail = resource(() => Conversations.open(props.id));
-  const draft = signal(drafts.get(props.id) ?? "");
+  const cachedDraft = drafts.get(props.id) ?? "";
+  const draft = signal(cachedDraft);
+  /** 输入框当前应显示的高度：一行 20，最多五行 100；超过后框内滚动。 */
+  const composerHeight = signal(
+    Math.min(100, Math.max(20, cachedDraft.split("\n").length * 20)),
+  );
   const busy = signal(false);
   const failure = signal<ChatErrorView | null>(null);
   /** 这一轮待发的照片（选好但还没发出去）。 */
@@ -149,6 +165,7 @@ function Chat(props: {
   const preview = signal<string | null>(null);
   const photoError = signal<string | null>(null);
   const proposalError = signal<string | null>(null);
+  const insets = safeAreaInsets();
 
   const acceptProposal = async (selected: number[]) => {
     const proposal = detail()?.pendingProposal;
@@ -236,6 +253,7 @@ function Chat(props: {
     } else {
       writeDraft("");
       attached.set(null);
+      composerHeight.set(20);
     }
     detail.refetch();
     props.onChanged();
@@ -318,15 +336,21 @@ function Chat(props: {
           </Card>
         </View>
       ) : (
-        <View style={{ flex: 1 }}>
+        <View style={{ flex: 1, paddingBottom: "env(keyboard-inset-height)" }}>
           <List
             testID="message-list"
             each={detail()!.messages}
             keyExtractor={(message: MessageView) => String(message.id)}
             initialScrollAtEnd
+            maintainVisibleContentPosition={{ autoscrollToBottomThreshold: 80 }}
+            keyboardDismissMode="interactive"
             style={{ flex: 1 }}
             contentStyle={{ paddingTop: 8, paddingBottom: 8 }}
-            empty={<Note text="还没有消息。说点什么，它会先把它记下来。" />}
+            empty={
+              <View style={{ paddingHorizontal: 16 }}>
+                <Note text="还没有消息。说点什么，它会先把它记下来。" />
+              </View>
+            }
           >
             {(message: () => MessageView) => (
               <MessageRow
@@ -427,13 +451,13 @@ function Chat(props: {
           <View
             style={{
               flexDirection: "row",
-              alignItems: "center",
+              alignItems: "flex-end",
               gap: 8,
               paddingHorizontal: 16,
-              paddingVertical: 10,
+              paddingTop: 10,
+              paddingBottom: 10 + (keyboardFrame().height > 0 ? 0 : insets().bottom),
               borderTopWidth: 1,
               borderColor: token("border"),
-              paddingBottom: "env(safe-area-inset-bottom)",
             }}
           >
             <TextButton testID="pick-photo" label="照片" onPress={pick} />
@@ -444,12 +468,15 @@ function Chat(props: {
                 multiline
                 placeholder="说点什么…"
                 onChange={(event) => writeDraft(event.value)}
+                onContentSizeChange={({ size }) => composerHeight.set(Math.min(size.height, 100))}
                 style={{
                   backgroundColor: token("muted"),
                   borderRadius: token("radius"),
                   paddingHorizontal: 12,
                   paddingVertical: 9,
                   fontSize: 13,
+                  lineHeight: 20,
+                  height: Math.max(composerHeight(), 20) + 18,
                   color: token("foreground"),
                 }}
               />
@@ -827,6 +854,7 @@ type ChatRoute = { name: "list" } | { name: "chat"; id: number };
 export function ConversationsScreen(props: {
   onOpenSettings: () => void;
   onRootBack: () => void;
+  onChatOpenChange: (open: boolean) => void;
 }) {
   const list = resource(() => Conversations.list());
   const nav = createNavStack<ChatRoute>([{ name: "list" }]);
@@ -891,6 +919,7 @@ export function ConversationsScreen(props: {
       state={nav}
       style={pageStyle()}
       onChange={(event) => {
+        props.onChatOpenChange(event.routes.length > 1);
         if (event.routes.length === 1) {
           list.refetch();
         }
@@ -905,7 +934,11 @@ export function ConversationsScreen(props: {
             onBackPress={props.onRootBack}
             style={pageStyle()}
           >
-            <View style={{ flex: 1 }}>
+            <Scroll
+              testID="conversation-list-scroll"
+              style={{ flex: 1 }}
+              contentStyle={{ paddingBottom: 24 }}
+            >
           <ScreenHeader
             eyebrow="对话"
             title="和练练聊"
@@ -994,7 +1027,7 @@ export function ConversationsScreen(props: {
               </View>
             ) : null}
           </View>
-            </View>
+            </Scroll>
           </NavPage>
         ) : (
           <NavPage title="对话" headerVisible={false} style={pageStyle()}>
