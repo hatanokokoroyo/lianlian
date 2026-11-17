@@ -331,7 +331,15 @@ pub struct ChatErrorView {
 #[derive(Debug, Clone, PartialEq, JsObject)]
 pub struct SendResultView {
     pub messages: Vec<MessageView>,
-    /// 有值时这一轮没有落库（用户那句话仍在输入框里，不丢）。
+    /// 有值时这一轮没有跑完；用户消息可能已经落库（`messages` 里看得到）。
+    pub error: Option<ChatErrorView>,
+}
+
+/// 发送第一步：用户消息是否已经落库。
+#[derive(Debug, Clone, PartialEq, JsObject)]
+pub struct BeginSendView {
+    pub message: Option<MessageView>,
+    /// 有值时用户消息没有落库，输入框应保留。
     pub error: Option<ChatErrorView>,
 }
 
@@ -372,26 +380,28 @@ impl Conversations {
         }
     }
 
-    /// 发一条消息：装配 → 工具循环 → 成功才把这一轮整个落库。
+    /// 发送第一步：校验并立刻把用户消息落库，不等模型。
     ///
-    /// 失败时什么都不写：用户打了一半的字在界面里，重试只会重发这一轮，不会
-    /// 在时间线上留下半条对话。三类失败各有出路（见 `ChatErrorView`）。
-    pub async fn send(id: f64, text: String, photo: Option<f64>) -> SendResultView {
+    /// 配置问题（没填 key）与非法输入在落库前就返回，输入框保留；一旦落库，
+    /// 后面模型失败也不会把这句话从时间线上抹掉。
+    pub async fn begin_send(id: f64, text: String, photo: Option<f64>) -> BeginSendView {
         let store = match Store::open_app() {
             Ok(store) => store,
-            Err(error) => return failure(GatewayError::Config(error.to_string())),
+            Err(error) => return begin_failure(GatewayError::Config(error.to_string())),
         };
         let conversation = crate::domain::ConversationId(id as u64);
 
         // 会话必须存在；消息不能是空白（同一条规则在领域层再校验一次）。
         if store.conversation(conversation).ok().flatten().is_none() {
-            return failure(GatewayError::Request(format!("找不到编号 {id} 的会话。")));
+            return begin_failure(GatewayError::Request(format!(
+                "找不到编号 {id} 的会话。"
+            )));
         }
         // 这一轮要发出去的照片：必须存在、且属于这个会话。
         let attached = match photo {
             Some(raw) => match attached_photo(&store, &photos::photos_dir(), conversation, raw) {
                 Ok(photo) => Some(photo),
-                Err(message) => return failure(GatewayError::Request(message)),
+                Err(message) => return begin_failure(GatewayError::Request(message)),
             },
             None => None,
         };
@@ -401,18 +411,130 @@ impl Conversations {
         };
         let user_item = match user_item {
             Ok(item) => item,
-            Err(error) => return failure(GatewayError::Request(error.to_string())),
+            Err(error) => return begin_failure(GatewayError::Request(error.to_string())),
         };
 
         // key 缺失是配置问题，连请求都不发。
         let key = store.setting(API_KEY).ok().flatten().unwrap_or_default();
         if key.trim().is_empty() {
-            return failure(GatewayError::Config(
+            return begin_failure(GatewayError::Config(
                 "还没填 DeepSeek 的 API key。去设置里填一把，它只存在这台设备上。".to_owned(),
             ));
         }
 
+        // 发送前的长度闸门：拒绝时不要落库，否则用户没法删短一条已经发出去的消息。
+        // 预检失败保留输入框，和没填 key 一样。
         let history = store.items(conversation).unwrap_or_default();
+        let snapshot = snapshot(&store, conversation);
+        let photo_data_url = attached.as_ref().map(|(_, url)| url.as_str());
+        let assembly = assemble(&snapshot, &history, &text, photo_data_url);
+        if let Err(error) = length_gate(&assembly.items) {
+            return begin_failure(error);
+        }
+
+        let at = now_ms();
+        match store.append_turn(conversation, vec![user_item], at) {
+            Ok(entries) => BeginSendView {
+                message: entries.first().and_then(entry_message_view),
+                error: None,
+            },
+            Err(error) => begin_failure(GatewayError::Config(format!(
+                "消息落库失败：{error}"
+            ))),
+        }
+    }
+
+    /// 发送第二步：用最后一条用户消息跑一轮。
+    ///
+    /// 重试也走这里：不追加用户消息，只复用时间线最后一条；它不是用户消息就
+    /// 拒绝。模型失败时用户消息仍在，重试不会在列表里制造第二条。
+    pub async fn reply(id: f64, expected_message: Option<f64>) -> SendResultView {
+        let store = match Store::open_app() {
+            Ok(store) => store,
+            Err(error) => return failure(GatewayError::Config(error.to_string())),
+        };
+        let conversation = crate::domain::ConversationId(id as u64);
+
+        if store.conversation(conversation).ok().flatten().is_none() {
+            return failure(GatewayError::Request(format!("找不到编号 {id} 的会话。")));
+        }
+
+        // key 缺失是配置问题，连请求都不发；用户消息已经落库，仍在时间线上。
+        let key = store.setting(API_KEY).ok().flatten().unwrap_or_default();
+        if key.trim().is_empty() {
+            return failure_with_messages(
+                &store,
+                conversation,
+                GatewayError::Config(
+                    "还没填 DeepSeek 的 API key。去设置里填一把，它只存在这台设备上。"
+                        .to_owned(),
+                ),
+            );
+        }
+
+        let history = match store.items(conversation) {
+            Ok(items) => items,
+            Err(error) => {
+                return failure_with_messages(
+                    &store,
+                    conversation,
+                    GatewayError::Config(error.to_string()),
+                );
+            }
+        };
+        let Some(last) = history.last() else {
+            return failure_with_messages(
+                &store,
+                conversation,
+                GatewayError::Request("这个会话还没有用户消息。".to_owned()),
+            );
+        };
+        // 重试时带上界面里最后一条的编号：对不上就说明列表变了，不要闷头重发。
+        if let Some(expected) = expected_message {
+            if !expected.is_finite() || last.id.0 as f64 != expected {
+                return failure_with_messages(
+                    &store,
+                    conversation,
+                    GatewayError::Request("最后一条消息已经变了，重试已取消。".to_owned()),
+                );
+            }
+        }
+        let (text, photos) = match &last.item {
+            crate::domain::StoredItem::Message {
+                role: crate::domain::Role::User,
+                text,
+                photos,
+            } => (text.clone(), photos.clone()),
+            _ => {
+                return failure_with_messages(
+                    &store,
+                    conversation,
+                    GatewayError::Request("最后一条不是用户消息，不能继续。".to_owned()),
+                );
+            }
+        };
+        let photo_data_url = match photos.first() {
+            Some(photo) => {
+                match attached_photo(
+                    &store,
+                    &photos::photos_dir(),
+                    conversation,
+                    photo.0 as f64,
+                ) {
+                    Ok((_, url)) => Some(url),
+                    Err(message) => {
+                        return failure_with_messages(
+                            &store,
+                            conversation,
+                            GatewayError::Request(message),
+                        );
+                    }
+                }
+            }
+            None => None,
+        };
+
+        let history = &history[..history.len() - 1];
         let snapshot = snapshot(&store, conversation);
         let at = now_ms();
         let rounds = store
@@ -423,14 +545,11 @@ impl Conversations {
             .unwrap_or(agent::DEFAULT_MAX_ROUNDS);
         let model = DeepSeekModel { key };
 
-        let photo_data_url = attached
-            .as_ref()
-            .map(|(_, url)| url.clone());
         let assembly = assemble(&snapshot, &history, &text, photo_data_url.as_deref());
 
         let length_notice = match length_gate(&assembly.items) {
             Ok(notice) => notice,
-            Err(error) => return failure(error),
+            Err(error) => return failure_with_messages(&store, conversation, error),
         };
 
         let mut host = StoreHost::new(&store, conversation, at);
@@ -444,9 +563,13 @@ impl Conversations {
             Err(GatewayError::TooLong(_)) if !host.wrote() => {
                 let total = turns(&history);
                 if total == 0 {
-                    return failure(GatewayError::TooLong(
-                        "这一轮本身就超过了模型上下文上限，先删短一点再发。".to_owned(),
-                    ));
+                    return failure_with_messages(
+                        &store,
+                        conversation,
+                        GatewayError::TooLong(
+                            "这一轮本身就超过了模型上下文上限，先删短一点再发。".to_owned(),
+                        ),
+                    );
                 }
                 let keep = total / 2;
                 let trimmed =
@@ -461,14 +584,22 @@ impl Conversations {
                         });
                         outcome
                     }
-                    Err(error) => return failure(error),
+                    Err(error) => {
+                        return failure_with_messages(&store, conversation, error);
+                    }
                 }
             }
-            Err(GatewayError::TooLong(_)) => return failure(GatewayError::Request(
-                "这一轮太长，跑到一半就超了上下文；已经写进档案的判定保留，建议新开会话接着说。"
-                    .to_owned(),
-            )),
-            Err(error) => return failure(error),
+            Err(GatewayError::TooLong(_)) => {
+                return failure_with_messages(
+                    &store,
+                    conversation,
+                    GatewayError::Request(
+                        "这一轮太长，跑到一半就超了上下文；已经写进档案的判定保留，建议新开会话接着说。"
+                            .to_owned(),
+                    ),
+                );
+            }
+            Err(error) => return failure_with_messages(&store, conversation, error),
         };
 
         // 撞上工具轮次上限也要说清楚，别让用户以为对话正常收尾了；正常收尾就把
@@ -476,10 +607,8 @@ impl Conversations {
         let notice = pick_notice(outcome.notice.clone(), notice, length_notice);
         let _ = store.set_conversation_notice(conversation, notice.as_deref());
 
-        // 整轮一次落库：用户那句（可能带照片）、工具往返、回复。中途失败一条都不写。
-        let mut items = vec![user_item];
-        items.extend(outcome.items);
-        match store.append_turn(conversation, items, at) {
+        // 用户消息已经在 begin_send 落库；这里只追加工具往返与回复。
+        match store.append_turn(conversation, outcome.items, at) {
             Ok(_) => SendResultView {
                 messages: store
                     .messages(conversation)
@@ -489,8 +618,12 @@ impl Conversations {
                     .collect(),
                 error: None,
             },
-            // 回复已经到了但落库失败：别装作成功，也别把用户那句抹掉。
-            Err(error) => failure(GatewayError::Config(format!("回复落库失败：{error}"))),
+            // 回复已经到了但落库失败：别装作成功；用户那句仍在时间线上。
+            Err(error) => failure_with_messages(
+                &store,
+                conversation,
+                GatewayError::Config(format!("回复落库失败：{error}")),
+            ),
         }
     }
 
@@ -690,15 +823,43 @@ impl Photos {
     }
 }
 
-/// 失败：一条消息都不落库，错误按出路分类。
+/// 失败：没有可回传的消息；错误按出路分类。
 fn failure(error: GatewayError) -> SendResultView {
     SendResultView {
         messages: Vec::new(),
-        error: Some(ChatErrorView {
-            kind: error.kind().to_owned(),
-            message: error.message().to_owned(),
-            can_retry: error.can_retry(),
-        }),
+        error: Some(chat_error(error)),
+    }
+}
+
+/// 失败，但把已经落库的用户消息一起带回去。
+fn failure_with_messages(
+    store: &Store,
+    conversation: crate::domain::ConversationId,
+    error: GatewayError,
+) -> SendResultView {
+    SendResultView {
+        messages: store
+            .messages(conversation)
+            .unwrap_or_default()
+            .iter()
+            .map(message_view)
+            .collect(),
+        error: Some(chat_error(error)),
+    }
+}
+
+fn begin_failure(error: GatewayError) -> BeginSendView {
+    BeginSendView {
+        message: None,
+        error: Some(chat_error(error)),
+    }
+}
+
+fn chat_error(error: GatewayError) -> ChatErrorView {
+    ChatErrorView {
+        kind: error.kind().to_owned(),
+        message: error.message().to_owned(),
+        can_retry: error.can_retry(),
     }
 }
 
@@ -1692,6 +1853,19 @@ fn message_view(message: &crate::domain::Message) -> MessageView {
     }
 }
 
+fn entry_message_view(entry: &crate::domain::Entry) -> Option<MessageView> {
+    match &entry.item {
+        crate::domain::StoredItem::Message { role, text, photos } => Some(MessageView {
+            id: entry.id.0 as f64,
+            role: role.key().to_owned(),
+            text: text.clone(),
+            photos: photos.iter().map(|photo| photo.0 as f64).collect(),
+            at: entry.at as f64,
+        }),
+        _ => None,
+    }
+}
+
 fn conversation_list_view(store: &Store, error: Option<String>) -> ConversationListView {
     let mut errors: Vec<String> = error.into_iter().collect();
     let conversations = match store.conversations() {
@@ -1963,10 +2137,10 @@ impl Proposals {
         } else {
             format!("我拒绝了第 {} 项，理由：{reason}", index + 1)
         };
-        let result = Conversations::send(conversation, text.clone(), None).await;
-        if result.error.is_some() {
-            // 拒绝已经记下了，这句话也说出口了：这一轮没跑成，但不能让用户的话丢掉
-            //（下一轮装配会带上它，模型仍能接上）。
+        let started = Conversations::begin_send(conversation, text.clone(), None).await;
+        if let Some(error) = started.error {
+            // 预检失败（没 key、消息本身超长等）时 begin 不会落库；这句拒绝理由
+            // 不能丢，和旧行为一样补一条用户消息，下一轮装配仍能带上它。
             if let Ok(store) = Store::open_app() {
                 let _ = store.append_message(
                     crate::domain::ConversationId(conversation as u64),
@@ -1974,9 +2148,22 @@ impl Proposals {
                     &text,
                     now_ms(),
                 );
+                return SendResultView {
+                    messages: store
+                        .messages(crate::domain::ConversationId(conversation as u64))
+                        .unwrap_or_default()
+                        .iter()
+                        .map(message_view)
+                        .collect(),
+                    error: Some(error),
+                };
             }
+            return SendResultView {
+                messages: Vec::new(),
+                error: Some(error),
+            };
         }
-        result
+        Conversations::reply(conversation, started.message.map(|message| message.id)).await
     }
 
     /// 撤销一次接受：逐项撤回，卡回到待确认（可以重新勾）。

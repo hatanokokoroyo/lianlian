@@ -3,6 +3,7 @@
 //
 // 消息列表用 `List`（长会话靠虚拟化滚动），输入条固定在下沿。
 import {
+  effect,
   Image,
   keyboardFrame,
   List,
@@ -137,8 +138,36 @@ function MessageRow(props: { message: MessageView; onOpenPhoto: (id: number) => 
   );
 }
 
+/** 回复到达前的时间线占位：只在界面上存在，不落库。 */
+function ThinkingBubble() {
+  return (
+    <View
+      style={{
+        flexDirection: "row",
+        justifyContent: "flex-start",
+        paddingHorizontal: 16,
+        paddingVertical: 4,
+      }}
+    >
+      <View
+        style={{
+          backgroundColor: token("card"),
+          borderRadius: token("radius"),
+          paddingHorizontal: 12,
+          paddingVertical: 9,
+        }}
+      >
+        <Text style={{ fontSize: 13, lineHeight: 20, color: token("muted-foreground") }}>
+          思考中…
+        </Text>
+      </View>
+    </View>
+  );
+}
+
 /**
- * 没发出去的草稿按会话缓存：出错跳去设置再回来，打了一半的字还在。
+ * 预检失败（没 key、消息本身超长）的草稿按会话缓存：跳去设置再回来，
+ * 打了一半的字还在。模型失败时用户消息已经落库，草稿已清空。
  * 键是会话编号，模块级——和 `ui/drafts.ts` 对表单草稿的处理同一个理由。
  */
 const drafts = new Map<number, string>();
@@ -158,6 +187,10 @@ function Chat(props: {
     Math.min(100, Math.max(20, cachedDraft.split("\n").length * 20)),
   );
   const busy = signal(false);
+  /** 正在等模型回复：列表尾部显示思考占位。 */
+  const sending = signal(false);
+  /** beginSend 已落库、但 detail 还没刷新到的用户消息。 */
+  const pendingMessage = signal<MessageView | null>(null);
   const failure = signal<ChatErrorView | null>(null);
   /** 这一轮待发的照片（选好但还没发出去）。 */
   const attached = signal<{ id: number; dataUrl: string; notice: string | null } | null>(null);
@@ -166,6 +199,23 @@ function Chat(props: {
   const photoError = signal<string | null>(null);
   const proposalError = signal<string | null>(null);
   const insets = safeAreaInsets();
+
+  const messages = () => {
+    const current = detail()?.messages ?? [];
+    const optimistic = pendingMessage();
+    if (optimistic && !current.some((message) => message.id === optimistic.id)) {
+      return [...current, optimistic];
+    }
+    return current;
+  };
+
+  // beginSend 返回的是真消息；detail 里出现同一条后就可以撤掉占位。
+  effect(() => {
+    const optimistic = pendingMessage();
+    if (optimistic && detail()?.messages?.some((message) => message.id === optimistic.id)) {
+      pendingMessage.set(null);
+    }
+  });
 
   const acceptProposal = async (selected: number[]) => {
     const proposal = detail()?.pendingProposal;
@@ -236,6 +286,19 @@ function Chat(props: {
     draft.set(text);
   };
 
+  const runReply = async (expected: number | null) => {
+    // 再跑模型；失败时用户消息留在时间线，重试只复用最后一条。
+    sending.set(true);
+    const result = await Conversations.reply(props.id, expected);
+    busy.set(false);
+    sending.set(false);
+    if (result.error) {
+      failure.set(result.error);
+    }
+    detail.refetch();
+    props.onChanged();
+  };
+
   const send = async () => {
     const text = draft();
     const photo = attached();
@@ -244,19 +307,33 @@ function Chat(props: {
     }
     busy.set(true);
     failure.set(null);
-    const result = await Conversations.send(props.id, text, photo ? photo.id : null);
-    busy.set(false);
-    if (result.error) {
-      // 失败时什么都不落库，打了一半的字留在输入框里：断网重试、去设置换 key
-      // 都从这里接上（contract §8 的三类错误态）。
-      failure.set(result.error);
-    } else {
-      writeDraft("");
-      attached.set(null);
-      composerHeight.set(20);
+
+    // 先落用户消息：模型还在跑，时间线上已经能看到这句话。
+    const started = await Conversations.beginSend(props.id, text, photo ? photo.id : null);
+    if (started.error) {
+      busy.set(false);
+      failure.set(started.error);
+      return;
     }
+    writeDraft("");
+    attached.set(null);
+    composerHeight.set(20);
+    if (started.message) {
+      pendingMessage.set(started.message);
+    }
+
     detail.refetch();
-    props.onChanged();
+    await runReply(started.message ? started.message.id : null);
+  };
+
+  const retry = async () => {
+    if (busy()) {
+      return;
+    }
+    busy.set(true);
+    failure.set(null);
+    const current = detail()?.messages ?? [];
+    await runReply(current.length === 0 ? null : current[current.length - 1].id);
   };
 
   return (
@@ -321,7 +398,7 @@ function Chat(props: {
           {detail()?.title ?? "新会话"}
         </Text>
         <SectionLabel
-          text={`${detail()?.messages.length ?? 0} 条`}
+          text={`${messages().length} 条`}
         />
       </View>
 
@@ -339,13 +416,14 @@ function Chat(props: {
         <View style={{ flex: 1, paddingBottom: "env(keyboard-inset-height)" }}>
           <List
             testID="message-list"
-            each={detail()!.messages}
+            each={messages()}
             keyExtractor={(message: MessageView) => String(message.id)}
             initialScrollAtEnd
             maintainVisibleContentPosition={{ autoscrollToBottomThreshold: 80 }}
             keyboardDismissMode="interactive"
             style={{ flex: 1 }}
             contentStyle={{ paddingTop: 8, paddingBottom: 8 }}
+            footer={sending() ? <ThinkingBubble /> : null}
             empty={
               <View style={{ paddingHorizontal: 16 }}>
                 <Note text="还没有消息。说点什么，它会先把它记下来。" />
@@ -402,7 +480,7 @@ function Chat(props: {
                 <Note tone="error" text={failure()!.message} />
                 <View style={{ flexDirection: "row", gap: 12 }}>
                   {failure()!.canRetry ? (
-                    <TextButton testID="retry-send" label="重试" onPress={send} />
+                    <TextButton testID="retry-send" label="重试" onPress={retry} />
                   ) : null}
                   {failure()!.kind === "config" ? (
                     <TextButton
@@ -413,12 +491,6 @@ function Chat(props: {
                   ) : null}
                 </View>
               </Card>
-            </View>
-          ) : null}
-
-          {busy() ? (
-            <View style={{ paddingHorizontal: 16, paddingBottom: 4 }}>
-              <Note testID="conv-thinking" text="思考中…" />
             </View>
           ) : null}
 
