@@ -1,0 +1,349 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>matt-workflow · A4 带走件</title>
+<style>
+  :root {
+    --paper: #faf8f3;
+    --ink: #191917;
+    --muted: #6f6b62;
+    --faint: #8f897c;
+    --line: #e0dacb;
+    --card: #fffdf8;
+    --rust: #b4431e;
+    --green: #2f5d50;
+    --gold: #a8791f;
+    --sans: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+    --serif: "Iowan Old Style", "Songti SC", "Noto Serif SC", ui-serif, Georgia, serif;
+    --mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: #e9e5db; color: var(--ink); font-family: var(--sans); }
+  .screenHint {
+    padding: 10px 16px; text-align: center; color: var(--muted);
+    font-size: 11px; letter-spacing: .04em;
+  }
+  .screenHint b { color: var(--rust); font-weight: 600; }
+  .sheets { display: grid; gap: 10mm; justify-content: center; padding: 2mm 0 14mm; }
+  .sheet {
+    width: 210mm; height: 297mm; background: var(--paper); position: relative;
+    padding: 12mm 13mm 9mm; overflow: hidden; display: flex; flex-direction: column;
+    box-shadow: 0 16px 50px rgba(40, 32, 20, .16);
+  }
+  .sheet::before {
+    content: ""; position: absolute; inset: 0 0 auto 0; height: 1.6mm;
+    background: linear-gradient(90deg, var(--rust), var(--gold) 48%, var(--green));
+  }
+  .mast { display: flex; align-items: baseline; justify-content: space-between; gap: 8mm; }
+  .mark { color: var(--rust); font-size: 7.8pt; font-weight: 700; letter-spacing: .16em; }
+  .meta { color: var(--faint); font-size: 7pt; letter-spacing: .04em; }
+  h1 {
+    margin: 5mm 0 0; font-family: var(--serif); font-weight: 600;
+    font-size: 33pt; line-height: 1.12; letter-spacing: -.015em;
+  }
+  h1 em { color: var(--rust); font-style: normal; }
+  .lede { margin: 3mm 0 0; color: var(--muted); font-size: 9.4pt; line-height: 1.55; max-width: 155mm; }
+
+  .secHead {
+    display: flex; align-items: baseline; justify-content: space-between; gap: 6mm;
+    margin: 8mm 0 2.2mm; padding-bottom: 1.2mm; border-bottom: .35mm solid var(--ink);
+  }
+  .secHead b { font-family: var(--serif); font-size: 13.5pt; font-weight: 600; }
+  .secHead span { color: var(--faint); font-size: 7.4pt; letter-spacing: .05em; }
+
+  .entries { display: grid; grid-template-columns: 1fr 1fr; gap: 2.6mm; margin-top: 6mm; }
+  .entry {
+    border: .3mm solid var(--line); border-left: 1.1mm solid var(--rust);
+    background: var(--card); padding: 3.2mm 3.6mm;
+  }
+  .entry b { display: block; font-family: var(--serif); font-size: 11.5pt; font-weight: 600; }
+  .entry span { display: block; margin-top: .8mm; color: var(--muted); font-size: 7.8pt; }
+  .entry code { color: var(--rust); font-size: 7.4pt; }
+
+  table { width: 100%; border-collapse: collapse; }
+  .branches { font-size: 8.1pt; }
+  .branches th {
+    text-align: left; color: var(--faint); font-size: 6.9pt; font-weight: 500;
+    letter-spacing: .06em; padding: 1.2mm 1.4mm; border-bottom: .3mm solid var(--line);
+  }
+  .branches td {
+    padding: 2.2mm 1.5mm; border-bottom: .3mm solid var(--line);
+    vertical-align: top; line-height: 1.4;
+  }
+  .branches tr:last-child td { border-bottom: 0; }
+  .branches td:first-child { font-family: var(--serif); font-size: 10pt; font-weight: 600; white-space: nowrap; }
+  .branches .who { color: var(--muted); }
+  .branches .flow { font-family: var(--mono); font-size: 7pt; color: var(--ink); }
+  .branches .flow span { white-space: nowrap; }
+  .branches .flow i { color: var(--rust); font-style: normal; padding: 0 .6mm; }
+  .branches .out { color: var(--muted); font-family: var(--mono); font-size: 6.8pt; }
+
+  .hygiene { display: grid; grid-template-columns: repeat(4, 1fr); gap: 2.2mm; margin-top: 5.5mm; }
+  .hygiene div { border-top: .5mm solid var(--green); background: var(--card); padding: 2.8mm 2.6mm; }
+  .hygiene b { display: block; font-size: 8.2pt; }
+  .hygiene span { display: block; margin-top: .8mm; color: var(--muted); font-size: 7pt; line-height: 1.4; }
+
+  .noteBar {
+    margin-top: 4.5mm; border-left: .8mm solid var(--gold); background: #f6efe2;
+    padding: 2.8mm 3.2mm; color: var(--muted); font-size: 7.6pt; line-height: 1.5;
+  }
+  .noteBar b { color: var(--ink); }
+
+  .pageFoot {
+    margin-top: auto; padding-top: 2.2mm; border-top: .3mm solid var(--line);
+    display: flex; align-items: baseline; justify-content: space-between; gap: 5mm;
+    color: var(--faint); font-size: 6.8pt; line-height: 1.45;
+  }
+  .pageFoot code { font-family: var(--mono); font-size: 6.3pt; color: var(--muted); }
+  .pageFoot .credit { color: var(--ink); font-weight: 600; letter-spacing: .08em; }
+
+  /* back */
+  h2.big {
+    margin: 4.5mm 0 0; font-family: var(--serif); font-weight: 600;
+    font-size: 26pt; line-height: 1.15; letter-spacing: -.01em;
+  }
+  .artifacts { font-size: 7.4pt; }
+  .artifacts th {
+    text-align: left; color: var(--faint); font-size: 6.4pt; font-weight: 500;
+    letter-spacing: .05em; padding: 1.1mm 1.2mm; border-bottom: .3mm solid var(--line);
+  }
+  .artifacts td {
+    padding: 1.45mm 1.2mm; border-bottom: .3mm solid var(--line);
+    vertical-align: top; line-height: 1.38;
+  }
+  .artifacts tr:last-child td { border-bottom: 0; }
+  .artifacts td:first-child { font-family: var(--mono); font-size: 6.8pt; white-space: nowrap; }
+  .artifacts .where { font-family: var(--mono); font-size: 6.4pt; color: var(--muted); }
+  .artifacts .muted { color: var(--muted); }
+  .badge {
+    display: inline-block; border: .25mm solid var(--line); padding: .2mm 1mm;
+    font-size: 6.1pt; white-space: nowrap;
+  }
+  .badge.auth { color: var(--rust); border-color: #d9b4a5; background: #fbf1ec; }
+  .badge.derived { color: var(--green); border-color: #b8ccc3; background: #eef4f1; }
+  .badge.local { color: var(--gold); border-color: #dcc99f; background: #f8f2e4; }
+  .badge.secret { color: #fff; background: var(--ink); border-color: var(--ink); }
+
+  .remote { display: grid; grid-template-columns: repeat(5, 1fr); gap: 1.6mm; margin-top: 3.6mm; }
+  .remote div { border: .3mm solid var(--line); background: var(--card); padding: 2.4mm 2.4mm; }
+  .remote b { display: block; font-size: 7.4pt; }
+  .remote span { display: block; margin-top: .7mm; color: var(--muted); font-size: 6.4pt; line-height: 1.35; }
+  .remote em { display: block; margin-top: 1mm; color: var(--rust); font-style: normal; font-size: 6.1pt; }
+
+  .matrix { display: grid; grid-template-columns: 12mm 1fr 1fr; grid-template-rows: 5mm auto auto; gap: 1.4mm; margin-top: 4mm; }
+  .axis { color: var(--faint); font-size: 6.4pt; display: flex; align-items: center; }
+  .axis.v { writing-mode: vertical-rl; justify-content: center; letter-spacing: .12em; }
+  .cell { border: .3mm solid var(--line); background: var(--card); padding: 2.5mm 2.6mm; font-size: 7pt; line-height: 1.42; }
+  .cell b { display: block; font-size: 7.2pt; margin-bottom: .5mm; }
+  .cell span { color: var(--muted); }
+
+  .blind { margin-top: 5mm; border-top: .35mm solid var(--line); padding-top: 3mm; }
+  .blind b { color: var(--rust); font-size: 7.6pt; letter-spacing: .08em; }
+  .blind p { margin: 1.4mm 0 0; font-family: var(--mono); font-size: 6.4pt; line-height: 1.75; color: var(--muted); }
+  .blind p span { white-space: nowrap; }
+  .blind em { display: block; margin-top: 1.4mm; font-style: normal; font-size: 7.2pt; color: var(--ink); }
+
+  @media print {
+    @page { size: A4 portrait; margin: 0; }
+    html, body { background: #fff; }
+    .screenHint { display: none; }
+    .sheets { display: block; padding: 0; gap: 0; }
+    .sheet { box-shadow: none; break-after: page; page-break-after: always; }
+    .sheet:last-child { break-after: auto; page-break-after: auto; }
+  }
+</style>
+</head>
+<body>
+<p class="screenHint">A4 双面 · 浏览器 <b>Ctrl/Cmd + P</b> 直接打印；数据来自 <code>data/skills.js</code>，37 条与 skill 原文对账。</p>
+
+<main class="sheets">
+  <section class="sheet" id="front">
+    <div class="mast">
+      <div class="mark">MATT WORKFLOW · 带走件</div>
+      <div class="meta">37 skills · 26 routed · 11 blindspots · 2026-11</div>
+    </div>
+    <h1>先认处境，<br>再选 <em>skill</em>。</h1>
+    <p class="lede">ask-matt 不是命令目录，是一张路由表。四张卡决定入口，六条分支决定会话怎么排；先选下一步，再读原文。</p>
+
+    <div class="entries">
+      <div class="entry"><b>有想法，要做出来</b><span>主流程 · <code>grill-with-docs</code> 起步</span></div>
+      <div class="entry"><b>别人提了问题</b><span><code>triage</code> · 先验证再 brief</span></div>
+      <div class="entry"><b>东西坏了</b><span><code>diagnosing-bugs</code> · 先有红灯</span></div>
+      <div class="entry"><b>大得看不见路</b><span><code>wayfinder</code> · 先画地图</span></div>
+    </div>
+
+    <div class="secHead"><b>六条分支</b><span>触发 → 第一步 → 会话 → 产物</span></div>
+    <table class="branches">
+      <thead><tr><th style="width:15%">分支</th><th style="width:23%">什么时候走</th><th style="width:31%">链路</th><th style="width:15%">会话</th><th style="width:16%">关键产物</th></tr></thead>
+      <tbody id="branchRows"></tbody>
+    </table>
+
+    <div class="hygiene">
+      <div><b>1–3 步同一窗口</b><span>磨想法 → 出规格 → 拆工单，不能断。</span></div>
+      <div><b>每个 implement 全新</b><span>票是自包含的，上一票上下文可丢。</span></div>
+      <div><b>retro 在 clear 之前</b><span>它要看的是这一场会话。</span></div>
+      <div><b>smart zone ≈ 150k</b><span>逼近就压缩阶段，不要降智硬推。</span></div>
+    </div>
+
+    <p class="noteBar"><b>两种实现，差别是谁编排：</b><code>implement</code> 逐票 + <code>/clear</code>；<code>implement-spec</code> 任务图 + 并行 worktree + 集成分支。两者都走 <code>tdd</code>，都收于 <code>code-review</code>。默认阶段边界是 <code>/compact</code>，不是 <code>handoff</code>。</p>
+
+    <div class="blind">
+      <b>ASK-MATT 没路由的 11 个</b>
+      <p><span>chief-of-staff</span> · <span>claude-handoff</span> · <span>loop-me</span> · <span>writing-beats / fragments / shape</span> · <span>migrate-to-shoehorn</span> · <span>scaffold-exercises</span> · <span>setup-pre-commit</span> · <span>setup-ts-deep-modules</span> · <span>git-guardrails-claude-code</span></p>
+      <em>按需单独用，不要硬塞进主干；图册里仍可查。</em>
+    </div>
+
+    <div class="pageFoot">
+      <span>全量图册：<code>deck.html#atlas</code> · 原文：<code>.agents/skills/&lt;name&gt;/SKILL.md</code></span>
+      <span>1 / 2 · 处境 → 分支 · <span class="credit">李泽坤</span></span>
+    </div>
+  </section>
+
+  <section class="sheet" id="back">
+    <div class="mast">
+      <div class="mark">MATT WORKFLOW · 带走件</div>
+      <div class="meta">产物 → 落点 → 共享归属</div>
+    </div>
+    <h2 class="big">哪些文件该共享？</h2>
+    <p class="lede">别只问「在不在 git 里」。问三个问题：它是权威吗？它随仓库走吗？它含敏感值吗？</p>
+
+    <div class="secHead"><b>产物落点</b><span>谁写 · 放哪 · 活多久 · 给谁看</span></div>
+    <table class="artifacts">
+      <thead><tr><th style="width:20%">产物</th><th style="width:20%">谁写</th><th style="width:27%">落点</th><th style="width:12%">生命周期</th><th style="width:9%">共享</th><th style="width:12%">给谁看</th></tr></thead>
+      <tbody id="artifactRows"></tbody>
+    </table>
+
+    <div class="secHead"><b>远端只分四类</b><span>必须 / 可降级 / 质量依赖 / 人工</span></div>
+    <div class="remote">
+      <div><b>GitHub</b><span>issue / PR / 标签 / 阻塞边</span><em>语义上必须 · 可本地 pending</em></div>
+      <div><b>npm</b><span>setup / 迁移依赖</span><em>仅安装时</em></div>
+      <div><b>web 一手资料</b><span>research / teach / 诊断</span><em>质量依赖 · 可标注未核实</em></div>
+      <div><b>第三方后台</b><span>账号、密钥、割接</span><em>人工必须</em></div>
+      <div><b>Anthropic CLI</b><span>claude-handoff</span><em>可选 · 普通 handoff 兜底</em></div>
+    </div>
+
+    <div class="secHead"><b>三分法</b><span>权威 vs 派生 · 随仓库 vs 靠外部</span></div>
+    <div class="matrix">
+      <div class="axis"></div><div class="axis">随仓库走（clone 即得）</div><div class="axis">靠外部服务 / 本机</div>
+      <div class="axis v">权威</div>
+      <div class="cell"><b>必须共享，且要 review</b><span>GLOSSARY · ADR · spec · 工单镜像 · CODING_STANDARDS</span></div>
+      <div class="cell"><b>必须共享，但只能给链接</b><span>GitHub issue / PR · 标签 · issue 编号</span></div>
+      <div class="axis v">派生 / 临时</div>
+      <div class="cell"><b>可入库，但不是权威</b><span>中文译本 · 这份 deck · prototype 分支 · research 笔记</span></div>
+      <div class="cell"><b>只本地，给接手人就够</b><span>handoff · 架构报告 · subagent 笔记 · 调试捕获 · .env</span></div>
+    </div>
+
+    <p class="noteBar"><b>第三问单独一条：</b>secrets 只共享配置方法，不共享值。脚本可以入库，<code>.env</code> 与 token 不行。</p>
+
+    <div class="pageFoot">
+      <span>对账：<code>node design/matt-workflow/scripts/audit-skills.mjs</code> · 全量图册：<code>deck.html#atlas</code></span>
+      <span>2 / 2 · 产物 → 落点 · <span class="credit">李泽坤</span></span>
+    </div>
+  </section>
+</main>
+
+<script src="data/skills.js"></script>
+<script>
+  const SKILLS = window.SKILLS || [];
+  const byName = Object.fromEntries(SKILLS.map(s => [s.name, s]));
+  const esc = s => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const SHARE = {
+    "team-authoritative": ["权威", "auth"],
+    "repo-derived": ["派生", "derived"],
+    "local-ephemeral": ["本地", "local"],
+    secret: ["机密", "secret"],
+    none: ["—", ""]
+  };
+
+  const SHORT = [
+    ["docs/adr/", "ADR"],
+    [".scratch/<feature>/spec.md", "spec.md"],
+    [".scratch/<feature>/issues/", "issues/NN"],
+    [".scratch/<effort>/map.md", "map.md"],
+    ["$TMPDIR/handoff", "handoff.md"],
+    ["$TMPDIR/architecture", "架构报告"],
+    ["prototype/<name>", "prototype 分支"],
+    [".out-of-scope/", "out-of-scope"],
+    ["throwaway", "throwaway"],
+    ["decision tickets", "决策票"],
+    ["regression test", "回归测试"],
+    ["temp loop script", "循环脚本"],
+    ["integration branch", "集成分支"],
+    ["AGENTS.md", "AGENTS / 检查"],
+    ["PR body", "PR 正文"],
+    ["cited markdown", "带引用的 md"],
+    ["research/<name>", "research 分支"],
+    ["interactive bash", "交互脚本"],
+    ["GitHub secrets", "GitHub secrets"]
+  ];
+  function shortOut(raw) {
+    const hit = SHORT.find(([k]) => raw.startsWith(k));
+    return hit ? hit[1] : raw;
+  }
+
+  const BRANCHES = [
+    { t: "单会话", when: "想清楚就能做", chain: ["grill-with-docs", "implement", "code-review", "retro"], session: "1 个窗口", plus: ["结论 / 复盘"] },
+    { t: "多会话", when: "一个窗口装不下", chain: ["to-spec", "to-tickets", "implement", "code-review", "pr"], session: "spec 同窗；每票一窗", plus: ["工单阻塞边"] },
+    { t: "原型", when: "需要能跑的答案", chain: ["handoff", "prototype", "handoff"], session: "出去 / 回来", plus: ["结论", "prototype.md"] },
+    { t: "迷雾", when: "路还看不见", chain: ["wayfinder", "to-spec"], session: "一票一会话", plus: ["决策记录"] },
+    { t: "外部问题", when: "别人提的 issue / PR", chain: ["triage", "grill-with-docs"], session: "1", plus: ["brief", "标签"] },
+    { t: "硬 bug", when: "说不清 / 偶发 / 回归", chain: ["diagnosing-bugs", "tdd", "code-review"], session: "1", plus: ["红灯"] }
+  ];
+
+  function flowOf(chain) {
+    return chain.map(n => `<span>${n}</span>`).join("<i>→</i>");
+  }
+  function outsOf(row) {
+    const set = new Set();
+    for (const n of row.chain) {
+      const s = byName[n];
+      if (!s) continue;
+      for (const o of s.outputs) set.add(shortOut(o));
+    }
+    for (const x of row.plus || []) set.add(x);
+    return [...set].slice(0, 4).join(" · ");
+  }
+  document.getElementById("branchRows").innerHTML = BRANCHES.map(row => `
+    <tr>
+      <td>${row.t}</td>
+      <td class="who">${row.when}</td>
+      <td class="flow">${flowOf(row.chain)}</td>
+      <td>${row.session}</td>
+      <td class="out">${outsOf(row)}</td>
+    </tr>`).join("");
+
+  const ARTIFACTS = [
+    { art: "GLOSSARY.md · ADR", skill: "grill-with-docs", who: "grill-with-docs", where: "仓库根 · docs/adr/", life: "长期", to: "团队 + agent" },
+    { art: "spec.md", skill: "to-spec", who: "to-spec", where: ".scratch/<feature>/", life: "到交付", to: "agent + 团队" },
+    { art: "issues/NN-*.md", skill: "to-tickets", who: "to-tickets", where: ".scratch/ + GitHub", life: "到关闭", to: "团队看 GitHub" },
+    { art: "map.md · 决策票", skill: "wayfinder", who: "wayfinder", where: ".scratch/ + GitHub", life: "到交棒", to: "团队" },
+    { art: "prototype 分支 · 结论", skill: "prototype", who: "prototype / handoff", where: "prototype/<name>", life: "长期（结论）", to: "团队 + agent" },
+    { art: "contract.md", skill: "prototype", who: "原型定稿后", where: "design/screens/", life: "长期", to: "实现 + 评审", share: "team-authoritative" },
+    { art: "handoff-*.md", skill: "handoff", who: "handoff", where: "$TMPDIR", life: "一次会话", to: "接手人" },
+    { art: "架构报告 HTML", skill: "improve-codebase-architecture", who: "improve-codebase-architecture", where: "$TMPDIR", life: "一次", to: "当前人" },
+    { art: "带引用的 markdown", skill: "research", who: "research", where: "research/<name> · 仓库惯例", life: "按需", to: "agent + 团队" },
+    { art: "PR 正文", skill: "pr", who: "pr", where: "GitHub", life: "随 PR", to: "评审人" },
+    { art: ".env · secrets", skill: "wizard", who: "wizard", where: "本机 · CI", life: "长期", to: "本机 / CI" },
+    { art: "AGENTS.md · skill 正文", skill: "writing-for-agents", who: "retro · writing-for-agents", where: "仓库根 · .agents/skills/", life: "长期", to: "团队 + agent" },
+    { art: "commits · 集成分支", skill: "implement", who: "implement", where: "git", life: "永久", to: "团队 + 评审" }
+  ];
+
+  document.getElementById("artifactRows").innerHTML = ARTIFACTS.map(row => {
+    const s = byName[row.skill] || {};
+    const share = row.share || s.share || "none";
+    const [label, cls] = SHARE[share] || SHARE.none;
+    return `
+      <tr>
+        <td>${esc(row.art)}</td>
+        <td class="muted">${esc(row.who)}</td>
+        <td class="where">${esc(row.where)}</td>
+        <td>${esc(row.life)}</td>
+        <td><span class="badge ${cls}">${label}</span></td>
+        <td class="muted">${esc(row.to)}</td>
+      </tr>`;
+  }).join("");
+</script>
+</body>
+</html>

@@ -1,0 +1,642 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>matt-workflow · 格式样张</title>
+<style>
+  :root {
+    --paper: #faf8f3;
+    --ink: #191917;
+    --muted: #6f6b62;
+    --line: #e3ddcf;
+    --card: #fffdf8;
+    --rust: #b4431e;
+    --green: #2f5d50;
+    --gold: #a8791f;
+    --slate: #59636b;
+    --sans: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+    --serif: "Iowan Old Style", "Songti SC", "Noto Serif SC", ui-serif, Georgia, serif;
+    --mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body { background: #e9e5db; color: var(--ink); font-family: var(--sans); }
+
+  .bar {
+    position: fixed; inset: 0 0 auto 0; height: 56px; z-index: 10;
+    display: flex; align-items: center; gap: 18px; padding: 0 22px;
+    background: rgba(250, 248, 243, .92); border-bottom: 1px solid var(--line);
+    backdrop-filter: blur(8px);
+  }
+  .brand { display: flex; align-items: center; gap: 9px; font-weight: 600; font-size: 14px; letter-spacing: .02em; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--rust); }
+  .brand .sub { color: var(--muted); font-weight: 400; font-size: 12px; }
+  .modes { display: flex; gap: 4px; margin-left: auto; padding: 3px; background: #eee9dd; border-radius: 999px; }
+  .modes button {
+    border: 0; background: transparent; color: var(--muted); font: inherit; font-size: 12px;
+    padding: 5px 13px; border-radius: 999px; cursor: pointer;
+  }
+  .modes button.on { background: var(--ink); color: var(--paper); }
+  .hint { color: var(--muted); font-size: 11px; min-width: 160px; text-align: right; }
+
+  .deck { position: fixed; inset: 56px 0 0; display: grid; place-items: center; overflow: hidden; }
+  .stage {
+    width: 1280px; height: 720px; position: relative; overflow: hidden;
+    background: var(--paper); transform-origin: center center;
+    box-shadow: 0 18px 60px rgba(40, 32, 20, .12);
+  }
+  .slide {
+    position: absolute; inset: 0; display: none; flex-direction: column;
+    padding: 64px 76px 58px;
+  }
+  .slide.on { display: flex; }
+  .slide::before {
+    content: ""; position: absolute; inset: 0 auto auto 0; width: 100%; height: 5px;
+    background: linear-gradient(90deg, var(--rust), var(--gold) 45%, var(--green));
+  }
+  .eyebrow {
+    margin: 0 0 18px; color: var(--rust); font-size: 12px; font-weight: 600;
+    letter-spacing: .16em; text-transform: uppercase;
+  }
+  h1 { margin: 0; font-family: var(--serif); font-weight: 600; font-size: 66px; line-height: 1.12; letter-spacing: -.01em; }
+  h2 { margin: 0 0 8px; font-family: var(--serif); font-weight: 600; font-size: 40px; line-height: 1.15; }
+  .lede { margin: 20px 0 0; color: var(--muted); font-size: 21px; line-height: 1.55; max-width: 820px; }
+  .foot { margin-top: auto; color: var(--muted); font-size: 12px; letter-spacing: .04em; }
+  .foot code { font-family: var(--mono); font-size: 11.5px; }
+  .pageno {
+    position: absolute; right: 32px; bottom: 22px; color: var(--muted);
+    font-size: 11px; font-variant-numeric: tabular-nums;
+  }
+
+  .chips { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 34px; }
+  .chips span {
+    border: 1px solid var(--line); background: var(--card); border-radius: 2px;
+    padding: 9px 14px; font-size: 14px;
+  }
+
+  .flow { display: flex; align-items: stretch; gap: 10px; margin-top: 26px; }
+  .node {
+    flex: 1; border: 1px solid var(--line); border-top: 3px solid var(--green);
+    background: var(--card); padding: 14px 14px 12px; border-radius: 2px;
+  }
+  .node b { display: block; font-size: 15px; }
+  .node small { display: block; margin-top: 5px; color: var(--muted); font-family: var(--mono); font-size: 10.5px; line-height: 1.45; }
+  .arw { align-self: center; color: var(--muted); font-size: 18px; }
+  .forkline { display: flex; align-items: center; gap: 12px; margin: 22px 0 12px; color: var(--muted); font-size: 11px; letter-spacing: .1em; }
+  .forkline::before, .forkline::after { content: ""; height: 1px; background: var(--line); flex: 1; }
+  .forks { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+  .f { border: 1px dashed var(--line); background: transparent; padding: 11px 13px; font-size: 14px; border-radius: 2px; }
+  .f small { display: block; margin-top: 4px; color: var(--muted); font-size: 11px; }
+  .f.gold { border-color: #d8c08a; }
+  .f.rust { border-color: #dda992; }
+  .f.green { border-color: #a9c4ba; }
+
+  table { width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 13.5px; }
+  th, td { text-align: left; vertical-align: top; padding: 11px 12px; border-bottom: 1px solid var(--line); }
+  th { font-size: 11px; letter-spacing: .08em; color: var(--muted); font-weight: 600; text-transform: uppercase; }
+  td:first-child { font-weight: 600; white-space: nowrap; }
+  td code { font-family: var(--mono); font-size: 12px; }
+  tbody tr:last-child td { border-bottom: 0; }
+
+  .matrix {
+    display: grid; grid-template-columns: 64px 1fr 1fr; grid-template-rows: 30px auto auto;
+    gap: 8px; margin-top: 18px; align-content: start;
+  }
+  .axis { color: var(--muted); font-size: 11px; letter-spacing: .06em; display: flex; align-items: center; }
+  .axis.v { writing-mode: vertical-rl; justify-content: center; align-items: center; letter-spacing: .16em; }
+  .cell {
+    border: 1px solid var(--line); background: var(--card); border-radius: 2px;
+    padding: 13px 15px; font-size: 12.5px; line-height: 1.7;
+  }
+  .cell b { display: block; margin-bottom: 5px; font-size: 12px; }
+  .cell .tag { font-family: var(--mono); font-size: 11px; color: var(--green); line-height: 1.7; }
+
+  .three { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-top: 26px; flex: 1; }
+  .box { border: 1px solid var(--line); background: var(--card); padding: 18px; border-radius: 2px; }
+  .box .k { color: var(--rust); font-size: 11px; letter-spacing: .14em; text-transform: uppercase; }
+  .box b { display: block; margin: 9px 0 6px; font-size: 18px; font-family: var(--serif); }
+  .box p { margin: 0; color: var(--muted); font-size: 12.5px; line-height: 1.65; }
+  .thesis { margin-top: 18px; font-family: var(--serif); font-size: 20px; }
+
+  .atlas { position: fixed; inset: 56px 0 0; display: grid; grid-template-columns: 1fr 360px; overflow: hidden; background: var(--paper); }
+  .lanes { overflow: auto; padding: 26px 30px 40px; }
+  .atlas-title { font-family: var(--serif); font-size: 26px; margin: 0 0 4px; }
+  .atlas-sub { color: var(--muted); font-size: 12.5px; margin: 0 0 22px; }
+  .lane { display: grid; grid-template-columns: 78px 1fr; gap: 14px; padding: 15px 0; border-top: 1px solid var(--line); }
+  .lname { color: var(--muted); font-size: 11px; letter-spacing: .1em; padding-top: 8px; }
+  .lane .chips { margin: 0; gap: 8px; align-content: flex-start; }
+  .chip {
+    border: 1px solid var(--line); background: var(--card); border-radius: 2px;
+    padding: 8px 11px; cursor: pointer; text-align: left; font: inherit; color: inherit;
+    border-left: 3px solid var(--slate);
+  }
+  .chip b { display: block; font-family: var(--mono); font-size: 12px; font-weight: 600; }
+  .chip span { display: block; margin-top: 3px; color: var(--muted); font-size: 11px; }
+  .chip:hover { background: #fff; }
+  .chip.on { border-color: var(--rust); border-left-color: var(--rust); background: #fff; }
+  .chip[data-lane="主干"] { border-left-color: var(--green); }
+  .chip[data-lane="支路"] { border-left-color: var(--gold); }
+  .chip[data-lane="入口"] { border-left-color: var(--rust); }
+  .chip[data-lane="底座"] { border-left-color: var(--slate); }
+  .chip[data-lane="词汇"] { border-left-color: #9a9484; }
+
+  .panel { border-left: 1px solid var(--line); background: var(--card); padding: 28px 26px; overflow: auto; }
+  .panel .k { color: var(--muted); font-size: 11px; letter-spacing: .12em; text-transform: uppercase; }
+  .panel h3 { margin: 8px 0 2px; font-family: var(--mono); font-size: 20px; }
+  .panel .cn { color: var(--muted); font-size: 13px; margin-bottom: 20px; }
+  .panel dl { margin: 0; display: grid; grid-template-columns: 72px 1fr; gap: 11px 12px; font-size: 12.5px; line-height: 1.55; }
+  .panel dt { color: var(--muted); }
+  .panel dd { margin: 0; }
+  .panel dd code { font-family: var(--mono); font-size: 11.5px; }
+  .panel a { color: var(--rust); font-size: 12px; text-decoration: none; }
+  .panel a:hover { text-decoration: underline; }
+  .panel .note { margin-top: 22px; padding-top: 14px; border-top: 1px solid var(--line); color: var(--muted); font-size: 11.5px; line-height: 1.65; }
+
+  [hidden] { display: none !important; }
+
+  @media print {
+    .bar, .pageno, #atlas { display: none !important; }
+    body { background: #fff; }
+    .deck { position: static; display: block; overflow: visible; }
+    .stage { transform: none !important; width: 1280px; height: auto; box-shadow: none; }
+    .slide { position: static; display: flex !important; height: 720px; page-break-after: always; }
+  }
+</style>
+</head>
+<body>
+
+<header class="bar">
+  <div class="brand"><span class="dot"></span>matt-workflow <span class="sub">格式样张 · throwaway</span></div>
+  <div class="modes">
+    <button id="mDeck" class="on">宣讲</button>
+    <button id="mAtlas">图册</button>
+  </div>
+  <div class="hint" id="hint">← → 翻页 · F 全屏 · M 切换</div>
+</header>
+
+<main id="deck" class="deck">
+  <div class="stage" id="stage">
+
+    <section class="slide on">
+      <p class="eyebrow">ask-matt · 一张路由表</p>
+      <h1>37 个 skill，<br>怎么选？</h1>
+      <p class="lede">不是背命令，是认处境。你手上是什么，决定了你走哪条路。</p>
+      <div class="chips">
+        <span>有想法，要做出来</span>
+        <span>别人提了问题</span>
+        <span>东西坏了</span>
+        <span>大得看不见路</span>
+      </div>
+      <p class="foot">这份样张只验证格式：一页一个主张，点得进去，打印得出来。</p>
+      <div class="pageno">1 / 5</div>
+    </section>
+
+    <section class="slide">
+      <p class="eyebrow">主干</p>
+      <h2>主干不是一条线</h2>
+      <p class="lede">它是一条能被四个问题岔开的路。岔路不是例外，是常态。</p>
+      <div class="flow">
+        <div class="node"><b>磨想法</b><small>grill-with-docs</small></div>
+        <span class="arw">→</span>
+        <div class="node"><b>出规格</b><small>to-spec</small></div>
+        <span class="arw">→</span>
+        <div class="node"><b>拆工单</b><small>to-tickets</small></div>
+        <span class="arw">→</span>
+        <div class="node"><b>实现</b><small>implement / implement-spec</small></div>
+        <span class="arw">→</span>
+        <div class="node"><b>评审收尾</b><small>code-review · pr · retro</small></div>
+      </div>
+      <div class="forkline"><span>在这些地方分岔</span></div>
+      <div class="forks">
+        <div class="f gold">需要一个可跑的答案<small>handoff ⇄ prototype</small></div>
+        <div class="f rust">一个会话装不下<small>wayfinder → to-spec</small></div>
+        <div class="f rust">问题不是你提的<small>triage</small></div>
+        <div class="f green">东西坏了<small>diagnosing-bugs</small></div>
+      </div>
+      <p class="foot">每个分支的特征不同：会话数、上下文策略、产物、远端依赖，都不同。</p>
+      <div class="pageno">2 / 5</div>
+    </section>
+
+    <section class="slide">
+      <p class="eyebrow">分支特征</p>
+      <h2>先看这四行，再决定走哪条</h2>
+      <table>
+        <thead>
+          <tr><th>分支</th><th>触发</th><th>会话</th><th>关键产物</th><th>远端</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>单会话</td>
+            <td>想清楚就能做</td>
+            <td>1</td>
+            <td>代码 + 提交</td>
+            <td>可选</td>
+          </tr>
+          <tr>
+            <td>多会话</td>
+            <td>一个窗口装不下</td>
+            <td>N，每票一窗</td>
+            <td>spec + 工单 + 集成分支</td>
+            <td>必需，可降级</td>
+          </tr>
+          <tr>
+            <td>原型</td>
+            <td>需要一个可跑的答案</td>
+            <td>2（出去 / 回来）</td>
+            <td><code>prototype/&lt;name&gt;</code> 分支</td>
+            <td>无</td>
+          </tr>
+          <tr>
+            <td>迷雾</td>
+            <td>路还看不见</td>
+            <td>多，一票一会话</td>
+            <td>map + 决策工单</td>
+            <td>必需，原生阻塞</td>
+          </tr>
+          <tr>
+            <td>外部问题</td>
+            <td>别人提的 issue / PR</td>
+            <td>1</td>
+            <td>标签 + agent brief</td>
+            <td>必需</td>
+          </tr>
+          <tr>
+            <td>硬 bug</td>
+            <td>说不清、偶发、回归</td>
+            <td>1</td>
+            <td>先红后绿的回归测试</td>
+            <td>无</td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="pageno">3 / 5</div>
+    </section>
+
+    <section class="slide">
+      <p class="eyebrow">团队协作</p>
+      <h2>哪些文件该共享？</h2>
+      <p class="lede">别问「在不在 git 里」，问两个问题：它是权威吗？它随仓库走吗？</p>
+      <div class="matrix">
+        <div></div>
+        <div class="axis">随仓库走（clone 即得）</div>
+        <div class="axis">靠外部服务 / 本机</div>
+
+        <div class="axis v">权威</div>
+        <div class="cell">
+          <b>必须共享，且要 review</b>
+          <span class="tag">GLOSSARY.md · docs/adr/ · spec 镜像 · 工单镜像 · CODING_STANDARDS.md</span>
+        </div>
+        <div class="cell">
+          <b>必须共享，但只能给链接</b>
+          <span class="tag">GitHub issue / PR · 标签 · issue 编号 · secrets 的值（绝不共享）</span>
+        </div>
+
+        <div class="axis v">派生 / 临时</div>
+        <div class="cell">
+          <b>可入库，但不是权威</b>
+          <span class="tag">中文译本 · 这份 deck · cheatsheet · prototype 分支 · research 笔记</span>
+        </div>
+        <div class="cell">
+          <b>只本地，给接手人就够</b>
+          <span class="tag">handoff · 架构报告 · subagent 笔记 · 调试捕获 · .env</span>
+        </div>
+      </div>
+      <p class="foot"><code>.scratch/</code> 在本仓库入库，是为了换机器；它是 agent 工作副本，不是团队文档。</p>
+      <div class="pageno">4 / 5</div>
+    </section>
+
+    <section class="slide">
+      <p class="eyebrow">结论</p>
+      <h2>所以，做成什么？</h2>
+      <div class="three">
+        <div class="box">
+          <div class="k">主件</div>
+          <b>deck.html</b>
+          <p>16:9，键盘翻页，一页一个主张。现场讲这一份。</p>
+        </div>
+        <div class="box">
+          <div class="k">同一份数据</div>
+          <b>图册模式</b>
+          <p>泳道 + 点开详情。会后查「我这种情况走哪条」。</p>
+        </div>
+        <div class="box">
+          <div class="k">带走</div>
+          <b>cheatsheet.html</b>
+          <p>A4 两张表：路由表 + 文件落点表。打印、贴墙、发群。</p>
+        </div>
+      </div>
+      <p class="thesis">一个事实源，两个视图，一张纸。</p>
+      <p class="foot">换成 Keynote，这三样都会各自过期；换成纯文档，现场讲不动。</p>
+      <div class="pageno">5 / 5</div>
+    </section>
+
+  </div>
+</main>
+
+<main id="atlas" class="atlas" hidden>
+  <div class="lanes">
+    <h2 class="atlas-title">skill 图册</h2>
+    <p class="atlas-sub">点任意一个，看它的触发、产物、目录、远端与共享归属。样张只放了 16 个。</p>
+
+    <div class="lane">
+      <div class="lname">主干</div>
+      <div class="chips">
+        <button class="chip" data-lane="主干" data-k="grill"><b>grill-with-docs</b><span>磨想法</span></button>
+        <button class="chip" data-lane="主干" data-k="tospec"><b>to-spec</b><span>出规格</span></button>
+        <button class="chip" data-lane="主干" data-k="totickets"><b>to-tickets</b><span>拆工单</span></button>
+        <button class="chip" data-lane="主干" data-k="implement"><b>implement</b><span>逐票实现</span></button>
+        <button class="chip" data-lane="主干" data-k="implspec"><b>implement-spec</b><span>整规格并行</span></button>
+        <button class="chip" data-lane="主干" data-k="review"><b>code-review</b><span>双轴评审</span></button>
+        <button class="chip" data-lane="主干" data-k="pr"><b>pr</b><span>PR 正文</span></button>
+        <button class="chip" data-lane="主干" data-k="retro"><b>retro</b><span>复盘环境</span></button>
+      </div>
+    </div>
+
+    <div class="lane">
+      <div class="lname">支路</div>
+      <div class="chips">
+        <button class="chip" data-lane="支路" data-k="prototype"><b>prototype</b><span>一次性代码</span></button>
+        <button class="chip" data-lane="支路" data-k="handoff"><b>handoff</b><span>可携带交接</span></button>
+      </div>
+    </div>
+
+    <div class="lane">
+      <div class="lname">入口</div>
+      <div class="chips">
+        <button class="chip" data-lane="入口" data-k="wayfinder"><b>wayfinder</b><span>迷雾地图</span></button>
+        <button class="chip" data-lane="入口" data-k="triage"><b>triage</b><span>外部问题</span></button>
+        <button class="chip" data-lane="入口" data-k="diag"><b>diagnosing-bugs</b><span>硬 bug</span></button>
+      </div>
+    </div>
+
+    <div class="lane">
+      <div class="lname">底座</div>
+      <div class="chips">
+        <button class="chip" data-lane="底座" data-k="tdd"><b>tdd</b><span>红绿循环</span></button>
+      </div>
+    </div>
+
+    <div class="lane">
+      <div class="lname">词汇</div>
+      <div class="chips">
+        <button class="chip" data-lane="词汇" data-k="domain"><b>domain-modeling</b><span>领域语言</span></button>
+        <button class="chip" data-lane="词汇" data-k="design"><b>codebase-design</b><span>深模块</span></button>
+      </div>
+    </div>
+  </div>
+
+  <aside class="panel" id="panel"></aside>
+</main>
+
+<script>
+  const SKILLS = {
+    grill: {
+      name: "grill-with-docs", cn: "磨想法", lane: "主干",
+      trigger: "有想法、还没想清；人在仓库里",
+      session: "1 个不间断窗口",
+      out: "GLOSSARY.md · docs/adr/NNNN-*.md",
+      dir: "仓库根 + docs/adr/",
+      remote: "无",
+      share: "权威 · 随仓库走",
+      note: "与 grill-me 同一场访谈；差别是有没有留下纸面痕迹。"
+    },
+    tospec: {
+      name: "to-spec", cn: "出规格", lane: "主干",
+      trigger: "每个问题都能在对话里答完",
+      session: "与上一步同一窗口",
+      out: "spec.md（问题 / 方案 / 用户故事 / 实现与测试决策）",
+      dir: ".scratch/<feature>/spec.md",
+      remote: "GitHub issue（ready-for-agent）",
+      share: "权威 · 双写",
+      note: "先勾测试接缝并跟人确认；接缝越少越好，理想是一个。"
+    },
+    totickets: {
+      name: "to-tickets", cn: "拆工单", lane: "主干",
+      trigger: "多会话构建；一个窗口装不下",
+      session: "与上一步同一窗口",
+      out: "每票一文件；每票声明阻塞边",
+      dir: ".scratch/<feature>/issues/NN-*.md",
+      remote: "GitHub 子 issue + 原生阻塞边",
+      share: "权威 · 双写",
+      note: "垂直切片，每片穿过所有层；宽重构是例外，走 expand–contract。"
+    },
+    implement: {
+      name: "implement", cn: "逐票实现", lane: "主干",
+      trigger: "拿到一张可开工的票",
+      session: "每票一个新窗口",
+      out: "代码提交（当前分支）",
+      dir: "当前分支",
+      remote: "读 ticket",
+      share: "代码 · 随仓库",
+      note: "内部驱动 tdd，收于 code-review；工单之间 /clear。"
+    },
+    implspec: {
+      name: "implement-spec", cn: "整规格并行", lane: "主干",
+      trigger: "想编排整个任务图，而不是逐票驱动",
+      session: "每票一个 subagent",
+      out: "集成分支 + 每票一个 worktree",
+      dir: "仓库 + worktree",
+      remote: "GitHub（PR 可选）",
+      share: "代码 · 随仓库",
+      note: "按 frontier 并行；最后在集成分支上做一次 code-review。"
+    },
+    review: {
+      name: "code-review", cn: "双轴评审", lane: "主干",
+      trigger: "实现完成，准备看 diff",
+      session: "1",
+      out: "报告（不落文件）",
+      dir: "无",
+      remote: "读 spec / issue",
+      share: "对话内",
+      note: "Standards 与 Spec 两轴分开汇报，不许互相掩盖。"
+    },
+    pr: {
+      name: "pr", cn: "PR 正文", lane: "主干",
+      trigger: "准备把工作推上去",
+      session: "1",
+      out: "PR body：最小可视化 + 改前后证据 + 单向/双向门",
+      dir: "无",
+      remote: "GitHub PR",
+      share: "权威 · 远端",
+      note: "模型自动调用；不要求人记。"
+    },
+    retro: {
+      name: "retro", cn: "复盘环境", lane: "主干",
+      trigger: "一次构建结束，尤其走过弯路",
+      session: "在原会话里跑",
+      out: "对 agent 环境的改进建议",
+      dir: "AGENTS.md · 标准 · 检查",
+      remote: "无",
+      share: "权威 · 随仓库",
+      note: "机械错误变成确定性检查；判断分歧变成编码标准。"
+    },
+    prototype: {
+      name: "prototype", cn: "原型", lane: "支路",
+      trigger: "需要一个可跑的答案：状态模型或 UI",
+      session: "2（出去 / 回来）",
+      out: "一次性代码；答案回填 spec",
+      dir: "模块旁；最终留 prototype/<name> 分支",
+      remote: "无",
+      share: "派生 · 分支",
+      note: "throwaway 是写法约束，不是承诺销毁；原型作为一手来源保留。"
+    },
+    handoff: {
+      name: "handoff", cn: "可携带交接", lane: "支路",
+      trigger: "换 harness / 换目录 / 交给同事 / 阶段中途分叉",
+      session: "1",
+      out: "可携带 markdown",
+      dir: "$TMPDIR，不在仓库",
+      remote: "无",
+      share: "临时 · 只给接手人",
+      note: "窄工具。默认的阶段边界选择是 /compact，不是 handoff。"
+    },
+    wayfinder: {
+      name: "wayfinder", cn: "迷雾地图", lane: "入口",
+      trigger: "一个会话装不下，路还看不见",
+      session: "多，一票一会话",
+      out: "map + 决策工单；产出决策不产出交付物",
+      dir: ".scratch/<effort>/map.md",
+      remote: "map issue + 子 issue + 原生阻塞 + assignee",
+      share: "权威 · 双写",
+      note: "地图清晰后交棒给 to-spec，不直接 implement。"
+    },
+    triage: {
+      name: "triage", cn: "外部问题", lane: "入口",
+      trigger: "别人提的 issue / PR",
+      session: "1",
+      out: "标签 + agent brief；拒绝的需求进 .out-of-scope/",
+      dir: ".out-of-scope/",
+      remote: "GitHub 标签 / 评论 / 关闭",
+      share: "权威 · 远端",
+      note: "只收不是你提的；to-tickets 的产物已是 ready-for-agent，不要再 triage。"
+    },
+    diag: {
+      name: "diagnosing-bugs", cn: "硬 bug", lane: "入口",
+      trigger: "说不清、偶发、回归",
+      session: "1",
+      out: "先红后绿的回归测试",
+      dir: "测试文件",
+      remote: "无",
+      share: "代码 · 随仓库",
+      note: "没有一条已经变红的紧反馈循环，不许开始猜。"
+    },
+    tdd: {
+      name: "tdd", cn: "红绿循环", lane: "底座",
+      trigger: "要建一个具体行为",
+      session: "1",
+      out: "测试 + 最小实现",
+      dir: "预先约定的接缝",
+      remote: "无",
+      share: "代码 · 随仓库",
+      note: "垂直切片：一测一实现；重构不属于这个循环。"
+    },
+    domain: {
+      name: "domain-modeling", cn: "领域语言", lane: "词汇",
+      trigger: "词不准、一词多义、要记一个难逆的决策",
+      session: "被别的 skill 拉进来",
+      out: "GLOSSARY.md · ADR",
+      dir: "仓库根 + docs/adr/",
+      remote: "无",
+      share: "权威 · 随仓库",
+      note: "GLOSSARY 只放领域语言，不放实现细节，也不当 spec 用。"
+    },
+    design: {
+      name: "codebase-design", cn: "深模块", lane: "词汇",
+      trigger: "模块形状、接缝位置、可测试性说不清",
+      session: "参考，不是会话",
+      out: "无（词汇）",
+      dir: "无",
+      remote: "无",
+      share: "词汇",
+      note: "module / interface / depth / seam / adapter / leverage / locality，按这套词说。"
+    }
+  };
+
+  const stage = document.getElementById("stage");
+  const slides = [...document.querySelectorAll(".slide")];
+  const deck = document.getElementById("deck");
+  const atlas = document.getElementById("atlas");
+  const hint = document.getElementById("hint");
+  let i = 0;
+  let mode = "deck";
+
+  function fit() {
+    const s = Math.min((innerWidth - 48) / 1280, (innerHeight - 56 - 48) / 720);
+    stage.style.transform = `scale(${s})`;
+  }
+
+  function show(n) {
+    i = Math.max(0, Math.min(slides.length - 1, n));
+    slides.forEach((s, k) => s.classList.toggle("on", k === i));
+    document.querySelectorAll(".pageno").forEach((p, k) => { p.textContent = `${k + 1} / ${slides.length}`; });
+  }
+
+  function setMode(next) {
+    mode = next;
+    deck.hidden = mode !== "deck";
+    atlas.hidden = mode !== "atlas";
+    document.getElementById("mDeck").classList.toggle("on", mode === "deck");
+    document.getElementById("mAtlas").classList.toggle("on", mode === "atlas");
+    hint.textContent = mode === "deck" ? "← → 翻页 · F 全屏 · M 切换" : "点 skill 看详情 · M 回宣讲";
+    if (mode === "deck") fit();
+  }
+
+  const panel = document.getElementById("panel");
+  function renderPanel(key) {
+    const s = SKILLS[key];
+    if (!s) return;
+    document.querySelectorAll(".chip").forEach(c => c.classList.toggle("on", c.dataset.k === key));
+    panel.innerHTML = `
+      <div class="k">${s.lane}</div>
+      <h3>${s.name}</h3>
+      <div class="cn">${s.cn}</div>
+      <dl>
+        <dt>触发</dt><dd>${s.trigger}</dd>
+        <dt>会话</dt><dd>${s.session}</dd>
+        <dt>产物</dt><dd>${s.out}</dd>
+        <dt>目录</dt><dd><code>${s.dir}</code></dd>
+        <dt>远端</dt><dd>${s.remote}</dd>
+        <dt>共享</dt><dd>${s.share}</dd>
+      </dl>
+      <div class="note">${s.note}</div>
+      <p style="margin:14px 0 0"><a href="../../.agents/skills/${s.name}/SKILL.md">打开原文 SKILL.md ↗</a></p>
+    `;
+  }
+
+  document.querySelectorAll(".chip").forEach(c => {
+    c.addEventListener("click", () => renderPanel(c.dataset.k));
+  });
+  document.getElementById("mDeck").addEventListener("click", () => setMode("deck"));
+  document.getElementById("mAtlas").addEventListener("click", () => setMode("atlas"));
+
+  addEventListener("keydown", e => {
+    if (e.key === "m" || e.key === "M") { setMode(mode === "deck" ? "atlas" : "deck"); return; }
+    if (e.key === "f" || e.key === "F") {
+      if (!document.fullscreenElement) document.documentElement.requestFullscreen?.();
+      else document.exitFullscreen?.();
+      return;
+    }
+    if (mode !== "deck") return;
+    if (e.key === "ArrowRight" || e.key === " " || e.key === "PageDown") { e.preventDefault(); show(i + 1); }
+    if (e.key === "ArrowLeft" || e.key === "PageUp") { e.preventDefault(); show(i - 1); }
+    if (e.key === "Home") show(0);
+    if (e.key === "End") show(slides.length - 1);
+  });
+
+  addEventListener("resize", fit);
+
+  function route() {
+    const h = location.hash.replace(/^#/, "");
+    if (h === "atlas") { setMode("atlas"); return; }
+    const m = h.match(/^s=?(\d+)$/);
+    if (m) { setMode("deck"); show(Number(m[1]) - 1); }
+  }
+  addEventListener("hashchange", route);
+
+  fit();
+  renderPanel("grill");
+  route();
+</script>
+</body>
+</html>

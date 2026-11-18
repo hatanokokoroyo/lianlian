@@ -1,0 +1,535 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>matt-workflow · 37 个 skill 怎么选</title>
+<style>
+  :root {
+    --paper: #faf8f3;
+    --ink: #191917;
+    --muted: #6f6b62;
+    --line: #e3ddcf;
+    --card: #fffdf8;
+    --rust: #b4431e;
+    --green: #2f5d50;
+    --gold: #a8791f;
+    --slate: #59636b;
+    --sans: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+    --serif: "Iowan Old Style", "Songti SC", "Noto Serif SC", ui-serif, Georgia, serif;
+    --mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body { background: #e9e5db; color: var(--ink); font-family: var(--sans); }
+  a { color: inherit; }
+
+  .bar {
+    position: fixed; inset: 0 0 auto 0; height: 56px; z-index: 30;
+    display: flex; align-items: center; gap: 16px; padding: 0 20px;
+    background: rgba(250, 248, 243, .94); border-bottom: 1px solid var(--line);
+    backdrop-filter: blur(8px);
+  }
+  .brand { display: flex; align-items: center; gap: 9px; font-weight: 600; font-size: 13px; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--rust); }
+  .brand .sub { color: var(--muted); font-weight: 400; font-size: 11px; }
+  .modes { display: flex; gap: 4px; margin-left: auto; padding: 3px; background: #eee9dd; border-radius: 999px; }
+  .modes button, .toolBtn {
+    border: 0; background: transparent; color: var(--muted); font: inherit; font-size: 11.5px;
+    padding: 5px 12px; border-radius: 999px; cursor: pointer;
+  }
+  .modes button.on { background: var(--ink); color: var(--paper); }
+  .toolBtn { border: 1px solid var(--line); border-radius: 2px; padding: 4px 9px; }
+  .hint { color: var(--muted); font-size: 10.5px; min-width: 210px; text-align: right; }
+
+  .deck { position: fixed; inset: 56px 0 0; display: grid; place-items: center; overflow: hidden; }
+  .stage {
+    width: 1280px; height: 720px; position: relative; overflow: hidden;
+    background: var(--paper); transform-origin: center center;
+    box-shadow: 0 18px 60px rgba(40, 32, 20, .13);
+  }
+  .slide {
+    position: absolute; inset: 0; display: none; flex-direction: column;
+    padding: 50px 64px 42px;
+  }
+  .slide.on { display: flex; }
+  .slide::before {
+    content: ""; position: absolute; inset: 0 auto auto 0; width: 100%; height: 5px;
+    background: linear-gradient(90deg, var(--rust), var(--gold) 45%, var(--green));
+  }
+  .eyebrow {
+    margin: 0 0 12px; color: var(--rust); font-size: 11px; font-weight: 600;
+    letter-spacing: .16em; text-transform: uppercase;
+  }
+  h1 { margin: 0; font-family: var(--serif); font-weight: 600; font-size: 68px; line-height: 1.1; letter-spacing: -.01em; }
+  h2 { margin: 0 0 6px; font-family: var(--serif); font-weight: 600; font-size: 37px; line-height: 1.18; }
+  h3 { margin: 6px 0 5px; font-family: var(--serif); font-size: 20px; }
+  .lede { margin: 10px 0 0; color: var(--muted); font-size: 18px; line-height: 1.5; max-width: 940px; }
+  .foot { margin-top: auto; color: var(--muted); font-size: 11.5px; line-height: 1.5; }
+  .muted { color: var(--muted); }
+  .small { font-size: 11px; }
+  .mono { font-family: var(--mono); }
+  code { font-family: var(--mono); font-size: .92em; }
+  .mt { margin-top: 14px; }
+  .cover h1 { font-size: 76px; margin-top: 34px; }
+  .coverRow { display: flex; gap: 8px; margin-top: 24px; }
+  .pill { border: 1px solid var(--line); background: var(--card); padding: 6px 11px; font-size: 11.5px; }
+  .stack { display: grid; gap: 10px; align-content: start; }
+  .cols2 { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; }
+  .cols3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+  .cols2.tight { grid-template-columns: 1fr 1fr; gap: 7px; }
+  .card { border: 1px solid var(--line); background: var(--card); padding: 14px 16px; }
+  .card .k { color: var(--rust); font-size: 10px; letter-spacing: .14em; text-transform: uppercase; }
+  .card p { margin: 6px 0 0; }
+  .bigline { font-family: var(--serif); font-size: 20px; line-height: 1.3; margin: 5px 0 0; }
+  .callout {
+    border-left: 3px solid var(--rust); background: #f6efe9; padding: 10px 14px;
+    font-size: 12px; line-height: 1.55;
+  }
+  .callout.green { border-left-color: var(--green); background: #edf3f0; }
+  .callout b { display: inline-block; margin-right: 6px; }
+  .quote { font-family: var(--serif); font-size: 18px; line-height: 1.45; margin: 10px 0 0; }
+
+  .routeGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 22px; }
+  .route {
+    border: 1px solid var(--line); border-left: 4px solid var(--rust); background: var(--card);
+    padding: 18px 20px; text-decoration: none; transition: background .15s;
+  }
+  .route:hover { background: #fff; border-color: var(--rust); }
+  .route b { display: block; font-family: var(--serif); font-size: 21px; }
+  .route span { display: block; color: var(--muted); font-size: 12px; margin-top: 5px; }
+
+  .flow { display: flex; align-items: stretch; gap: 8px; margin-top: 20px; }
+  .flow.four .node b { font-size: 17px; }
+  .node {
+    flex: 1; border: 1px solid var(--line); border-top: 3px solid var(--green);
+    background: var(--card); padding: 13px 12px 11px;
+  }
+  .node b { display: block; font-size: 15px; }
+  .node small { display: block; margin-top: 4px; color: var(--muted); font-family: var(--mono); font-size: 10px; line-height: 1.35; }
+  .arw { align-self: center; color: var(--muted); font-size: 17px; }
+  .forkline { display: flex; align-items: center; gap: 12px; margin: 18px 0 10px; color: var(--muted); font-size: 10.5px; letter-spacing: .1em; }
+  .forkline::before, .forkline::after { content: ""; height: 1px; background: var(--line); flex: 1; }
+  .forks { display: grid; grid-template-columns: repeat(4, 1fr); gap: 9px; }
+  .fork { border: 1px dashed var(--line); padding: 11px 12px; }
+  .fork b { display: block; font-size: 13.5px; }
+  .fork small { display: block; margin-top: 4px; color: var(--muted); font-family: var(--mono); font-size: 10px; }
+
+  .tbl { width: 100%; border-collapse: collapse; margin-top: 14px; font-size: 12.5px; }
+  .tbl th { text-align: left; font-size: 10px; letter-spacing: .08em; color: var(--muted); text-transform: uppercase; padding: 7px 9px; border-bottom: 1px solid var(--line); }
+  .tbl td { padding: 8px 9px; border-bottom: 1px solid var(--line); vertical-align: top; line-height: 1.4; }
+  .tbl tbody tr:last-child td { border-bottom: 0; }
+  .tbl.compact { font-size: 11px; }
+  .tbl.compact td { padding: 5px 7px; }
+  .tbl.compare td:first-child { color: var(--muted); width: 120px; }
+
+  .ticks { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 7px; font-size: 12px; line-height: 1.45; }
+  .ticks li { padding-left: 15px; position: relative; }
+  .ticks li::before { content: "—"; position: absolute; left: 0; color: var(--rust); }
+  .ticks b { display: block; font-size: 12.5px; }
+  .ticks span { display: block; color: var(--muted); font-size: 11px; }
+  .steps { margin: 8px 0 0; padding-left: 18px; display: grid; gap: 7px; font-size: 12px; }
+  .steps b { font-family: var(--mono); font-size: 11.5px; }
+  .steps span { display: block; color: var(--muted); font-size: 11px; }
+  .rules { margin: 7px 0 0; padding-left: 18px; display: grid; gap: 6px; font-size: 11.5px; }
+  .rules b { display: block; }
+  .rules span { color: var(--muted); font-size: 10.5px; }
+
+  .vslice { position: relative; margin: 10px 0 8px; padding: 9px 11px; border: 1px dashed var(--line); }
+  .vslice .layers { display: grid; gap: 5px; }
+  .vslice .layers span { border: 1px solid var(--line); background: #fff; padding: 3px 7px; font-size: 10px; font-family: var(--mono); color: var(--muted); }
+  .vslice .cut { position: absolute; left: 50%; top: 7px; bottom: 7px; width: 10px; margin-left: -5px; border-left: 3px solid var(--rust); border-right: 3px solid var(--rust); background: rgba(180, 67, 30, .12); }
+  .handoffLoop { display: flex; align-items: center; justify-content: center; gap: 7px; border: 1px solid var(--line); background: var(--card); padding: 9px; font-size: 11.5px; }
+  .handoffLoop b { color: var(--rust); }
+  .mapRow { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; border-bottom: 1px dashed var(--line); font-size: 11.5px; }
+  .mapRow span { font-family: var(--mono); }
+  .mapRow em { color: var(--muted); font-style: normal; }
+  .mini { border: 1px solid var(--line); background: var(--card); padding: 8px 10px; }
+  .mini b { display: block; font-family: var(--mono); font-size: 10.5px; }
+  .mini span { display: block; color: var(--muted); font-size: 10px; margin-top: 2px; }
+  .blindspot { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 9px; }
+  .blindspot .k { color: var(--rust); font-size: 10px; letter-spacing: .13em; text-transform: uppercase; }
+  .blindspot p { margin: 4px 0 0; font-size: 10px; line-height: 1.5; color: var(--muted); }
+
+  .role { display: grid; grid-template-columns: 86px 1fr; gap: 2px 10px; border: 1px solid var(--line); background: var(--card); padding: 10px 12px; }
+  .role .k { grid-row: 1 / span 2; color: var(--rust); font-size: 10px; letter-spacing: .12em; text-transform: uppercase; align-self: center; }
+  .role b { font-size: 13.5px; }
+  .role em { color: var(--muted); font-size: 10.5px; font-style: normal; }
+  .shot { margin: 0; border: 1px solid var(--line); background: #fff; padding: 8px; }
+  .shot img { width: 100%; display: block; }
+  .shot figcaption { color: var(--muted); font-size: 10px; margin-top: 6px; }
+  .frame img { width: 100%; height: 400px; object-fit: cover; object-position: top left; }
+  .frame.fit img { object-fit: contain; object-position: center; background: #0d0d0d; }
+
+  .caseGrid { display: grid; grid-template-columns: 280px 1fr; gap: 20px; margin-top: 4px; flex: 1; min-height: 0; }
+  .timeline { display: grid; gap: 9px; align-content: start; }
+  .tl { border-left: 2px solid var(--line); padding-left: 11px; position: relative; }
+  .tl::before { content: ""; position: absolute; left: -5px; top: 4px; width: 8px; height: 8px; border-radius: 50%; background: var(--rust); }
+  .tl span { font-family: var(--mono); font-size: 10.5px; color: var(--rust); }
+  .tl b { display: block; font-size: 13.5px; margin-top: 1px; }
+  .tl em { display: block; color: var(--muted); font-size: 10.5px; font-style: normal; margin-top: 1px; }
+  .shotGroups { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; min-height: 0; }
+  .shotGroups .k { color: var(--muted); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; margin-bottom: 5px; }
+  .shots { display: grid; gap: 5px; }
+  .shots.six { grid-template-columns: repeat(3, 92px); }
+  .shots.nine { grid-template-columns: repeat(3, 64px); }
+  .shots.ia { grid-template-columns: repeat(4, 128px); justify-content: center; margin-top: 4px; }
+  .shots figure { margin: 0; }
+  .shots img { width: 100%; display: block; border: 1px solid var(--line); background: #111; aspect-ratio: 9 / 20; object-fit: cover; }
+  .shots figcaption { font-size: 9px; color: var(--muted); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .dirs { display: grid; grid-template-columns: repeat(3, 92px); gap: 8px; }
+  .dirCol { display: grid; gap: 4px; align-content: start; }
+  .dirLabel { font-size: 9.5px; color: var(--muted); letter-spacing: .04em; }
+  .dirCol img { width: 100%; display: block; border: 1px solid var(--line); background: #111; aspect-ratio: 9 / 20; object-fit: cover; }
+  .caseBottom { display: grid; grid-template-columns: 1fr 1.15fr 1.35fr; gap: 10px; margin-top: 12px; }
+  .evidence { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 10px; }
+  .evidence > div { border-top: 1px solid var(--line); padding-top: 7px; color: var(--muted); font-size: 10.5px; line-height: 1.45; }
+  .evidence b { display: block; font-family: var(--mono); color: var(--rust); font-size: 9.5px; margin-bottom: 2px; }
+
+  .tree { margin: 0; border: 1px solid var(--line); background: var(--card); padding: 14px 16px; font-family: var(--mono); font-size: 11.5px; line-height: 1.65; overflow: hidden; }
+
+  .matrix { display: grid; grid-template-columns: 66px 1fr 1fr; grid-template-rows: 26px auto auto; gap: 7px; margin-top: 12px; align-content: start; }
+  .axis { color: var(--muted); font-size: 10.5px; letter-spacing: .05em; display: flex; align-items: center; }
+  .axis.v { writing-mode: vertical-rl; justify-content: center; align-items: center; letter-spacing: .14em; }
+  .cell { border: 1px solid var(--line); background: var(--card); padding: 11px 13px; font-size: 11.5px; line-height: 1.55; }
+  .cell b { display: block; margin-bottom: 3px; font-size: 11.5px; }
+  .cell span { color: var(--muted); }
+
+  .misuse { display: grid; gap: 2px; margin-top: 14px; }
+  .misuse > div { display: grid; grid-template-columns: 24px 1fr 1fr; gap: 12px; align-items: center; border-bottom: 1px solid var(--line); padding: 9px 0; }
+  .misuse b { font-family: var(--mono); color: var(--rust); }
+  .misuse .bad { font-size: 12.5px; }
+  .misuse .good { font-size: 11.5px; color: var(--green); }
+
+  .closingGrid { display: grid; grid-template-columns: 1.1fr 1fr; gap: 24px; margin-top: 6px; flex: 1; }
+  .paperMini { background: #fff; border: 1px solid var(--line); padding: 18px 20px; box-shadow: 6px 6px 0 #e8e2d4; }
+  .pmHead { font-size: 9.5px; letter-spacing: .12em; color: var(--rust); text-transform: uppercase; }
+  .pmTitle { font-family: var(--serif); font-size: 15px; margin: 12px 0 5px; border-bottom: 1px solid var(--line); padding-bottom: 3px; }
+  .pmRows { display: grid; gap: 4px; font-size: 10px; }
+  .pmRows span { display: block; padding-left: 9px; position: relative; color: var(--muted); }
+  .pmRows span::before { content: "·"; position: absolute; left: 0; color: var(--rust); }
+
+  .stageFoot { position: absolute; left: 64px; right: 64px; bottom: 15px; display: flex; justify-content: space-between; color: var(--muted); font-size: 10px; letter-spacing: .05em; }
+  .footRight { display: flex; align-items: baseline; gap: 6px; }
+  .creditSep { color: #b9b2a4; }
+  .credit { font-size: 9.5px; font-weight: 500; letter-spacing: .1em; }
+  .slideFoot { display: none; }
+  .progress { position: absolute; left: 0; bottom: 0; height: 2px; background: var(--rust); transition: width .2s; }
+
+  .notes {
+    position: fixed; left: 0; right: 0; bottom: 0; max-height: 34vh; overflow: auto; z-index: 25;
+    background: var(--paper); border-top: 1px solid var(--line); padding: 14px 24px 18px;
+    font-size: 13px; line-height: 1.65;
+  }
+  .notes .k { color: var(--rust); font-size: 10px; letter-spacing: .14em; text-transform: uppercase; margin-bottom: 5px; }
+
+  .atlas { position: fixed; inset: 56px 0 0; display: grid; grid-template-columns: 1fr 380px; background: var(--paper); overflow: hidden; }
+  .atlasMain { overflow: auto; padding: 20px 26px 40px; }
+  .atlasHead { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+  .atlasHead h2 { margin: 0; font-size: 24px; }
+  .search { flex: 1; border: 1px solid var(--line); background: #fff; padding: 8px 12px; font: inherit; font-size: 12.5px; }
+  .filters { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 8px; }
+  .filters button { border: 1px solid var(--line); background: transparent; padding: 4px 9px; font: inherit; font-size: 10.5px; cursor: pointer; color: var(--muted); }
+  .filters button.on { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+  .lane { display: grid; grid-template-columns: 64px 1fr; gap: 10px; border-top: 1px solid var(--line); padding: 11px 0; }
+  .lname { color: var(--muted); font-size: 10px; letter-spacing: .1em; padding-top: 8px; }
+  .lane .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip {
+    border: 1px solid var(--line); border-left: 3px solid var(--slate); background: var(--card);
+    padding: 7px 9px; cursor: pointer; text-align: left; font: inherit; color: inherit; min-width: 122px;
+  }
+  .chip b { display: block; font-family: var(--mono); font-size: 10.5px; }
+  .chip span { display: block; color: var(--muted); font-size: 10px; margin-top: 2px; }
+  .chip:hover { background: #fff; }
+  .chip.on { border-color: var(--rust); border-left-color: var(--rust); background: #fff; }
+  .chip[data-lane="主干"] { border-left-color: var(--green); }
+  .chip[data-lane="底座"] { border-left-color: var(--slate); }
+  .chip[data-lane="支路"] { border-left-color: var(--gold); }
+  .chip[data-lane="入口"] { border-left-color: var(--rust); }
+  .chip[data-lane="健康"] { border-left-color: #7a8b5a; }
+  .chip[data-lane="词汇"] { border-left-color: #9a9484; }
+  .chip[data-lane="独立"] { border-left-color: #5b7c99; }
+  .chip[data-lane="工具箱"] { border-left-color: #8b7b8f; }
+  .panel { border-left: 1px solid var(--line); background: var(--card); padding: 24px 22px; overflow: auto; }
+  .panel .k { color: var(--muted); font-size: 10px; letter-spacing: .12em; text-transform: uppercase; }
+  .panel h3 { margin: 6px 0 1px; font-family: var(--mono); font-size: 18px; }
+  .panel .cn { color: var(--muted); font-size: 12px; margin-bottom: 16px; }
+  .panel dl { margin: 0; display: grid; grid-template-columns: 64px 1fr; gap: 9px 10px; font-size: 11.5px; line-height: 1.5; }
+  .panel dt { color: var(--muted); }
+  .panel dd { margin: 0; }
+  .panel dd code { font-family: var(--mono); font-size: 10.5px; }
+  .panel a { color: var(--rust); font-size: 11px; text-decoration: none; }
+  .panel a:hover { text-decoration: underline; }
+  .badge { display: inline-block; border: 1px solid var(--line); padding: 2px 6px; font-size: 9.5px; margin-right: 4px; }
+  .panel .note { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--line); color: var(--muted); font-size: 11px; line-height: 1.6; }
+
+  [hidden] { display: none !important; }
+
+  /* 内容少的页把版面撑满，避免下半页空成一块 */
+  #p02 .routeGrid { margin-top: 34px; gap: 18px 22px; }
+  #p02 .route { padding: 34px 28px; min-height: 138px; display: flex; flex-direction: column; justify-content: center; }
+  #p02 .route b { font-size: 24px; }
+  #p02 .route span { font-size: 13px; margin-top: 8px; }
+
+  #p03 .flow { margin-top: 30px; }
+  #p03 .node { padding: 30px 16px; min-height: 150px; display: flex; flex-direction: column; justify-content: center; }
+  #p03 .fork { padding: 26px 16px; min-height: 136px; display: flex; flex-direction: column; justify-content: center; }
+
+  #p04 .tbl { margin-top: 22px; }
+  #p04 .tbl td { padding: 15px 9px; font-size: 13.5px; }
+
+  #p06 .flow { margin-top: 30px; }
+  #p06 .node { padding: 30px 18px; min-height: 138px; }
+  #p06 .node b { font-size: 17px; }
+  #p06 .node { display: flex; flex-direction: column; justify-content: center; }
+  #p06 .cols2 { gap: 18px; margin-top: 20px; }
+  #p06 .cols2 .card { padding: 26px 24px; min-height: 210px; }
+  #p06 .cols2 .card { display: flex; flex-direction: column; justify-content: center; }
+
+  #p08 .tbl { margin-top: 26px; }
+  #p08 .tbl td { padding: 18px 9px; font-size: 14.5px; }
+  #p08 .tbl th { padding: 11px 9px; }
+
+  #p17 .tbl td { padding: 13px 9px; }
+  #p18 .tbl td { padding: 20px 9px; font-size: 13px; }
+  #p18 .callout { margin-top: 24px; padding: 17px 18px; font-size: 13px; }
+  #p21 .misuse { margin-top: 28px; }
+  #p21 .misuse > div { padding: 20px 0; }
+  #p21 .quote { margin-top: 40px; font-size: 23px; max-width: 980px; }
+
+  @media print {
+    @page { size: 1280px 720px; margin: 0; }
+    .bar, .notes, .stageFoot, #atlas { display: none !important; }
+    body { background: #fff; }
+    .deck { position: static; display: block; overflow: visible; }
+    .stage { transform: none !important; width: 1280px; height: auto; box-shadow: none; overflow: visible; }
+    .slide { position: relative; display: flex !important; width: 1280px; height: 720px; page-break-after: always; }
+    .slide:last-child { page-break-after: auto; break-after: auto; }
+    .slideFoot {
+      display: flex; position: absolute; left: 64px; right: 64px; bottom: 15px;
+      justify-content: space-between; color: var(--muted); font-size: 10px; letter-spacing: .05em;
+    }
+  }
+</style>
+</head>
+<body>
+
+<header class="bar">
+  <div class="brand"><span class="dot"></span>matt-workflow <span class="sub">37 个 skill 怎么选</span></div>
+  <div class="modes">
+    <button id="mDeck" class="on">宣讲</button>
+    <button id="mAtlas">图册</button>
+  </div>
+  <button class="toolBtn" id="mNotes">讲稿 S</button>
+  <div class="hint">← → 翻页 · F 全屏 · M 切换 · S 讲稿</div>
+</header>
+
+<main id="deck" class="deck">
+  <div class="stage" id="stage">
+    <div id="slideRoot"></div>
+    <div class="stageFoot">
+      <span id="sectionLabel"></span>
+      <span class="footRight"><span id="pageno"></span><span class="creditSep">·</span><span class="credit">李泽坤</span></span>
+    </div>
+    <div class="progress" id="progress"></div>
+  </div>
+</main>
+
+<main id="atlas" class="atlas" hidden>
+  <div class="atlasMain">
+    <div class="atlasHead">
+      <h2>skill 图册</h2>
+      <input class="search" id="search" placeholder="搜名字、中文名或触发词…">
+    </div>
+    <div class="filters" id="filters"></div>
+    <div id="lanes"></div>
+  </div>
+  <aside class="panel" id="panel"></aside>
+</main>
+
+<aside class="notes" id="notes" hidden>
+  <div class="k">讲稿</div>
+  <div id="noteText"></div>
+</aside>
+
+<script src="data/skills.js"></script>
+<script src="data/slides-a.js"></script>
+<script src="data/slides-b.js"></script>
+<script>
+  const SLIDES = window.SLIDES || [];
+  const SKILLS = window.SKILLS || [];
+  const LANES = ["路由", "主干", "底座", "支路", "入口", "健康", "词汇", "独立", "工具箱"];
+  const NEED = {
+    none: "无",
+    optional: "可选",
+    recommended: "建议",
+    required: "必须",
+    "required-degradable": "必须 · 可降级",
+    human: "人工必须"
+  };
+  const SHARE = {
+    "team-authoritative": "权威 · 团队共享",
+    "repo-derived": "派生 · 可入库",
+    "local-ephemeral": "临时 · 只本地",
+    secret: "机密 · 只共享方法",
+    none: "无"
+  };
+
+  const stage = document.getElementById("stage");
+  const root = document.getElementById("slideRoot");
+  const pageno = document.getElementById("pageno");
+  const sectionLabel = document.getElementById("sectionLabel");
+  const progress = document.getElementById("progress");
+  const deck = document.getElementById("deck");
+  const atlas = document.getElementById("atlas");
+  const notes = document.getElementById("notes");
+  const noteText = document.getElementById("noteText");
+  const hint = document.querySelector(".hint");
+  let i = 0;
+  let mode = "deck";
+  let notesOn = false;
+
+  root.innerHTML = SLIDES.map((s, k) => `<section class="slide ${s.kind}" id="${s.id}">${s.html}
+    <div class="slideFoot"><span>${s.section}</span><span>${k + 1} / ${SLIDES.length} · 李泽坤</span></div>
+  </section>`).join("");
+  const slides = [...root.children];
+
+  function fit() {
+    const s = Math.min((innerWidth - 48) / 1280, (innerHeight - 56 - 44) / 720);
+    stage.style.transform = `scale(${s})`;
+  }
+
+  function show(n, sync = true) {
+    i = Math.max(0, Math.min(slides.length - 1, n));
+    slides.forEach((s, k) => s.classList.toggle("on", k === i));
+    sectionLabel.textContent = SLIDES[i] ? SLIDES[i].section : "";
+    pageno.textContent = `${i + 1} / ${slides.length}`;
+    progress.style.width = `${((i + 1) / slides.length) * 100}%`;
+    noteText.textContent = SLIDES[i] ? SLIDES[i].note : "";
+    if (sync && SLIDES[i]) history.replaceState(null, "", "#" + SLIDES[i].id);
+  }
+
+  function setMode(next) {
+    mode = next;
+    deck.hidden = mode !== "deck";
+    atlas.hidden = mode !== "atlas";
+    document.getElementById("mDeck").classList.toggle("on", mode === "deck");
+    document.getElementById("mAtlas").classList.toggle("on", mode === "atlas");
+    hint.textContent = mode === "deck" ? "← → 翻页 · F 全屏 · M 切换 · S 讲稿" : "点 skill 看详情 · M 回宣讲";
+    if (mode === "deck") fit();
+    else if (!location.hash.startsWith("#atlas")) history.replaceState(null, "", "#atlas");
+  }
+
+  function toggleNotes() {
+    notesOn = !notesOn;
+    notes.hidden = !notesOn;
+  }
+
+  function route() {
+    const h = location.hash.replace(/^#/, "");
+    if (h === "atlas") { setMode("atlas"); return; }
+    const idx = SLIDES.findIndex(s => s.id === h);
+    if (idx >= 0) { setMode("deck"); show(idx, false); }
+  }
+
+  document.addEventListener("click", e => {
+    const a = e.target.closest("a[href^='#p']");
+    if (!a) return;
+    e.preventDefault();
+    const id = a.getAttribute("href").slice(1);
+    const idx = SLIDES.findIndex(s => s.id === id);
+    if (idx >= 0) show(idx);
+  });
+
+  document.getElementById("mDeck").addEventListener("click", () => setMode("deck"));
+  document.getElementById("mAtlas").addEventListener("click", () => setMode("atlas"));
+  document.getElementById("mNotes").addEventListener("click", toggleNotes);
+
+  addEventListener("keydown", e => {
+    if (e.key === "m" || e.key === "M") { setMode(mode === "deck" ? "atlas" : "deck"); return; }
+    if (e.key === "s" || e.key === "S") { toggleNotes(); return; }
+    if (e.key === "f" || e.key === "F") {
+      if (!document.fullscreenElement) document.documentElement.requestFullscreen?.();
+      else document.exitFullscreen?.();
+      return;
+    }
+    if (mode !== "deck") return;
+    if (e.key === "ArrowRight" || e.key === " " || e.key === "PageDown") { e.preventDefault(); show(i + 1); }
+    if (e.key === "ArrowLeft" || e.key === "PageUp") { e.preventDefault(); show(i - 1); }
+    if (e.key === "Home") show(0);
+    if (e.key === "End") show(slides.length - 1);
+  });
+
+  addEventListener("hashchange", route);
+  addEventListener("resize", fit);
+
+  // ---- atlas ----
+  const lanesEl = document.getElementById("lanes");
+  const filtersEl = document.getElementById("filters");
+  const panel = document.getElementById("panel");
+  const search = document.getElementById("search");
+  let laneFilter = "全部";
+  let currentKey = "grill-with-docs";
+
+  filtersEl.innerHTML = ["全部", ...LANES].map(l =>
+    `<button data-lane="${l}" class="${l === "全部" ? "on" : ""}">${l}</button>`
+  ).join("");
+
+  function renderLanes() {
+    const q = search.value.trim().toLowerCase();
+    const rows = [];
+    for (const lane of LANES) {
+      if (laneFilter !== "全部" && laneFilter !== lane) continue;
+      const items = SKILLS.filter(s => s.lane === lane && (
+        !q || s.name.toLowerCase().includes(q) || s.cn.includes(q) || s.trigger.includes(q)
+      ));
+      if (!items.length) continue;
+      rows.push(`<div class="lane"><div class="lname">${lane}</div><div class="chips">${
+        items.map(s => `<button class="chip${s.name === currentKey ? " on" : ""}" data-lane="${lane}" data-name="${s.name}">
+          <b>${s.name}</b><span>${s.cn}</span></button>`).join("")
+      }</div></div>`);
+    }
+    lanesEl.innerHTML = rows.join("") || `<p class="muted" style="margin-top:20px">没有匹配的 skill。</p>`;
+    lanesEl.querySelectorAll(".chip").forEach(c => c.addEventListener("click", () => {
+      currentKey = c.dataset.name;
+      renderLanes();
+      renderPanel();
+    }));
+  }
+
+  function renderPanel() {
+    const s = SKILLS.find(x => x.name === currentKey) || SKILLS[0];
+    if (!s) return;
+    panel.innerHTML = `
+      <div class="k">${s.lane}</div>
+      <h3>${s.name}</h3>
+      <div class="cn">${s.cn}</div>
+      <dl>
+        <dt>触发</dt><dd>${s.trigger}</dd>
+        <dt>会话</dt><dd>${s.session}</dd>
+        <dt>产物</dt><dd>${s.outputs.length ? s.outputs.map(x => `<code>${x}</code>`).join(" · ") : "无"}</dd>
+        <dt>远端</dt><dd>${s.remote.length ? s.remote.join(" · ") : "无"}</dd>
+        <dt>必需度</dt><dd><span class="badge">${NEED[s.remoteNeed] || s.remoteNeed}</span></dd>
+        <dt>共享</dt><dd><span class="badge">${SHARE[s.share] || s.share}</span></dd>
+      </dl>
+      <div class="note">${s.note}</div>
+      <p style="margin:12px 0 0"><a href="../../${s.source}">打开原文 SKILL.md ↗</a></p>
+    `;
+  }
+
+  filtersEl.addEventListener("click", e => {
+    const b = e.target.closest("button[data-lane]");
+    if (!b) return;
+    laneFilter = b.dataset.lane;
+    filtersEl.querySelectorAll("button").forEach(x => x.classList.toggle("on", x === b));
+    renderLanes();
+  });
+  search.addEventListener("input", renderLanes);
+
+  renderLanes();
+  renderPanel();
+  fit();
+  route();
+</script>
+</body>
+</html>
