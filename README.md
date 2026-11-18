@@ -5,6 +5,7 @@
 - 产品与领域词汇：`GLOSSARY.md`
 - 需求与工单：`.scratch/body-profile/spec.md`、`.scratch/body-profile/issues/`（镜像自 GitHub Issues）
 - 决策：`docs/adr/0001`–`0006`
+- 3D 解剖图可行性：结论与 spike 见 `docs/anatomy-3d-direction.md`；Z-Anatomy 主方案见 `docs/research/z-anatomy-feasibility.md`，Human Atlas 对照见 `docs/research/human-atlas-feasibility.md`（有条件推进，待真机 spike）；真机测试交接见 `docs/handoffs/2026-11-18-3d-anatomy-real-device.md`
 - 视觉契约（实现只认它）：`design/contract.md`
 
 ## 现状

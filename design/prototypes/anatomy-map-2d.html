@@ -1,0 +1,1534 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>身体地图 · 2D 方案讨论稿</title>
+<!--
+  一次性原型，不是生产代码。
+  问题：档案页要不要用一张 2D 身体图来承载「哪里需要先处理」？
+  这版在试：肌群优先、异常优先、正面/背面、左右侧、点开看成员、五轴切换。
+-->
+<style>
+  :root {
+    color-scheme: dark;
+    --stage: #0b0d10;
+    --stage-line: #242930;
+    --stage-muted: #8f98a5;
+    --bg: #14171c;
+    --fg: #e8edf2;
+    --card: #1e232b;
+    --muted: #272d36;
+    --mfg: #aab2bd;
+    --primary: #c8f04a;
+    --primary-fg: #10120c;
+    --accent: #6ee7f0;
+    --destructive: #ff6b6b;
+    --border: #353c47;
+    --radius: 20px;
+    --shadow: 0 18px 50px rgba(0, 0, 0, .34);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--stage); color: var(--fg); }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC",
+      "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    -webkit-font-smoothing: antialiased;
+    padding: 28px 24px 72px;
+  }
+  button { font: inherit; color: inherit; }
+  button:focus-visible, [tabindex]:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  .page { max-width: 1040px; margin: 0 auto; }
+  .page-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
+  .page-head h1 { margin: 0; font-size: 18px; font-weight: 650; letter-spacing: .2px; }
+  .page-head p { margin: 0; font-size: 12px; color: var(--stage-muted); }
+  .stage {
+    display: grid;
+    grid-template-columns: 360px minmax(0, 1fr);
+    gap: 28px;
+    align-items: start;
+    justify-content: center;
+  }
+  .phone {
+    width: 360px;
+    height: 812px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: 28px;
+    background: var(--bg);
+    box-shadow: var(--shadow);
+    position: relative;
+  }
+  .phone-scroll {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: none;
+  }
+  .phone-scroll::-webkit-scrollbar { display: none; }
+
+  /* ---------- header ---------- */
+  .topbar {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 14px 16px 0;
+  }
+  .eyebrow {
+    margin: 0;
+    font-size: 10px;
+    line-height: 1.4;
+    letter-spacing: .2px;
+    color: var(--mfg);
+    font-variant-numeric: tabular-nums;
+  }
+  .topbar h1 {
+    margin: 2px 0 0;
+    font-size: 22px;
+    line-height: 28px;
+    font-weight: 650;
+    letter-spacing: -.2px;
+  }
+  .ghost-btn {
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--mfg);
+    border-radius: 999px;
+    padding: 5px 10px;
+    font-size: 10px;
+    cursor: pointer;
+  }
+  .meta-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 8px 16px 0;
+  }
+  .meta-chip {
+    border-radius: 999px;
+    background: var(--muted);
+    color: var(--mfg);
+    padding: 4px 9px;
+    font-size: 10px;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .meta-chip strong { color: var(--fg); font-weight: 600; }
+
+  /* ---------- map card ---------- */
+  .map-card {
+    margin: 12px 16px 0;
+    padding: 8px 10px 7px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background:
+      radial-gradient(circle at 34% 28%, rgba(110, 231, 240, .05), transparent 46%),
+      var(--card);
+  }
+  .map-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .segmented, .filter-row, .axis-row {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    padding: 3px;
+    border-radius: 999px;
+    background: var(--muted);
+  }
+  .segmented button, .filter-row button, .axis-row button {
+    border: 0;
+    background: transparent;
+    color: var(--mfg);
+    border-radius: 999px;
+    padding: 4px 8px;
+    font-size: 10px;
+    line-height: 1;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+  .segmented button.active, .filter-row button.active, .axis-row button.active {
+    background: var(--fg);
+    color: var(--bg);
+    font-weight: 600;
+  }
+  .axis-row {
+    margin-top: 7px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    justify-content: flex-start;
+  }
+  .axis-row::-webkit-scrollbar { display: none; }
+  .axis-row button { padding: 4px 7px; }
+  .axis-row button.active {
+    background: var(--accent);
+    color: #06201f;
+  }
+  .map-body-row {
+    display: flex;
+    gap: 8px;
+    align-items: stretch;
+    margin-top: 6px;
+  }
+  .body-stage {
+    position: relative;
+    flex: 1;
+    min-width: 0;
+    height: 270px;
+    border-radius: 16px;
+    background:
+      radial-gradient(ellipse at 50% 34%, rgba(110, 231, 240, .07), transparent 58%),
+      linear-gradient(180deg, #1b2028, #191e25);
+    overflow: hidden;
+    border: 1px solid #2c333d;
+  }
+  .body-stage::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background-image: radial-gradient(rgba(170, 178, 189, .10) .7px, transparent .7px);
+    background-size: 12px 12px;
+    mask-image: linear-gradient(180deg, rgba(0,0,0,.5), transparent 70%);
+    pointer-events: none;
+  }
+  .body-stage svg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+  }
+  .body-base { fill: #232a33; stroke: #3a4451; stroke-width: 1.1; }
+  .muscle {
+    cursor: pointer;
+    transition: fill .18s ease, stroke .18s ease, opacity .18s ease, filter .18s ease;
+    stroke-width: 1;
+  }
+  .muscle[data-status="normal"] { fill: #313945; stroke: #3d4754; }
+  .muscle[data-status="destructive"] {
+    fill: rgba(255, 107, 107, .84);
+    stroke: rgba(255, 139, 139, .95);
+  }
+  .muscle[data-status="accent"] {
+    fill: rgba(110, 231, 240, .74);
+    stroke: rgba(157, 240, 247, .95);
+  }
+  .muscle[data-status="untested"] {
+    fill: rgba(170, 178, 189, .035);
+    stroke: #7d8795;
+    stroke-dasharray: 3.5 3;
+  }
+  .muscle:hover { filter: brightness(1.22); }
+  .muscle.dim { opacity: .14; }
+  .muscle.active {
+    stroke: #fff;
+    stroke-width: 1.7;
+    filter: drop-shadow(0 0 5px rgba(255, 255, 255, .38));
+  }
+  .body-side {
+    position: absolute;
+    top: 8px;
+    font-size: 9px;
+    letter-spacing: .12em;
+    color: #697381;
+    pointer-events: none;
+  }
+  .body-side.left { left: 10px; }
+  .body-side.right { right: 10px; }
+  .body-axis {
+    position: absolute;
+    left: 50%;
+    bottom: 7px;
+    transform: translateX(-50%);
+    font-size: 9px;
+    letter-spacing: .12em;
+    color: #697381;
+    pointer-events: none;
+  }
+  .attention-rail {
+    width: 116px;
+    flex: 0 0 116px;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    min-width: 0;
+  }
+  .rail-title {
+    margin: 1px 0 2px;
+    font-size: 9px;
+    letter-spacing: .12em;
+    color: var(--mfg);
+  }
+  .rail-item {
+    width: 100%;
+    text-align: left;
+    border: 1px solid var(--border);
+    border-radius: 11px;
+    background: #1a2028;
+    padding: 6px 7px;
+    cursor: pointer;
+  }
+  .rail-item strong {
+    display: block;
+    font-size: 10px;
+    line-height: 1.35;
+    font-weight: 600;
+    color: var(--fg);
+  }
+  .rail-item span {
+    display: block;
+    margin-top: 1px;
+    font-size: 9px;
+    line-height: 1.35;
+    color: var(--mfg);
+    font-variant-numeric: tabular-nums;
+  }
+  .rail-item[data-status="destructive"] { border-color: rgba(255, 107, 107, .45); }
+  .rail-item[data-status="destructive"] span { color: #ff9a9a; }
+  .rail-item[data-status="accent"] { border-color: rgba(110, 231, 240, .35); }
+  .rail-item[data-status="accent"] span { color: var(--accent); }
+  .rail-item.ghost {
+    border-style: dashed;
+    background: transparent;
+    color: var(--mfg);
+    font-size: 9px;
+    padding: 6px 7px;
+  }
+  .legend {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 7px 2px 1px;
+    font-size: 9px;
+    color: var(--mfg);
+  }
+  .legend span { display: inline-flex; align-items: center; gap: 4px; }
+  .legend i {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    display: inline-block;
+  }
+  .legend i.red { background: var(--destructive); }
+  .legend i.cyan { background: var(--accent); }
+  .legend i.gray { background: #4a5564; }
+  .legend i.dash {
+    background: transparent;
+    border: 1px dashed #8a95a3;
+  }
+  .disclaimer {
+    margin: 3px 2px 0;
+    font-size: 8px;
+    line-height: 1.4;
+    color: #697381;
+  }
+
+  /* ---------- detail sheet ---------- */
+  .detail-card {
+    position: relative;
+    margin: 10px 16px 0;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: linear-gradient(180deg, #20262f, var(--card));
+    box-shadow: 0 -14px 34px rgba(0, 0, 0, .32);
+  }
+  .detail-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 10px;
+  }
+  .detail-kicker {
+    margin: 0 0 2px;
+    font-size: 9px;
+    letter-spacing: .12em;
+    color: var(--mfg);
+  }
+  .detail-head h2 {
+    margin: 0;
+    font-size: 16px;
+    line-height: 1.3;
+    font-weight: 650;
+    letter-spacing: -.1px;
+  }
+  .status-pill {
+    flex: 0 0 auto;
+    border-radius: 999px;
+    padding: 4px 8px;
+    font-size: 9px;
+    line-height: 1.2;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+  .status-pill[data-status="destructive"] {
+    background: rgba(255, 107, 107, .15);
+    color: #ff9a9a;
+  }
+  .status-pill[data-status="accent"] {
+    background: rgba(110, 231, 240, .14);
+    color: var(--accent);
+  }
+  .status-pill[data-status="untested"] {
+    background: transparent;
+    border: 1px dashed #7d8795;
+    color: var(--mfg);
+  }
+  .status-pill[data-status="normal"] {
+    background: var(--muted);
+    color: var(--mfg);
+  }
+  .detail-summary {
+    margin: 5px 0 0;
+    font-size: 10px;
+    line-height: 1.45;
+    color: var(--mfg);
+  }
+  .member-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-top: 6px;
+    max-height: 84px;
+    overflow-y: auto;
+    scrollbar-width: none;
+  }
+  .member-list::-webkit-scrollbar { display: none; }
+  .member-row {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    min-height: 24px;
+    padding: 3px 6px;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, .025);
+  }
+  .member-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    flex: 0 0 auto;
+  }
+  .member-dot.destructive { background: var(--destructive); }
+  .member-dot.accent { background: var(--accent); }
+  .member-dot.normal { background: #5c6776; }
+  .member-dot.untested { background: transparent; border: 1px dashed #8a95a3; }
+  .member-name {
+    flex: 1;
+    min-width: 0;
+    font-size: 11px;
+    line-height: 1.3;
+    color: var(--fg);
+  }
+  .member-name em {
+    font-style: normal;
+    font-size: 9px;
+    color: var(--mfg);
+    margin-left: 3px;
+  }
+  .member-worst {
+    flex: 0 0 auto;
+    font-size: 9px;
+    color: var(--mfg);
+    font-variant-numeric: tabular-nums;
+  }
+  .member-worst.destructive { color: #ff9a9a; }
+  .member-worst.accent { color: var(--accent); }
+  .more-row {
+    padding: 3px 6px;
+    font-size: 9px;
+    color: var(--mfg);
+  }
+  .detail-actions {
+    display: flex;
+    gap: 6px;
+    margin-top: 7px;
+  }
+  .detail-actions button {
+    flex: 1;
+    border-radius: 999px;
+    padding: 7px 10px;
+    font-size: 11px;
+    line-height: 1.2;
+    cursor: pointer;
+  }
+  .detail-actions .secondary {
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--mfg);
+  }
+  .detail-actions .primary {
+    border: 0;
+    background: var(--primary);
+    color: var(--primary-fg);
+    font-weight: 650;
+  }
+
+  /* ---------- tab bar ---------- */
+  .tabbar {
+    flex: 0 0 54px;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    border-top: 1px solid var(--border);
+    background: #181d24;
+  }
+  .tabbar button {
+    border: 0;
+    background: transparent;
+    color: var(--mfg);
+    font-size: 10px;
+    letter-spacing: .04em;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+  }
+  .tabbar button b {
+    display: block;
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: transparent;
+  }
+  .tabbar button.active { color: var(--primary); }
+  .tabbar button.active b { background: var(--primary); }
+
+  .toast {
+    position: absolute;
+    left: 50%;
+    bottom: 68px;
+    transform: translate(-50%, 8px);
+    max-width: 280px;
+    padding: 8px 12px;
+    border-radius: 999px;
+    background: rgba(10, 12, 15, .92);
+    border: 1px solid var(--border);
+    color: var(--fg);
+    font-size: 10px;
+    line-height: 1.3;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity .18s ease, transform .18s ease;
+    white-space: nowrap;
+    z-index: 20;
+  }
+  .toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+  /* ---------- notes ---------- */
+  .notes {
+    max-width: 360px;
+    padding-top: 4px;
+    color: var(--fg);
+  }
+  .notes .kicker {
+    margin: 0 0 6px;
+    font-size: 10px;
+    letter-spacing: .16em;
+    color: var(--accent);
+  }
+  .notes h1 {
+    margin: 0;
+    font-size: 22px;
+    line-height: 1.28;
+    font-weight: 650;
+    letter-spacing: -.2px;
+  }
+  .notes .intro {
+    margin: 9px 0 0;
+    font-size: 12px;
+    line-height: 1.7;
+    color: var(--mfg);
+  }
+  .notes h2 {
+    margin: 21px 0 7px;
+    font-size: 11px;
+    letter-spacing: .14em;
+    color: var(--mfg);
+    font-weight: 600;
+  }
+  .notes ul, .notes ol {
+    margin: 0;
+    padding-left: 17px;
+    color: var(--mfg);
+    font-size: 12px;
+    line-height: 1.65;
+  }
+  .notes li { margin: 4px 0; }
+  .notes li strong { color: var(--fg); font-weight: 600; }
+  .notes .callout {
+    margin-top: 18px;
+    padding: 11px 12px;
+    border-left: 2px solid var(--accent);
+    border-radius: 0 12px 12px 0;
+    background: rgba(110, 231, 240, .06);
+    color: var(--mfg);
+    font-size: 11px;
+    line-height: 1.65;
+  }
+  .notes .callout strong { color: var(--fg); }
+  .notes .swatches {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 12px;
+    margin-top: 8px;
+    font-size: 10px;
+    color: var(--mfg);
+  }
+  .notes .swatches span { display: inline-flex; align-items: center; gap: 5px; }
+  .notes .swatches i {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    display: inline-block;
+  }
+  .notes .swatches i.red { background: var(--destructive); }
+  .notes .swatches i.cyan { background: var(--accent); }
+  .notes .swatches i.gray { background: #4a5564; }
+  .notes .swatches i.dash { background: transparent; border: 1px dashed #8a95a3; }
+
+  @media (max-width: 760px) {
+    body { padding: 18px 12px 48px; }
+    .stage { grid-template-columns: 360px; justify-content: center; }
+    .notes { max-width: 360px; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+  <header class="page-head">
+    <h1>身体地图 · 2D 方案</h1>
+    <p>讨论稿 · 点身体上的色块，或右侧的「需要先处理」</p>
+  </header>
+
+  <div class="stage">
+    <div class="phone">
+      <div class="phone-scroll">
+        <div class="topbar">
+          <div>
+            <p class="eyebrow">上次评估 11月12日 · 距复查 25 天</p>
+            <h1>身体档案</h1>
+          </div>
+          <button class="ghost-btn" data-toast="原型：这里会进设置">设置</button>
+        </div>
+
+        <div class="meta-row">
+          <span class="meta-chip">178 cm</span>
+          <span class="meta-chip"><strong>74.2 kg</strong> ↗</span>
+          <span class="meta-chip">每周 3 次 · 家</span>
+        </div>
+
+        <section class="map-card" aria-label="身体地图">
+          <div class="map-head">
+            <div class="segmented" id="viewToggle" role="tablist" aria-label="正面或背面">
+              <button type="button" data-view="front">正面</button>
+              <button type="button" data-view="back" class="active">背面</button>
+            </div>
+            <div class="filter-row" id="filterToggle" role="group" aria-label="筛选">
+              <button type="button" data-filter="all" class="active">全部</button>
+              <button type="button" data-filter="abnormal">只看异常</button>
+            </div>
+          </div>
+
+          <div class="axis-row" id="axisRow" role="group" aria-label="着色轴">
+            <button type="button" data-axis="worst" class="active">综合</button>
+            <button type="button" data-axis="tension">张力</button>
+            <button type="button" data-axis="symmetry">对称</button>
+            <button type="button" data-axis="rom">活动度</button>
+            <button type="button" data-axis="pain">疼痛</button>
+            <button type="button" data-axis="stability">稳定</button>
+          </div>
+
+          <div class="map-body-row">
+            <div class="body-stage" id="bodyStage">
+              <svg id="frontSvg" viewBox="0 0 240 430" role="img" aria-label="正面身体地图" style="display:none">
+                <ellipse class="body-base" cx="120" cy="30" rx="16" ry="20"/>
+                <path class="body-base" d="M110 48 L130 48 L129 68 Q120 72 111 68 Z"/>
+                <path class="body-base" d="M84 74 Q120 62 156 74 L166 108 L158 150 L150 204 Q120 214 90 204 L82 150 L74 108 Z"/>
+                <path class="body-base" d="M80 82 Q64 106 58 142 L50 176 Q46 184 40 180 L48 140 Q54 102 70 74 Z"/>
+                <path class="body-base" d="M160 82 Q176 106 182 142 L190 176 Q194 184 200 180 L192 140 Q186 102 170 74 Z"/>
+                <path class="body-base" d="M50 176 Q44 204 38 232 Q34 240 28 236 L36 198 Q42 176 46 168 Z"/>
+                <path class="body-base" d="M190 176 Q196 204 202 232 Q206 240 212 236 L204 198 Q198 176 194 168 Z"/>
+                <ellipse class="body-base" cx="32" cy="242" rx="7" ry="11" transform="rotate(12 32 242)"/>
+                <ellipse class="body-base" cx="208" cy="242" rx="7" ry="11" transform="rotate(-12 208 242)"/>
+                <path class="body-base" d="M90 204 Q120 214 150 204 L148 238 Q120 246 92 238 Z"/>
+                <path class="body-base" d="M92 238 Q106 242 110 252 L108 316 Q106 334 102 346 L98 352 Q86 350 82 340 L84 300 Q84 270 80 252 Q82 240 92 238 Z"/>
+                <path class="body-base" d="M148 238 Q134 242 130 252 L132 316 Q134 334 138 346 L142 352 Q154 350 158 340 L156 300 Q156 270 160 252 Q158 240 148 238 Z"/>
+                <path class="body-base" d="M84 342 Q96 344 100 352 L96 402 Q94 416 88 420 Q78 418 76 408 L78 358 Q78 348 84 342 Z"/>
+                <path class="body-base" d="M156 342 Q144 344 140 352 L144 402 Q146 416 152 420 Q162 418 164 408 L162 358 Q162 348 156 342 Z"/>
+                <path class="body-base" d="M76 410 Q88 408 94 416 L92 426 Q80 430 70 424 Q66 418 76 410 Z"/>
+                <path class="body-base" d="M164 410 Q152 408 146 416 L148 426 Q160 430 170 424 Q174 418 164 410 Z"/>
+
+                <!-- 核心圆柱：先画，作为腰带轮廓 -->
+                <path class="muscle" data-group="core-cylinder" data-side="both" data-status="accent"
+                  d="M86 184 Q120 192 154 184 L152 202 Q120 210 88 202 Z"
+                  role="button" tabindex="0" aria-label="核心圆柱，需要留意"/>
+                <!-- 腹壁 -->
+                <rect class="muscle" data-group="abdominal-wall" data-side="both" data-status="accent"
+                  x="104" y="130" width="12" height="12" rx="4" role="button" tabindex="0" aria-label="腹壁肌群，需要留意"/>
+                <rect class="muscle" data-group="abdominal-wall" data-side="both" data-status="accent"
+                  x="124" y="130" width="12" height="12" rx="4" role="button" tabindex="0" aria-label="腹壁肌群，需要留意"/>
+                <rect class="muscle" data-group="abdominal-wall" data-side="both" data-status="accent"
+                  x="104" y="148" width="12" height="12" rx="4" role="button" tabindex="0" aria-label="腹壁肌群，需要留意"/>
+                <rect class="muscle" data-group="abdominal-wall" data-side="both" data-status="accent"
+                  x="124" y="148" width="12" height="12" rx="4" role="button" tabindex="0" aria-label="腹壁肌群，需要留意"/>
+                <rect class="muscle" data-group="abdominal-wall" data-side="both" data-status="accent"
+                  x="104" y="166" width="12" height="12" rx="4" role="button" tabindex="0" aria-label="腹壁肌群，需要留意"/>
+                <rect class="muscle" data-group="abdominal-wall" data-side="both" data-status="accent"
+                  x="124" y="166" width="12" height="12" rx="4" role="button" tabindex="0" aria-label="腹壁肌群，需要留意"/>
+                <path class="muscle" data-group="abdominal-wall" data-side="left" data-status="accent"
+                  d="M94 150 Q88 166 92 186 L100 178 Q98 162 102 150 Z"
+                  role="button" tabindex="0" aria-label="左侧腹壁肌群，需要留意"/>
+                <path class="muscle" data-group="abdominal-wall" data-side="right" data-status="accent"
+                  d="M146 150 Q152 166 148 186 L140 178 Q142 162 138 150 Z"
+                  role="button" tabindex="0" aria-label="右侧腹壁肌群，需要留意"/>
+
+                <!-- 肩关节动力肌：胸大肌 + 三角肌 -->
+                <path class="muscle" data-group="shoulder-movers" data-side="left" data-status="normal"
+                  d="M90 92 Q104 84 116 94 L114 126 Q100 132 90 122 Z"
+                  role="button" tabindex="0" aria-label="左侧肩关节动力肌，正常"/>
+                <path class="muscle" data-group="shoulder-movers" data-side="right" data-status="normal"
+                  d="M150 92 Q136 84 124 94 L126 126 Q140 132 150 122 Z"
+                  role="button" tabindex="0" aria-label="右侧肩关节动力肌，正常"/>
+                <path class="muscle" data-group="shoulder-movers" data-side="left" data-status="normal"
+                  d="M78 82 Q88 78 92 90 L88 106 Q76 104 72 94 Z"
+                  role="button" tabindex="0" aria-label="左侧三角肌，正常"/>
+                <path class="muscle" data-group="shoulder-movers" data-side="right" data-status="normal"
+                  d="M162 82 Q152 78 148 90 L152 106 Q164 104 168 94 Z"
+                  role="button" tabindex="0" aria-label="右侧三角肌，正常"/>
+
+                <!-- 肘屈肌群 -->
+                <path class="muscle" data-group="elbow-flexors" data-side="left" data-status="normal"
+                  d="M68 106 Q62 128 58 150 L50 164 Q44 160 50 144 Q56 118 64 100 Z"
+                  role="button" tabindex="0" aria-label="左侧肘屈肌群，正常"/>
+                <path class="muscle" data-group="elbow-flexors" data-side="right" data-status="normal"
+                  d="M172 106 Q178 128 182 150 L190 164 Q196 160 190 144 Q184 118 176 100 Z"
+                  role="button" tabindex="0" aria-label="右侧肘屈肌群，正常"/>
+
+                <!-- 前臂旋转 + 前臂腕 -->
+                <path class="muscle" data-group="forearm-rotators" data-side="left" data-status="untested"
+                  d="M50 166 Q46 180 42 194 L36 204 Q30 200 36 186 Q40 174 44 160 Z"
+                  role="button" tabindex="0" aria-label="左侧前臂旋转肌群，未测"/>
+                <path class="muscle" data-group="forearm-rotators" data-side="right" data-status="untested"
+                  d="M190 166 Q194 180 198 194 L204 204 Q210 200 204 186 Q200 174 196 160 Z"
+                  role="button" tabindex="0" aria-label="右侧前臂旋转肌群，未测"/>
+                <path class="muscle" data-group="forearm-wrist" data-side="left" data-status="accent"
+                  d="M40 196 Q38 210 36 222 L32 232 Q26 228 32 216 Q34 204 36 194 Z"
+                  role="button" tabindex="0" aria-label="左侧前臂腕肌群，需要留意"/>
+                <path class="muscle" data-group="forearm-wrist" data-side="right" data-status="accent"
+                  d="M200 196 Q202 210 204 222 L208 232 Q214 228 208 216 Q206 204 204 194 Z"
+                  role="button" tabindex="0" aria-label="右侧前臂腕肌群，需要留意"/>
+
+                <!-- 髋屈肌群 -->
+                <path class="muscle" data-group="hip-flexors" data-side="left" data-status="destructive"
+                  d="M94 196 Q102 190 108 198 L104 212 Q96 214 92 206 Z"
+                  role="button" tabindex="0" aria-label="左侧髋屈肌群，异常"/>
+                <path class="muscle" data-group="hip-flexors" data-side="right" data-status="accent"
+                  d="M146 196 Q138 190 132 198 L136 212 Q144 214 148 206 Z"
+                  role="button" tabindex="0" aria-label="右侧髋屈肌群，需要留意"/>
+
+                <!-- 股四头肌 -->
+                <path class="muscle" data-group="quadriceps" data-side="left" data-status="normal"
+                  d="M96 244 Q108 248 108 260 L104 310 Q102 326 98 334 L88 330 Q86 300 88 266 Q90 250 96 244 Z"
+                  role="button" tabindex="0" aria-label="左侧股四头肌，正常"/>
+                <path class="muscle" data-group="quadriceps" data-side="right" data-status="normal"
+                  d="M144 244 Q132 248 132 260 L136 310 Q138 326 142 334 L152 330 Q154 300 152 266 Q150 250 144 244 Z"
+                  role="button" tabindex="0" aria-label="右侧股四头肌，正常"/>
+
+                <!-- 髋内收肌群 -->
+                <path class="muscle" data-group="hip-adductors" data-side="left" data-status="accent"
+                  d="M108 250 Q114 262 112 286 L108 312 L104 306 L104 260 Z"
+                  role="button" tabindex="0" aria-label="左侧髋内收肌群，需要留意"/>
+                <path class="muscle" data-group="hip-adductors" data-side="right" data-status="accent"
+                  d="M132 250 Q126 262 128 286 L132 312 L136 306 L136 260 Z"
+                  role="button" tabindex="0" aria-label="右侧髋内收肌群，需要留意"/>
+
+                <!-- 踝背屈肌群 -->
+                <path class="muscle" data-group="ankle-dorsiflexors" data-side="left" data-status="normal"
+                  d="M88 344 Q94 348 96 358 L92 392 Q88 398 84 392 L84 354 Z"
+                  role="button" tabindex="0" aria-label="左侧踝背屈肌群，正常"/>
+                <path class="muscle" data-group="ankle-dorsiflexors" data-side="right" data-status="normal"
+                  d="M152 344 Q146 348 144 358 L148 392 Q152 398 156 392 L156 354 Z"
+                  role="button" tabindex="0" aria-label="右侧踝背屈肌群，正常"/>
+
+                <!-- 足内在肌群 -->
+                <path class="muscle" data-group="intrinsic-foot" data-side="left" data-status="untested"
+                  d="M76 412 Q86 410 92 418 L90 426 Q78 428 72 422 Z"
+                  role="button" tabindex="0" aria-label="左侧足内在肌群，未测"/>
+                <path class="muscle" data-group="intrinsic-foot" data-side="right" data-status="untested"
+                  d="M164 412 Q154 410 148 418 L150 426 Q162 428 168 422 Z"
+                  role="button" tabindex="0" aria-label="右侧足内在肌群，未测"/>
+
+                <!-- 颈侧屈 + 颈深屈 -->
+                <path class="muscle" data-group="cervical-lateral" data-side="left" data-status="accent"
+                  d="M108 54 Q104 60 104 70 L110 72 L112 58 Z"
+                  role="button" tabindex="0" aria-label="左侧颈侧屈肌群，需要留意"/>
+                <path class="muscle" data-group="cervical-lateral" data-side="right" data-status="normal"
+                  d="M132 54 Q136 60 136 70 L130 72 L128 58 Z"
+                  role="button" tabindex="0" aria-label="右侧颈侧屈肌群，正常"/>
+                <path class="muscle" data-group="deep-cervical-flexors" data-side="both" data-status="normal"
+                  d="M112 56 Q120 52 128 56 L126 72 L114 72 Z"
+                  role="button" tabindex="0" aria-label="颈深屈肌群，正常"/>
+
+                <text class="body-side left" x="8" y="14">左</text>
+                <text class="body-side right" x="224" y="14" text-anchor="end">右</text>
+                <text class="body-axis" x="120" y="424" text-anchor="middle">正面</text>
+              </svg>
+
+              <svg id="backSvg" viewBox="0 0 240 430" role="img" aria-label="背面身体地图">
+                <ellipse class="body-base" cx="120" cy="30" rx="16" ry="20"/>
+                <path class="body-base" d="M110 48 L130 48 L129 68 Q120 72 111 68 Z"/>
+                <path class="body-base" d="M84 74 Q120 62 156 74 L166 108 L158 150 L150 204 Q120 214 90 204 L82 150 L74 108 Z"/>
+                <path class="body-base" d="M80 82 Q64 106 58 142 L50 176 Q46 184 40 180 L48 140 Q54 102 70 74 Z"/>
+                <path class="body-base" d="M160 82 Q176 106 182 142 L190 176 Q194 184 200 180 L192 140 Q186 102 170 74 Z"/>
+                <path class="body-base" d="M50 176 Q44 204 38 232 Q34 240 28 236 L36 198 Q42 176 46 168 Z"/>
+                <path class="body-base" d="M190 176 Q196 204 202 232 Q206 240 212 236 L204 198 Q198 176 194 168 Z"/>
+                <ellipse class="body-base" cx="32" cy="242" rx="7" ry="11" transform="rotate(12 32 242)"/>
+                <ellipse class="body-base" cx="208" cy="242" rx="7" ry="11" transform="rotate(-12 208 242)"/>
+                <path class="body-base" d="M90 204 Q120 214 150 204 L148 238 Q120 246 92 238 Z"/>
+                <path class="body-base" d="M92 238 Q106 242 110 252 L108 316 Q106 334 102 346 L98 352 Q86 350 82 340 L84 300 Q84 270 80 252 Q82 240 92 238 Z"/>
+                <path class="body-base" d="M148 238 Q134 242 130 252 L132 316 Q134 334 138 346 L142 352 Q154 350 158 340 L156 300 Q156 270 160 252 Q158 240 148 238 Z"/>
+                <path class="body-base" d="M84 342 Q96 344 100 352 L96 402 Q94 416 88 420 Q78 418 76 408 L78 358 Q78 348 84 342 Z"/>
+                <path class="body-base" d="M156 342 Q144 344 140 352 L144 402 Q146 416 152 420 Q162 418 164 408 L162 358 Q162 348 156 342 Z"/>
+                <path class="body-base" d="M76 410 Q88 408 94 416 L92 426 Q80 430 70 424 Q66 418 76 410 Z"/>
+                <path class="body-base" d="M164 410 Q152 408 146 416 L148 426 Q160 430 170 424 Q174 418 164 410 Z"/>
+
+                <!-- 核心圆柱 -->
+                <path class="muscle" data-group="core-cylinder" data-side="both" data-status="accent"
+                  d="M86 184 Q120 192 154 184 L152 202 Q120 210 88 202 Z"
+                  role="button" tabindex="0" aria-label="核心圆柱，需要留意"/>
+
+                <!-- 肩胛带肌群：斜方肌、菱形肌、前锯肌 -->
+                <path class="muscle" data-group="scapulothoracic" data-side="both" data-status="destructive"
+                  d="M108 58 L120 54 L132 58 L156 92 L146 108 L120 96 L94 108 L84 92 Z"
+                  role="button" tabindex="0" aria-label="肩胛带肌群，异常"/>
+                <path class="muscle" data-group="scapulothoracic" data-side="left" data-status="destructive"
+                  d="M112 96 L120 100 L118 126 L108 118 Z"
+                  role="button" tabindex="0" aria-label="左侧菱形肌，异常"/>
+                <path class="muscle" data-group="scapulothoracic" data-side="right" data-status="accent"
+                  d="M128 96 L120 100 L122 126 L132 118 Z"
+                  role="button" tabindex="0" aria-label="右侧菱形肌，需要留意"/>
+                <path class="muscle" data-group="scapulothoracic" data-side="left" data-status="destructive"
+                  d="M86 130 Q96 138 94 156 L86 150 Q84 140 82 134 Z"
+                  role="button" tabindex="0" aria-label="左侧前锯肌，异常"/>
+                <path class="muscle" data-group="scapulothoracic" data-side="right" data-status="accent"
+                  d="M154 130 Q144 138 146 156 L154 150 Q156 140 158 134 Z"
+                  role="button" tabindex="0" aria-label="右侧前锯肌，需要留意"/>
+
+                <!-- 肩关节动力肌：背阔肌 + 肱三头肌 + 大圆肌 -->
+                <path class="muscle" data-group="shoulder-movers" data-side="left" data-status="normal"
+                  d="M84 112 Q74 136 78 172 L90 190 L104 160 L108 120 Z"
+                  role="button" tabindex="0" aria-label="左侧背阔肌，正常"/>
+                <path class="muscle" data-group="shoulder-movers" data-side="right" data-status="normal"
+                  d="M156 112 Q166 136 162 172 L150 190 L136 160 L132 120 Z"
+                  role="button" tabindex="0" aria-label="右侧背阔肌，正常"/>
+                <path class="muscle" data-group="shoulder-movers" data-side="left" data-status="normal"
+                  d="M68 108 Q60 132 56 156 L50 170 Q44 166 50 148 Q56 120 64 100 Z"
+                  role="button" tabindex="0" aria-label="左侧肱三头肌，正常"/>
+                <path class="muscle" data-group="shoulder-movers" data-side="right" data-status="normal"
+                  d="M172 108 Q180 132 184 156 L190 170 Q196 166 190 148 Q184 120 176 100 Z"
+                  role="button" tabindex="0" aria-label="右侧肱三头肌，正常"/>
+                <path class="muscle" data-group="shoulder-movers" data-side="left" data-status="normal"
+                  d="M94 116 Q102 120 100 132 L92 128 Z"
+                  role="button" tabindex="0" aria-label="左侧大圆肌，正常"/>
+                <path class="muscle" data-group="shoulder-movers" data-side="right" data-status="normal"
+                  d="M146 116 Q138 120 140 132 L148 128 Z"
+                  role="button" tabindex="0" aria-label="右侧大圆肌，正常"/>
+
+                <!-- 竖脊肌群 -->
+                <path class="muscle" data-group="erector-spinae" data-side="left" data-status="accent"
+                  d="M110 110 Q114 140 112 180 L104 198 L100 150 Q102 126 104 108 Z"
+                  role="button" tabindex="0" aria-label="左侧竖脊肌群，需要留意"/>
+                <path class="muscle" data-group="erector-spinae" data-side="right" data-status="accent"
+                  d="M130 110 Q126 140 128 180 L136 198 L140 150 Q138 126 136 108 Z"
+                  role="button" tabindex="0" aria-label="右侧竖脊肌群，需要留意"/>
+
+                <!-- 臀肌群 -->
+                <path class="muscle" data-group="gluteal-group" data-side="left" data-status="destructive"
+                  d="M92 206 Q110 204 116 222 Q118 242 104 248 Q88 246 86 226 Q86 212 92 206 Z"
+                  role="button" tabindex="0" aria-label="左侧臀肌群，异常"/>
+                <path class="muscle" data-group="gluteal-group" data-side="right" data-status="normal"
+                  d="M148 206 Q130 204 124 222 Q122 242 136 248 Q152 246 154 226 Q154 212 148 206 Z"
+                  role="button" tabindex="0" aria-label="右侧臀肌群，正常"/>
+
+                <!-- 髋深外旋肌群 -->
+                <circle class="muscle" data-group="deep-hip-rotators" data-side="left" data-status="untested"
+                  cx="100" cy="238" r="8" role="button" tabindex="0" aria-label="左侧髋深外旋肌群，未测"/>
+                <circle class="muscle" data-group="deep-hip-rotators" data-side="right" data-status="untested"
+                  cx="140" cy="238" r="8" role="button" tabindex="0" aria-label="右侧髋深外旋肌群，未测"/>
+
+                <!-- 腘绳肌 -->
+                <path class="muscle" data-group="hamstrings" data-side="left" data-status="untested"
+                  d="M96 246 Q108 250 108 264 L104 310 Q102 326 98 334 L88 330 Q86 300 88 266 Q90 252 96 246 Z"
+                  role="button" tabindex="0" aria-label="左侧腘绳肌，未测"/>
+                <path class="muscle" data-group="hamstrings" data-side="right" data-status="untested"
+                  d="M144 246 Q132 250 132 264 L136 310 Q138 326 142 334 L152 330 Q154 300 152 266 Q150 252 144 246 Z"
+                  role="button" tabindex="0" aria-label="右侧腘绳肌，未测"/>
+
+                <!-- 小腿后群浅层 / 深层 / 腓骨肌群 -->
+                <path class="muscle" data-group="posterior-leg-superficial" data-side="left" data-status="normal"
+                  d="M86 344 Q96 346 98 358 L94 396 Q90 404 84 398 L82 354 Z"
+                  role="button" tabindex="0" aria-label="左侧小腿后群浅层，正常"/>
+                <path class="muscle" data-group="posterior-leg-superficial" data-side="right" data-status="destructive"
+                  d="M154 344 Q144 346 142 358 L146 396 Q150 404 156 398 L158 354 Z"
+                  role="button" tabindex="0" aria-label="右侧小腿后群浅层，异常"/>
+                <path class="muscle" data-group="deep-posterior-leg" data-side="left" data-status="untested"
+                  d="M94 356 Q98 360 96 380 L92 394 L88 390 L90 360 Z"
+                  role="button" tabindex="0" aria-label="左侧小腿后群深层，未测"/>
+                <path class="muscle" data-group="deep-posterior-leg" data-side="right" data-status="untested"
+                  d="M146 356 Q142 360 144 380 L148 394 L152 390 L150 360 Z"
+                  role="button" tabindex="0" aria-label="右侧小腿后群深层，未测"/>
+                <path class="muscle" data-group="lateral-calf" data-side="left" data-status="normal"
+                  d="M82 350 Q86 354 84 376 L80 394 L76 390 L78 356 Z"
+                  role="button" tabindex="0" aria-label="左侧腓骨肌群，正常"/>
+                <path class="muscle" data-group="lateral-calf" data-side="right" data-status="accent"
+                  d="M158 350 Q154 354 156 376 L160 394 L164 390 L162 356 Z"
+                  role="button" tabindex="0" aria-label="右侧腓骨肌群，需要留意"/>
+
+                <!-- 颈后伸肌群 + 肩袖 -->
+                <path class="muscle" data-group="cervical-extensors" data-side="both" data-status="accent"
+                  d="M110 56 Q120 50 130 56 L132 72 L108 72 Z"
+                  role="button" tabindex="0" aria-label="颈后伸肌群，需要留意"/>
+                <path class="muscle" data-group="rotator-cuff" data-side="left" data-status="untested"
+                  d="M80 90 Q88 86 92 94 L88 102 Q80 100 78 96 Z"
+                  role="button" tabindex="0" aria-label="左侧肩袖，未测"/>
+                <path class="muscle" data-group="rotator-cuff" data-side="right" data-status="untested"
+                  d="M160 90 Q152 86 148 94 L152 102 Q160 100 162 96 Z"
+                  role="button" tabindex="0" aria-label="右侧肩袖，未测"/>
+
+                <text class="body-side left" x="8" y="14">左</text>
+                <text class="body-side right" x="224" y="14" text-anchor="end">右</text>
+                <text class="body-axis" x="120" y="424" text-anchor="middle">背面</text>
+              </svg>
+            </div>
+
+            <aside class="attention-rail" aria-label="需要先处理的肌群">
+              <p class="rail-title">需要先处理</p>
+              <button class="rail-item" data-status="destructive" data-select="gluteal-group" data-side="left">
+                <strong>臀肌群 · 左</strong>
+                <span>2 处异常</span>
+              </button>
+              <button class="rail-item" data-status="destructive" data-select="scapulothoracic" data-side="left">
+                <strong>肩胛带 · 左</strong>
+                <span>2 处异常</span>
+              </button>
+              <button class="rail-item" data-status="destructive" data-select="posterior-leg-superficial" data-side="right">
+                <strong>小腿后群 · 右</strong>
+                <span>1 处异常</span>
+              </button>
+              <button class="rail-item" data-status="accent" data-select="abdominal-wall" data-side="both">
+                <strong>腹壁 · 双侧</strong>
+                <span>1 处留意</span>
+              </button>
+              <button class="rail-item ghost" data-toast="原型：这里会进全部区域">全部区域 ›</button>
+            </aside>
+          </div>
+
+          <div class="legend" aria-label="图例">
+            <span><i class="red"></i>需要处理</span>
+            <span><i class="cyan"></i>需要留意</span>
+            <span><i class="gray"></i>正常</span>
+            <span><i class="dash"></i>未测</span>
+          </div>
+          <p class="disclaimer">示意，不作为诊断依据</p>
+        </section>
+
+        <section class="detail-card" id="detailCard" aria-live="polite">
+          <div class="detail-head">
+            <div>
+              <p class="detail-kicker" id="detailKicker">左侧 · 背面</p>
+              <h2 id="detailTitle">臀肌群</h2>
+            </div>
+            <span class="status-pill" id="detailStatus" data-status="destructive">2 处异常</span>
+          </div>
+          <p class="detail-summary" id="detailSummary"></p>
+          <div class="member-list" id="memberList"></div>
+          <div class="detail-actions">
+            <button class="secondary" type="button" data-toast="原型：这里会打开该部位的完整时间线">查看时间线</button>
+            <button class="primary" type="button" data-toast="原型：这里会带着这个部位去对话">去对话处理</button>
+          </div>
+        </section>
+      </div>
+
+      <nav class="tabbar" aria-label="底部导航">
+        <button type="button" data-toast="原型：切到今日"><b></b>今日</button>
+        <button type="button" data-toast="原型：切到日历"><b></b>日历</button>
+        <button type="button" data-toast="原型：切到对话"><b></b>对话</button>
+        <button type="button" class="active" data-toast="原型：当前在档案"><b></b>档案</button>
+      </nav>
+      <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    </div>
+
+    <aside class="notes">
+      <p class="kicker">2D 身体图 · 讨论稿</p>
+      <h1>先按肌群看，<br>再下钻到具体肌肉</h1>
+      <p class="intro">
+        目标不是画一张解剖图，而是让用户在 3 秒内看到「哪里需要先处理」，
+        并且能顺着一个肌群找到具体哪块肌肉、哪一侧、哪条轴出了问题。
+      </p>
+
+      <h2>这版在试什么</h2>
+      <ul>
+        <li><strong>肌群优先，异常优先。</strong>23 个肌群，只给异常/留意/未测上色；正常肌群保持中性，避免 79 块肌肉同时发光。</li>
+        <li><strong>左右和前后。</strong>正面/背面切换；左右成对的结构分开点选；中线结构显示「双侧」。</li>
+        <li><strong>五轴。</strong>默认按「最差轴」着色，也可以切到张力/对称/活动度/疼痛/稳定性；详情里仍看完整五轴。</li>
+        <li><strong>下钻。</strong>点肌群 → 底部详情卡 → 成员肌肉；不直接跳区域页，避免一次丢掉上下文。</li>
+        <li><strong>数据来源。</strong>2D 路径从 Human Atlas 的 3D 网格正交投影导出，后续 3D 可以复用同一套 <code>site_id → mesh_id</code> 映射。</li>
+      </ul>
+
+      <h2>状态怎么读</h2>
+      <div class="swatches">
+        <span><i class="red"></i>需要处理</span>
+        <span><i class="cyan"></i>需要留意</span>
+        <span><i class="gray"></i>正常</span>
+        <span><i class="dash"></i>未测</span>
+      </div>
+      <p class="intro" style="margin-top:8px">
+        肌群颜色取成员里的最差值；点开后才看到「臀大肌张力弱、臀中肌左弱、臀小肌未测」这种粒度。
+      </p>
+
+      <h2>需要你拍板</h2>
+      <ol>
+        <li>档案页默认进<strong>全身图</strong>，还是保持现在的<strong>区域列表</strong>？</li>
+        <li>正常肌群要不要显示？我倾向显示，但用极低对比，让身体轮廓还在。</li>
+        <li>点肌群后，是底部详情卡（这版），还是直接进区域页？</li>
+        <li>五轴默认「综合」，还是让用户先选一条轴？</li>
+        <li>正面/背面用分段控件，还是左右滑动切换？</li>
+      </ol>
+
+      <div class="callout">
+        <strong>我的倾向：</strong>2D 图放在档案页顶部，作为「一眼看全局」的入口；
+        原来的区域列表保留在下面，负责可搜索、可展开、可撤回的细节。
+        这样身体图不是替代列表，而是给列表一个更好的入口。
+      </div>
+    </aside>
+  </div>
+</div>
+
+<script>
+  const STATUS_LABEL = {
+    destructive: "异常",
+    accent: "留意",
+    untested: "未测",
+    normal: "正常",
+  };
+  const SIDE_LABEL = { left: "左", right: "右", both: "双侧" };
+
+  const GROUPS = {
+    "gluteal-group": {
+      zh: "臀肌群",
+      view: "back",
+      status: "destructive",
+      sides: { left: "destructive", right: "normal" },
+      axes: { tension: "destructive", symmetry: "destructive", rom: "normal", pain: "normal", stability: "untested" },
+      summary: "伸髋末端发力不足，单腿站时左侧骨盆下沉；臀小肌还没测。",
+      members: [
+        { zh: "臀大肌", side: "左", status: "destructive", worst: "张力 弱" },
+        { zh: "臀中肌", side: "左", status: "destructive", worst: "对称 左弱" },
+        { zh: "臀小肌", side: "左", status: "untested", worst: "未测" },
+        { zh: "臀大肌", side: "右", status: "normal", worst: "正常" },
+        { zh: "臀中肌", side: "右", status: "normal", worst: "正常" },
+        { zh: "臀小肌", side: "右", status: "normal", worst: "正常" },
+      ],
+    },
+    "deep-hip-rotators": {
+      zh: "髋深外旋肌群",
+      view: "back",
+      status: "untested",
+      sides: { left: "untested", right: "untested" },
+      axes: { tension: "untested", symmetry: "untested", rom: "untested", pain: "untested", stability: "untested" },
+      summary: "深层外旋肌还没测，先不做结论；如果髋部有旋转不适，再单独评估。",
+      members: [
+        { zh: "梨状肌", side: "左", status: "untested", worst: "未测" },
+        { zh: "闭孔内肌", side: "左", status: "untested", worst: "未测" },
+        { zh: "股方肌", side: "右", status: "untested", worst: "未测" },
+      ],
+    },
+    "hip-flexors": {
+      zh: "髋屈肌群",
+      view: "front",
+      status: "destructive",
+      sides: { left: "destructive", right: "accent" },
+      axes: { tension: "destructive", symmetry: "accent", rom: "destructive", pain: "destructive", stability: "normal" },
+      summary: "久坐后站直时腰有牵拉感，主动直腿抬高受限；先松解，再看臀部发力。",
+      members: [
+        { zh: "腰大肌", side: "双侧", status: "destructive", worst: "张力 紧" },
+        { zh: "髂肌", side: "左", status: "accent", worst: "活动度 受限" },
+        { zh: "股直肌", side: "左", status: "normal", worst: "正常" },
+        { zh: "阔筋膜张肌", side: "右", status: "untested", worst: "未测" },
+      ],
+    },
+    "quadriceps": {
+      zh: "股四头肌",
+      view: "front",
+      status: "normal",
+      sides: { left: "normal", right: "normal" },
+      axes: { tension: "normal", symmetry: "normal", rom: "normal", pain: "normal", stability: "normal" },
+      summary: "目前没有异常判定；深蹲膝主导动作可以作为维持训练。",
+      members: [
+        { zh: "股直肌", side: "双侧", status: "normal", worst: "正常" },
+        { zh: "股外侧肌", side: "双侧", status: "normal", worst: "正常" },
+        { zh: "股内侧肌", side: "双侧", status: "normal", worst: "正常" },
+        { zh: "股中间肌", side: "双侧", status: "normal", worst: "正常" },
+      ],
+    },
+    "hamstrings": {
+      zh: "腘绳肌",
+      view: "back",
+      status: "untested",
+      sides: { left: "untested", right: "untested" },
+      axes: { tension: "untested", symmetry: "untested", rom: "untested", pain: "untested", stability: "untested" },
+      summary: "还没测。臀肌异常时，腘绳肌可能是代偿方，建议下一次一起看。",
+      members: [
+        { zh: "股二头肌", side: "双侧", status: "untested", worst: "未测" },
+        { zh: "半腱肌", side: "双侧", status: "untested", worst: "未测" },
+        { zh: "半膜肌", side: "双侧", status: "untested", worst: "未测" },
+      ],
+    },
+    "hip-adductors": {
+      zh: "髋内收肌群",
+      view: "front",
+      status: "accent",
+      sides: { left: "accent", right: "accent" },
+      axes: { tension: "accent", symmetry: "normal", rom: "accent", pain: "normal", stability: "normal" },
+      summary: "内收肌群偏紧，深蹲底部可能限制髋外展；先观察，不急着加拉伸量。",
+      members: [
+        { zh: "长收肌", side: "双侧", status: "accent", worst: "张力 偏紧" },
+        { zh: "大收肌", side: "双侧", status: "accent", worst: "活动度 偏紧" },
+        { zh: "股薄肌", side: "双侧", status: "normal", worst: "正常" },
+      ],
+    },
+    "posterior-leg-superficial": {
+      zh: "小腿后群浅层",
+      view: "back",
+      status: "destructive",
+      sides: { left: "normal", right: "destructive" },
+      axes: { tension: "destructive", symmetry: "accent", rom: "destructive", pain: "destructive", stability: "normal" },
+      summary: "右侧腓肠肌在提踵末端有牵拉感；先降量，再看踝背屈活动度。",
+      members: [
+        { zh: "腓肠肌", side: "右", status: "destructive", worst: "疼痛 3/10" },
+        { zh: "比目鱼肌", side: "右", status: "accent", worst: "张力 偏紧" },
+        { zh: "跖肌", side: "双侧", status: "untested", worst: "未测" },
+      ],
+    },
+    "deep-posterior-leg": {
+      zh: "小腿后群深层",
+      view: "back",
+      status: "untested",
+      sides: { left: "untested", right: "untested" },
+      axes: { tension: "untested", symmetry: "untested", rom: "untested", pain: "untested", stability: "untested" },
+      summary: "还没测；如果踝背屈或足弓问题反复，再单独评估。",
+      members: [
+        { zh: "胫骨后肌", side: "双侧", status: "untested", worst: "未测" },
+        { zh: "拇长屈肌", side: "双侧", status: "untested", worst: "未测" },
+        { zh: "腘肌", side: "双侧", status: "untested", worst: "未测" },
+      ],
+    },
+    "ankle-dorsiflexors": {
+      zh: "踝背屈肌群",
+      view: "front",
+      status: "normal",
+      sides: { left: "normal", right: "normal" },
+      axes: { tension: "normal", symmetry: "normal", rom: "normal", pain: "normal", stability: "normal" },
+      summary: "目前正常；深蹲和走路时踝背屈没有明显受限。",
+      members: [
+        { zh: "胫骨前肌", side: "双侧", status: "normal", worst: "正常" },
+        { zh: "趾长伸肌", side: "双侧", status: "normal", worst: "正常" },
+        { zh: "拇长伸肌", side: "双侧", status: "normal", worst: "正常" },
+      ],
+    },
+    "lateral-calf": {
+      zh: "腓骨肌群",
+      view: "back",
+      status: "accent",
+      sides: { left: "normal", right: "accent" },
+      axes: { tension: "accent", symmetry: "normal", rom: "normal", pain: "normal", stability: "accent" },
+      summary: "右侧腓骨肌群踝稳定性偏低，单脚站时更容易晃；先做低强度稳定训练。",
+      members: [
+        { zh: "腓骨长肌", side: "右", status: "accent", worst: "稳定 偏低" },
+        { zh: "腓骨短肌", side: "右", status: "accent", worst: "张力 偏紧" },
+        { zh: "腓骨长肌", side: "左", status: "normal", worst: "正常" },
+      ],
+    },
+    "intrinsic-foot": {
+      zh: "足内在肌群",
+      view: "front",
+      status: "untested",
+      sides: { left: "untested", right: "untested" },
+      axes: { tension: "untested", symmetry: "untested", rom: "untested", pain: "untested", stability: "untested" },
+      summary: "还没测；如果足弓或足底问题出现，再单独评估。",
+      members: [
+        { zh: "拇展肌", side: "双侧", status: "untested", worst: "未测" },
+        { zh: "趾短屈肌", side: "双侧", status: "untested", worst: "未测" },
+      ],
+    },
+    "abdominal-wall": {
+      zh: "腹壁肌群",
+      view: "front",
+      status: "accent",
+      sides: { left: "accent", right: "accent" },
+      axes: { tension: "accent", symmetry: "normal", rom: "normal", pain: "normal", stability: "accent" },
+      summary: "腹壁耐力偏弱，但不是疼痛源；先把它放进核心训练，不单独处理。",
+      members: [
+        { zh: "腹直肌", side: "双侧", status: "accent", worst: "稳定 偏低" },
+        { zh: "腹外斜肌", side: "左", status: "normal", worst: "正常" },
+        { zh: "腹内斜肌", side: "右", status: "untested", worst: "未测" },
+        { zh: "腹横肌", side: "双侧", status: "normal", worst: "正常" },
+      ],
+    },
+    "erector-spinae": {
+      zh: "竖脊肌群",
+      view: "back",
+      status: "accent",
+      sides: { left: "accent", right: "accent" },
+      axes: { tension: "accent", symmetry: "normal", rom: "normal", pain: "normal", stability: "accent" },
+      summary: "久坐后腰背容易发紧，但还没有明确疼痛；先看髋屈肌和核心，不单独堆拉伸。",
+      members: [
+        { zh: "髂肋肌", side: "左", status: "accent", worst: "张力 偏紧" },
+        { zh: "最长肌", side: "右", status: "accent", worst: "张力 偏紧" },
+        { zh: "棘肌", side: "双侧", status: "normal", worst: "正常" },
+      ],
+    },
+    "core-cylinder": {
+      zh: "核心圆柱",
+      view: "front",
+      status: "accent",
+      sides: { left: "accent", right: "accent" },
+      axes: { tension: "accent", symmetry: "normal", rom: "normal", pain: "normal", stability: "accent" },
+      summary: "产品自造概念：腹横肌、腰方肌、多裂肌、膈肌的协同；目前是「需要留意」，不是诊断。",
+      members: [
+        { zh: "腹横肌", side: "双侧", status: "accent", worst: "稳定 偏低" },
+        { zh: "腰方肌", side: "双侧", status: "untested", worst: "未测" },
+        { zh: "多裂肌", side: "双侧", status: "untested", worst: "未测" },
+        { zh: "膈肌", side: "双侧", status: "normal", worst: "正常" },
+      ],
+    },
+    "rotator-cuff": {
+      zh: "肩袖",
+      view: "back",
+      status: "untested",
+      sides: { left: "untested", right: "untested" },
+      axes: { tension: "untested", symmetry: "untested", rom: "untested", pain: "untested", stability: "untested" },
+      summary: "还没测；如果推举或过头动作有不适，再单独评估。",
+      members: [
+        { zh: "冈上肌", side: "双侧", status: "untested", worst: "未测" },
+        { zh: "冈下肌", side: "双侧", status: "untested", worst: "未测" },
+        { zh: "小圆肌", side: "双侧", status: "untested", worst: "未测" },
+        { zh: "肩胛下肌", side: "双侧", status: "untested", worst: "未测" },
+      ],
+    },
+    "scapulothoracic": {
+      zh: "肩胛带肌群",
+      view: "back",
+      status: "destructive",
+      sides: { left: "destructive", right: "accent" },
+      axes: { tension: "destructive", symmetry: "destructive", rom: "accent", pain: "normal", stability: "accent" },
+      summary: "左侧前锯肌和菱形肌耐力不足，推举时肩胛控制会先掉；先补肩胛稳定，再加推举量。",
+      members: [
+        { zh: "前锯肌", side: "左", status: "destructive", worst: "稳定 不足" },
+        { zh: "菱形肌", side: "左", status: "destructive", worst: "张力 弱" },
+        { zh: "斜方肌", side: "左", status: "accent", worst: "张力 偏紧" },
+        { zh: "肩胛提肌", side: "右", status: "accent", worst: "张力 偏紧" },
+        { zh: "胸小肌", side: "双侧", status: "normal", worst: "正常" },
+      ],
+    },
+    "shoulder-movers": {
+      zh: "肩关节动力肌",
+      view: "front",
+      status: "normal",
+      sides: { left: "normal", right: "normal" },
+      axes: { tension: "normal", symmetry: "normal", rom: "normal", pain: "normal", stability: "normal" },
+      summary: "目前没有异常；肩胛带先处理，动力肌暂时不加量。",
+      members: [
+        { zh: "胸大肌", side: "双侧", status: "normal", worst: "正常" },
+        { zh: "三角肌", side: "双侧", status: "normal", worst: "正常" },
+        { zh: "背阔肌", side: "双侧", status: "normal", worst: "正常" },
+        { zh: "大圆肌", side: "双侧", status: "normal", worst: "正常" },
+        { zh: "肱三头肌", side: "双侧", status: "normal", worst: "正常" },
+      ],
+    },
+    "elbow-flexors": {
+      zh: "肘屈肌群",
+      view: "front",
+      status: "normal",
+      sides: { left: "normal", right: "normal" },
+      axes: { tension: "normal", symmetry: "normal", rom: "normal", pain: "normal", stability: "normal" },
+      summary: "目前正常；拉类动作可以按计划推进。",
+      members: [
+        { zh: "肱二头肌", side: "双侧", status: "normal", worst: "正常" },
+        { zh: "肱肌", side: "双侧", status: "normal", worst: "正常" },
+        { zh: "肱桡肌", side: "双侧", status: "normal", worst: "正常" },
+      ],
+    },
+    "forearm-rotators": {
+      zh: "前臂旋转肌群",
+      view: "front",
+      status: "untested",
+      sides: { left: "untested", right: "untested" },
+      axes: { tension: "untested", symmetry: "untested", rom: "untested", pain: "untested", stability: "untested" },
+      summary: "还没测；如果推举或拉类动作时肘内侧有不适，再单独评估。",
+      members: [
+        { zh: "旋前圆肌", side: "双侧", status: "untested", worst: "未测" },
+        { zh: "旋后肌", side: "双侧", status: "untested", worst: "未测" },
+      ],
+    },
+    "forearm-wrist": {
+      zh: "前臂腕肌群",
+      view: "front",
+      status: "accent",
+      sides: { left: "accent", right: "accent" },
+      axes: { tension: "accent", symmetry: "normal", rom: "normal", pain: "accent", stability: "normal" },
+      summary: "腕伸肌群偏紧，长时间打字或推举后容易先酸；先观察，不急着处理。",
+      members: [
+        { zh: "桡侧腕屈肌", side: "双侧", status: "accent", worst: "张力 偏紧" },
+        { zh: "桡侧腕长伸肌", side: "双侧", status: "accent", worst: "张力 偏紧" },
+        { zh: "指伸肌", side: "双侧", status: "normal", worst: "正常" },
+      ],
+    },
+    "cervical-lateral": {
+      zh: "颈侧屈肌群",
+      view: "front",
+      status: "accent",
+      sides: { left: "accent", right: "normal" },
+      axes: { tension: "accent", symmetry: "accent", rom: "normal", pain: "normal", stability: "normal" },
+      summary: "左侧胸锁乳突肌和斜角肌偏紧，和久坐看屏幕的姿势有关；先做低强度活动，不猛拉。",
+      members: [
+        { zh: "胸锁乳突肌", side: "左", status: "accent", worst: "张力 偏紧" },
+        { zh: "前斜角肌", side: "左", status: "normal", worst: "正常" },
+        { zh: "中斜角肌", side: "左", status: "accent", worst: "张力 偏紧" },
+      ],
+    },
+    "deep-cervical-flexors": {
+      zh: "颈深屈肌群",
+      view: "front",
+      status: "normal",
+      sides: { left: "normal", right: "normal" },
+      axes: { tension: "normal", symmetry: "normal", rom: "normal", pain: "normal", stability: "normal" },
+      summary: "目前正常；如果颈侧屈处理后再看是否需要补耐力。",
+      members: [
+        { zh: "颈长肌", side: "双侧", status: "normal", worst: "正常" },
+        { zh: "头长肌", side: "双侧", status: "normal", worst: "正常" },
+      ],
+    },
+    "cervical-extensors": {
+      zh: "颈后伸肌群",
+      view: "back",
+      status: "accent",
+      sides: { left: "accent", right: "accent" },
+      axes: { tension: "accent", symmetry: "normal", rom: "normal", pain: "normal", stability: "accent" },
+      summary: "颈后伸肌群容易代偿，先看胸椎和肩胛带，不单独堆颈部训练。",
+      members: [
+        { zh: "斜方肌", side: "双侧", status: "accent", worst: "张力 偏紧" },
+        { zh: "肩胛提肌", side: "双侧", status: "accent", worst: "张力 偏紧" },
+        { zh: "头夹肌", side: "双侧", status: "normal", worst: "正常" },
+        { zh: "头半棘肌", side: "双侧", status: "normal", worst: "正常" },
+      ],
+    },
+  };
+
+  const state = {
+    view: "back",
+    axis: "worst",
+    filter: "all",
+    selected: { group: "gluteal-group", side: "left" },
+  };
+
+  const $ = (selector, root = document) => root.querySelector(selector);
+  const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
+
+  function statusFor(groupId, side, axis) {
+    const group = GROUPS[groupId];
+    if (!group) return "normal";
+    if (axis !== "worst" && group.axes && group.axes[axis]) return group.axes[axis];
+    if (side && group.sides && group.sides[side]) return group.sides[side];
+    if (side === "both") {
+      if (group.sides && group.sides.left) return group.sides.left;
+    }
+    return group.status || "normal";
+  }
+
+  function sideLabel(side) {
+    return SIDE_LABEL[side] || "双侧";
+  }
+
+  function visibleMembers(groupId, side) {
+    const group = GROUPS[groupId];
+    if (!group) return [];
+    if (side === "both") return group.members;
+    const wanted = sideLabel(side);
+    const filtered = group.members.filter(
+      (member) => member.side === wanted || member.side === "双侧"
+    );
+    return filtered.length > 0 ? filtered : group.members;
+  }
+
+  function countsFor(members) {
+    return members.reduce(
+      (counts, member) => {
+        counts[member.status] = (counts[member.status] || 0) + 1;
+        return counts;
+      },
+      { destructive: 0, accent: 0, untested: 0, normal: 0 }
+    );
+  }
+
+  function pillFor(counts) {
+    if (counts.destructive > 0) {
+      return { status: "destructive", text: `${counts.destructive} 处异常` };
+    }
+    if (counts.accent > 0) {
+      return { status: "accent", text: `${counts.accent} 处留意` };
+    }
+    if (counts.untested > 0) {
+      return { status: "untested", text: "未测" };
+    }
+    return { status: "normal", text: "正常" };
+  }
+
+  function renderDetail() {
+    const { group: groupId, side } = state.selected;
+    const group = GROUPS[groupId];
+    if (!group) return;
+
+    const members = visibleMembers(groupId, side);
+    const counts = countsFor(members);
+    const pill = pillFor(counts);
+    const sideText = side === "both" ? "双侧" : sideLabel(side);
+    const viewText = group.view === "back" ? "背面" : "正面";
+
+    $("#detailKicker").textContent = `${sideText} · ${viewText}`;
+    $("#detailTitle").textContent = group.zh;
+    $("#detailSummary").textContent = group.summary;
+
+    const pillEl = $("#detailStatus");
+    pillEl.dataset.status = pill.status;
+    pillEl.textContent = pill.text;
+
+    const list = $("#memberList");
+    list.innerHTML = members
+      .map(
+        (member) => `
+          <div class="member-row">
+            <span class="member-dot ${member.status}" aria-hidden="true"></span>
+            <span class="member-name">${member.zh}<em>${member.side}</em></span>
+            <span class="member-worst ${member.status}">${member.worst}</span>
+          </div>
+        `
+      )
+      .join("");
+
+    if (members.length === 0) {
+      list.innerHTML = '<div class="more-row">这个肌群还没有成员判定。</div>';
+    }
+
+    // 选中态：同组、同侧；中线结构在任一侧都算选中。
+    $$(".muscle").forEach((el) => {
+      const sameGroup = el.dataset.group === groupId;
+      const elSide = el.dataset.side;
+      const sameSide = side === "both" || elSide === side || elSide === "both";
+      el.classList.toggle("active", sameGroup && sameSide);
+    });
+  }
+
+  function renderMap() {
+    $$(".muscle").forEach((el) => {
+      const status = statusFor(el.dataset.group, el.dataset.side, state.axis);
+      el.dataset.status = status;
+      const dim = state.filter === "abnormal" && (status === "normal" || status === "untested");
+      el.classList.toggle("dim", dim);
+    });
+  }
+
+  function renderView() {
+    $("#frontSvg").style.display = state.view === "front" ? "block" : "none";
+    $("#backSvg").style.display = state.view === "back" ? "block" : "none";
+    $$("#viewToggle button").forEach((button) => {
+      button.classList.toggle("active", button.dataset.view === state.view);
+    });
+  }
+
+  function selectGroup(groupId, side = "both") {
+    const group = GROUPS[groupId];
+    if (!group) return;
+    state.selected = { group: groupId, side };
+    if (group.view !== state.view) {
+      state.view = group.view;
+      renderView();
+    }
+    renderDetail();
+  }
+
+  function showToast(message) {
+    const toast = $("#toast");
+    toast.textContent = message;
+    toast.classList.add("show");
+    clearTimeout(showToast.timer);
+    showToast.timer = setTimeout(() => toast.classList.remove("show"), 1800);
+  }
+
+  $$(".muscle").forEach((el) => {
+    const activate = () => selectGroup(el.dataset.group, el.dataset.side);
+    el.addEventListener("click", activate);
+    el.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        activate();
+      }
+    });
+  });
+
+  $$("#viewToggle button").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.view = button.dataset.view;
+      renderView();
+    });
+  });
+
+  $$("#filterToggle button").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.filter = button.dataset.filter;
+      $$("#filterToggle button").forEach((item) => {
+        item.classList.toggle("active", item === button);
+      });
+      renderMap();
+    });
+  });
+
+  $$("#axisRow button").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.axis = button.dataset.axis;
+      $$("#axisRow button").forEach((item) => {
+        item.classList.toggle("active", item === button);
+      });
+      renderMap();
+    });
+  });
+
+  $$("[data-select]").forEach((button) => {
+    button.addEventListener("click", () => {
+      selectGroup(button.dataset.select, button.dataset.side || "both");
+    });
+  });
+
+  $$("[data-toast]").forEach((button) => {
+    button.addEventListener("click", () => showToast(button.dataset.toast));
+  });
+
+  renderView();
+  renderMap();
+  renderDetail();
+</script>
+</body>
+</html>

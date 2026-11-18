@@ -1,0 +1,1622 @@
+[
+ {
+  "site_id": "gastrocnemius",
+  "kind": "muscle",
+  "en": "Gastrocnemius",
+  "zh": "腓肠肌",
+  "objects": [
+   "Lateral head of gastrocnemius.l",
+   "Lateral head of gastrocnemius.r",
+   "Medial head of gastrocnemius.l",
+   "Medial head of gastrocnemius.r"
+  ],
+  "tris": 22740,
+  "verts": 11374,
+  "modifiers": []
+ },
+ {
+  "site_id": "soleus",
+  "kind": "muscle",
+  "en": "Soleus",
+  "zh": "比目鱼肌",
+  "objects": [
+   "Soleus muscle.l",
+   "Soleus muscle.r"
+  ],
+  "tris": 13548,
+  "verts": 6758,
+  "modifiers": []
+ },
+ {
+  "site_id": "plantaris",
+  "kind": "muscle",
+  "en": "Plantaris",
+  "zh": "跖肌",
+  "objects": [
+   "Plantaris muscle.l",
+   "Plantaris muscle.r"
+  ],
+  "tris": 9396,
+  "verts": 4702,
+  "modifiers": []
+ },
+ {
+  "site_id": "tibialis-anterior",
+  "kind": "muscle",
+  "en": "Tibialis anterior",
+  "zh": "胫骨前肌",
+  "objects": [
+   "Tibialis anterior muscle.l",
+   "Tibialis anterior muscle.r"
+  ],
+  "tris": 7052,
+  "verts": 3522,
+  "modifiers": []
+ },
+ {
+  "site_id": "tibialis-posterior",
+  "kind": "muscle",
+  "en": "Tibialis posterior",
+  "zh": "胫骨后肌",
+  "objects": [
+   "Tibialis posterior muscle.l",
+   "Tibialis posterior muscle.r"
+  ],
+  "tris": 11052,
+  "verts": 5482,
+  "modifiers": []
+ },
+ {
+  "site_id": "fibularis-longus",
+  "kind": "muscle",
+  "en": "Fibularis longus",
+  "zh": "腓骨长肌",
+  "objects": [
+   "Fibularis longus muscle.l",
+   "Fibularis longus muscle.r"
+  ],
+  "tris": 11044,
+  "verts": 5478,
+  "modifiers": []
+ },
+ {
+  "site_id": "fibularis-brevis",
+  "kind": "muscle",
+  "en": "Fibularis brevis",
+  "zh": "腓骨短肌",
+  "objects": [
+   "Fibularis brevis muscle.l",
+   "Fibularis brevis muscle.r"
+  ],
+  "tris": 6892,
+  "verts": 3446,
+  "modifiers": []
+ },
+ {
+  "site_id": "flexor-hallucis-longus",
+  "kind": "muscle",
+  "en": "Flexor hallucis longus",
+  "zh": "拇长屈肌",
+  "objects": [
+   "Flexor hallucis longus.l",
+   "Flexor hallucis longus.r"
+  ],
+  "tris": 11756,
+  "verts": 5882,
+  "modifiers": []
+ },
+ {
+  "site_id": "flexor-digitorum-longus",
+  "kind": "muscle",
+  "en": "Flexor digitorum longus",
+  "zh": "趾长屈肌",
+  "objects": [
+   "Flexor digitorum longus.l",
+   "Flexor digitorum longus.r"
+  ],
+  "tris": 13672,
+  "verts": 6840,
+  "modifiers": []
+ },
+ {
+  "site_id": "extensor-digitorum-longus",
+  "kind": "muscle",
+  "en": "Extensor digitorum longus",
+  "zh": "趾长伸肌",
+  "objects": [
+   "Extensor digitorum longus.l",
+   "Extensor digitorum longus.r"
+  ],
+  "tris": 6352,
+  "verts": 3194,
+  "modifiers": []
+ },
+ {
+  "site_id": "extensor-hallucis-longus",
+  "kind": "muscle",
+  "en": "Extensor hallucis longus",
+  "zh": "拇长伸肌",
+  "objects": [
+   "Extensor hallucis longus.l",
+   "Extensor hallucis longus.r"
+  ],
+  "tris": 4724,
+  "verts": 2366,
+  "modifiers": []
+ },
+ {
+  "site_id": "popliteus",
+  "kind": "muscle",
+  "en": "Popliteus",
+  "zh": "腘肌",
+  "objects": [
+   "Popliteus muscle.l",
+   "Popliteus muscle.r"
+  ],
+  "tris": 2264,
+  "verts": 1132,
+  "modifiers": []
+ },
+ {
+  "site_id": "abductor-hallucis",
+  "kind": "muscle",
+  "en": "Abductor hallucis",
+  "zh": "拇展肌",
+  "objects": [
+   "Abductor hallucis.l",
+   "Abductor hallucis.r"
+  ],
+  "tris": 3376,
+  "verts": 1688,
+  "modifiers": []
+ },
+ {
+  "site_id": "flexor-digitorum-brevis",
+  "kind": "muscle",
+  "en": "Flexor digitorum brevis",
+  "zh": "趾短屈肌",
+  "objects": [
+   "Flexor digitorum brevis.l",
+   "Flexor digitorum brevis.r"
+  ],
+  "tris": 6448,
+  "verts": 3220,
+  "modifiers": []
+ },
+ {
+  "site_id": "rectus-femoris",
+  "kind": "muscle",
+  "en": "Rectus femoris",
+  "zh": "股直肌",
+  "objects": [
+   "Rectus femoris muscle.l",
+   "Rectus femoris muscle.r"
+  ],
+  "tris": 16552,
+  "verts": 8272,
+  "modifiers": []
+ },
+ {
+  "site_id": "vastus-lateralis",
+  "kind": "muscle",
+  "en": "Vastus lateralis",
+  "zh": "股外侧肌",
+  "objects": [
+   "Vastus lateralis muscle.l",
+   "Vastus lateralis muscle.r"
+  ],
+  "tris": 18712,
+  "verts": 9356,
+  "modifiers": []
+ },
+ {
+  "site_id": "vastus-medialis",
+  "kind": "muscle",
+  "en": "Vastus medialis",
+  "zh": "股内侧肌",
+  "objects": [
+   "Vastus medialis muscle.l",
+   "Vastus medialis muscle.r"
+  ],
+  "tris": 12920,
+  "verts": 6464,
+  "modifiers": []
+ },
+ {
+  "site_id": "vastus-intermedius",
+  "kind": "muscle",
+  "en": "Vastus intermedius",
+  "zh": "股中间肌",
+  "objects": [
+   "Vastus intermedius muscle.l",
+   "Vastus intermedius muscle.r"
+  ],
+  "tris": 12328,
+  "verts": 6152,
+  "modifiers": []
+ },
+ {
+  "site_id": "biceps-femoris",
+  "kind": "muscle",
+  "en": "Biceps femoris",
+  "zh": "股二头肌",
+  "objects": [
+   "Long head of biceps femoris.l",
+   "Long head of biceps femoris.r",
+   "Short head of biceps femoris.l",
+   "Short head of biceps femoris.r"
+  ],
+  "tris": 19468,
+  "verts": 9722,
+  "modifiers": []
+ },
+ {
+  "site_id": "semitendinosus",
+  "kind": "muscle",
+  "en": "Semitendinosus",
+  "zh": "半腱肌",
+  "objects": [
+   "Semitendinosus muscle.l",
+   "Semitendinosus muscle.r"
+  ],
+  "tris": 8632,
+  "verts": 4316,
+  "modifiers": []
+ },
+ {
+  "site_id": "semimembranosus",
+  "kind": "muscle",
+  "en": "Semimembranosus",
+  "zh": "半膜肌",
+  "objects": [
+   "Semimembranosus muscle.l",
+   "Semimembranosus muscle.r"
+  ],
+  "tris": 14884,
+  "verts": 7450,
+  "modifiers": []
+ },
+ {
+  "site_id": "adductor-longus",
+  "kind": "muscle",
+  "en": "Adductor longus",
+  "zh": "长收肌",
+  "objects": [
+   "Adductor longus.l",
+   "Adductor longus.r"
+  ],
+  "tris": 7428,
+  "verts": 3710,
+  "modifiers": []
+ },
+ {
+  "site_id": "adductor-brevis",
+  "kind": "muscle",
+  "en": "Adductor brevis",
+  "zh": "短收肌",
+  "objects": [
+   "Adductor brevis.l",
+   "Adductor brevis.r"
+  ],
+  "tris": 4264,
+  "verts": 2128,
+  "modifiers": []
+ },
+ {
+  "site_id": "adductor-magnus",
+  "kind": "muscle",
+  "en": "Adductor magnus",
+  "zh": "大收肌",
+  "objects": [
+   "Adductor magnus.l",
+   "Adductor magnus.r"
+  ],
+  "tris": 16384,
+  "verts": 8192,
+  "modifiers": []
+ },
+ {
+  "site_id": "gracilis",
+  "kind": "muscle",
+  "en": "Gracilis",
+  "zh": "股薄肌",
+  "objects": [
+   "Gracilis muscle.l",
+   "Gracilis muscle.r"
+  ],
+  "tris": 9624,
+  "verts": 4808,
+  "modifiers": []
+ },
+ {
+  "site_id": "pectineus",
+  "kind": "muscle",
+  "en": "Pectineus",
+  "zh": "耻骨肌",
+  "objects": [
+   "Pectineus muscle.l",
+   "Pectineus muscle.r"
+  ],
+  "tris": 3904,
+  "verts": 1948,
+  "modifiers": []
+ },
+ {
+  "site_id": "sartorius",
+  "kind": "muscle",
+  "en": "Sartorius",
+  "zh": "缝匠肌",
+  "objects": [
+   "Sartorius muscle.l",
+   "Sartorius muscle.r"
+  ],
+  "tris": 9932,
+  "verts": 4962,
+  "modifiers": []
+ },
+ {
+  "site_id": "tensor-fasciae-latae",
+  "kind": "muscle",
+  "en": "Tensor fasciae latae",
+  "zh": "阔筋膜张肌",
+  "objects": [
+   "Tensor fasciae latae.l",
+   "Tensor fasciae latae.r"
+  ],
+  "tris": 3724,
+  "verts": 1866,
+  "modifiers": []
+ },
+ {
+  "site_id": "gluteus-maximus",
+  "kind": "muscle",
+  "en": "Gluteus maximus",
+  "zh": "臀大肌",
+  "objects": [
+   "Gluteus maximus muscle.l",
+   "Gluteus maximus muscle.r"
+  ],
+  "tris": 6652,
+  "verts": 3326,
+  "modifiers": []
+ },
+ {
+  "site_id": "gluteus-medius",
+  "kind": "muscle",
+  "en": "Gluteus medius",
+  "zh": "臀中肌",
+  "objects": [
+   "Gluteus medius muscle.l",
+   "Gluteus medius muscle.r"
+  ],
+  "tris": 10352,
+  "verts": 5180,
+  "modifiers": []
+ },
+ {
+  "site_id": "gluteus-minimus",
+  "kind": "muscle",
+  "en": "Gluteus minimus",
+  "zh": "臀小肌",
+  "objects": [
+   "Gluteus minimus muscle.l",
+   "Gluteus minimus muscle.r"
+  ],
+  "tris": 12500,
+  "verts": 6254,
+  "modifiers": []
+ },
+ {
+  "site_id": "piriformis",
+  "kind": "muscle",
+  "en": "Piriformis",
+  "zh": "梨状肌",
+  "objects": [
+   "Piriformis muscle.l",
+   "Piriformis muscle.r"
+  ],
+  "tris": 3000,
+  "verts": 1504,
+  "modifiers": []
+ },
+ {
+  "site_id": "obturator-internus",
+  "kind": "muscle",
+  "en": "Obturator internus",
+  "zh": "闭孔内肌",
+  "objects": [
+   "Obturator internus.l",
+   "Obturator internus.r"
+  ],
+  "tris": 7520,
+  "verts": 3764,
+  "modifiers": []
+ },
+ {
+  "site_id": "obturator-externus",
+  "kind": "muscle",
+  "en": "Obturator externus",
+  "zh": "闭孔外肌",
+  "objects": [
+   "Obturator externus.l",
+   "Obturator externus.r"
+  ],
+  "tris": 2312,
+  "verts": 1164,
+  "modifiers": []
+ },
+ {
+  "site_id": "gemellus-superior",
+  "kind": "muscle",
+  "en": "Gemellus superior",
+  "zh": "上孖肌",
+  "objects": [
+   "Superior gemellus muscle.l",
+   "Superior gemellus muscle.r"
+  ],
+  "tris": 808,
+  "verts": 408,
+  "modifiers": []
+ },
+ {
+  "site_id": "gemellus-inferior",
+  "kind": "muscle",
+  "en": "Gemellus inferior",
+  "zh": "下孖肌",
+  "objects": [
+   "Inferior gemellus muscle.l",
+   "Inferior gemellus muscle.r"
+  ],
+  "tris": 1952,
+  "verts": 980,
+  "modifiers": []
+ },
+ {
+  "site_id": "quadratus-femoris",
+  "kind": "muscle",
+  "en": "Quadratus femoris",
+  "zh": "股方肌",
+  "objects": [
+   "Quadratus femoris muscle.l",
+   "Quadratus femoris muscle.r"
+  ],
+  "tris": 3292,
+  "verts": 1650,
+  "modifiers": []
+ },
+ {
+  "site_id": "iliacus",
+  "kind": "muscle",
+  "en": "Iliacus",
+  "zh": "髂肌",
+  "objects": [
+   "Iliacus muscle.l",
+   "Iliacus muscle.r"
+  ],
+  "tris": 8708,
+  "verts": 4358,
+  "modifiers": []
+ },
+ {
+  "site_id": "psoas-major",
+  "kind": "muscle",
+  "en": "Psoas major",
+  "zh": "腰大肌",
+  "objects": [
+   "Psoas major.l",
+   "Psoas major.r"
+  ],
+  "tris": 10948,
+  "verts": 5474,
+  "modifiers": []
+ },
+ {
+  "site_id": "rectus-abdominis",
+  "kind": "muscle",
+  "en": "Rectus abdominis",
+  "zh": "腹直肌",
+  "objects": [
+   "Rectus abdominis muscle.l",
+   "Rectus abdominis muscle.r"
+  ],
+  "tris": 41208,
+  "verts": 20608,
+  "modifiers": []
+ },
+ {
+  "site_id": "external-oblique",
+  "kind": "muscle",
+  "en": "External oblique",
+  "zh": "腹外斜肌",
+  "objects": [
+   "External abdominal oblique muscle.l",
+   "External abdominal oblique muscle.r"
+  ],
+  "tris": 59244,
+  "verts": 29622,
+  "modifiers": []
+ },
+ {
+  "site_id": "internal-oblique",
+  "kind": "muscle",
+  "en": "Internal oblique",
+  "zh": "腹内斜肌",
+  "objects": [
+   "Internal abdominal oblique muscle.l",
+   "Internal abdominal oblique muscle.r"
+  ],
+  "tris": 57738,
+  "verts": 28822,
+  "modifiers": []
+ },
+ {
+  "site_id": "transversus-abdominis",
+  "kind": "muscle",
+  "en": "Transversus abdominis",
+  "zh": "腹横肌",
+  "objects": [
+   "Transversus abdominis muscle.l",
+   "Transversus abdominis muscle.r"
+  ],
+  "tris": 68656,
+  "verts": 34328,
+  "modifiers": []
+ },
+ {
+  "site_id": "quadratus-lumborum",
+  "kind": "muscle",
+  "en": "Quadratus lumborum",
+  "zh": "腰方肌",
+  "objects": [
+   "Quadratus lumborum muscle.l",
+   "Quadratus lumborum muscle.r"
+  ],
+  "tris": 5664,
+  "verts": 2832,
+  "modifiers": []
+ },
+ {
+  "site_id": "iliocostalis",
+  "kind": "muscle",
+  "en": "Iliocostalis",
+  "zh": "髂肋肌",
+  "objects": [
+   "Iliocostalis colli muscle",
+   "Iliocostalis colli muscle.r",
+   "Iliocostalis lumborum muscle.l",
+   "Iliocostalis lumborum muscle.r",
+   "Iliocostalis thoracis muscle.l",
+   "Iliocostalis thoracis muscle.r"
+  ],
+  "tris": 35720,
+  "verts": 17868,
+  "modifiers": []
+ },
+ {
+  "site_id": "longissimus",
+  "kind": "muscle",
+  "en": "Longissimus",
+  "zh": "最长肌",
+  "objects": [
+   "Longissimus capitis muscle.l",
+   "Longissimus capitis muscle.r",
+   "Longissimus colli muscle.l",
+   "Longissimus colli muscle.r",
+   "Longissimus thoracis muscle.l",
+   "Longissimus thoracis muscle.r"
+  ],
+  "tris": 26104,
+  "verts": 13036,
+  "modifiers": []
+ },
+ {
+  "site_id": "spinalis",
+  "kind": "muscle",
+  "en": "Spinalis",
+  "zh": "棘肌",
+  "objects": [
+   "Spinalis colli muscle.l",
+   "Spinalis colli muscle.r",
+   "Spinalis thoracis muscle.l",
+   "Spinalis thoracis muscle.r"
+  ],
+  "tris": 12256,
+  "verts": 6132,
+  "modifiers": []
+ },
+ {
+  "site_id": "multifidus",
+  "kind": "muscle",
+  "en": "Multifidus",
+  "zh": "多裂肌",
+  "objects": [
+   "Multifidus colli muscle.l",
+   "Multifidus colli muscle.r",
+   "Multifidus lumborum muscle.l",
+   "Multifidus lumborum muscle.r",
+   "Multifidus thoracis muscle.l",
+   "Multifidus thoracis muscle.r"
+  ],
+  "tris": 16224,
+  "verts": 8192,
+  "modifiers": []
+ },
+ {
+  "site_id": "diaphragm",
+  "kind": "muscle",
+  "en": "Diaphragm",
+  "zh": "膈肌",
+  "objects": [
+   "Diaphragm"
+  ],
+  "tris": 9592,
+  "verts": 4796,
+  "modifiers": [
+   "Diaphragm:SUBSURF"
+  ]
+ },
+ {
+  "site_id": "latissimus-dorsi",
+  "kind": "muscle",
+  "en": "Latissimus dorsi",
+  "zh": "背阔肌",
+  "objects": [
+   "Latissimus dorsi muscle.l",
+   "Latissimus dorsi muscle.r"
+  ],
+  "tris": 43160,
+  "verts": 21592,
+  "modifiers": []
+ },
+ {
+  "site_id": "serratus-anterior",
+  "kind": "muscle",
+  "en": "Serratus anterior",
+  "zh": "前锯肌",
+  "objects": [
+   "Serratus anterior muscle.l",
+   "Serratus anterior muscle.r"
+  ],
+  "tris": 50480,
+  "verts": 25236,
+  "modifiers": []
+ },
+ {
+  "site_id": "trapezius",
+  "kind": "muscle",
+  "en": "Trapezius",
+  "zh": "斜方肌",
+  "objects": [
+   "Ascending part of trapezius muscle.l",
+   "Ascending part of trapezius muscle.r",
+   "Descending part of trapezius muscle.l",
+   "Descending part of trapezius muscle.r",
+   "Transverse part of trapezius muscle.l",
+   "Transverse part of trapezius muscle.r"
+  ],
+  "tris": 28696,
+  "verts": 14336,
+  "modifiers": []
+ },
+ {
+  "site_id": "rhomboid-major",
+  "kind": "muscle",
+  "en": "Rhomboid major",
+  "zh": "大菱形肌",
+  "objects": [
+   "Rhomboid major muscle.l",
+   "Rhomboid major muscle.r"
+  ],
+  "tris": 9600,
+  "verts": 4804,
+  "modifiers": []
+ },
+ {
+  "site_id": "rhomboid-minor",
+  "kind": "muscle",
+  "en": "Rhomboid minor",
+  "zh": "小菱形肌",
+  "objects": [
+   "Rhomboid minor muscle.l",
+   "Rhomboid minor muscle.r"
+  ],
+  "tris": 2988,
+  "verts": 1494,
+  "modifiers": []
+ },
+ {
+  "site_id": "levator-scapulae",
+  "kind": "muscle",
+  "en": "Levator scapulae",
+  "zh": "肩胛提肌",
+  "objects": [
+   "Levator scapulae.l",
+   "Levator scapulae.r"
+  ],
+  "tris": 6164,
+  "verts": 3086,
+  "modifiers": []
+ },
+ {
+  "site_id": "pectoralis-major",
+  "kind": "muscle",
+  "en": "Pectoralis major",
+  "zh": "胸大肌",
+  "objects": [
+   "(Abdominal part of pectoralis major muscle).l",
+   "(Abdominal part of pectoralis major muscle).r",
+   "Clavicular head of pectoralis major muscle.l",
+   "Clavicular head of pectoralis major muscle.r",
+   "Sternocostal head of pectoralis major muscle.l",
+   "Sternocostal head of pectoralis major muscle.r"
+  ],
+  "tris": 11160,
+  "verts": 5584,
+  "modifiers": []
+ },
+ {
+  "site_id": "pectoralis-minor",
+  "kind": "muscle",
+  "en": "Pectoralis minor",
+  "zh": "胸小肌",
+  "objects": [
+   "Pectoralis minor muscle.l",
+   "Pectoralis minor muscle.r"
+  ],
+  "tris": 8284,
+  "verts": 4134,
+  "modifiers": []
+ },
+ {
+  "site_id": "deltoid",
+  "kind": "muscle",
+  "en": "Deltoid",
+  "zh": "三角肌",
+  "objects": [
+   "Acromial part of deltoid muscle.l",
+   "Acromial part of deltoid muscle.r",
+   "Clavicular part of deltoid muscle.l",
+   "Clavicular part of deltoid muscle.r",
+   "Scapular spinal part of deltoid muscle.l",
+   "Scapular spinal part of deltoid muscle.r"
+  ],
+  "tris": 20488,
+  "verts": 10248,
+  "modifiers": []
+ },
+ {
+  "site_id": "supraspinatus",
+  "kind": "muscle",
+  "en": "Supraspinatus",
+  "zh": "冈上肌",
+  "objects": [
+   "Supraspinatus muscle.l",
+   "Supraspinatus muscle.r"
+  ],
+  "tris": 2860,
+  "verts": 1434,
+  "modifiers": []
+ },
+ {
+  "site_id": "infraspinatus",
+  "kind": "muscle",
+  "en": "Infraspinatus",
+  "zh": "冈下肌",
+  "objects": [
+   "Infraspinatus muscle.l",
+   "Infraspinatus muscle.r"
+  ],
+  "tris": 6332,
+  "verts": 3170,
+  "modifiers": []
+ },
+ {
+  "site_id": "teres-minor",
+  "kind": "muscle",
+  "en": "Teres minor",
+  "zh": "小圆肌",
+  "objects": [
+   "Teres minor muscle.l",
+   "Teres minor muscle.r"
+  ],
+  "tris": 3044,
+  "verts": 1526,
+  "modifiers": []
+ },
+ {
+  "site_id": "teres-major",
+  "kind": "muscle",
+  "en": "Teres major",
+  "zh": "大圆肌",
+  "objects": [
+   "Teres major muscle.l",
+   "Teres major muscle.r"
+  ],
+  "tris": 2308,
+  "verts": 1154,
+  "modifiers": []
+ },
+ {
+  "site_id": "subscapularis",
+  "kind": "muscle",
+  "en": "Subscapularis",
+  "zh": "肩胛下肌",
+  "objects": [
+   "Subscapularis muscle.l",
+   "Subscapularis muscle.r"
+  ],
+  "tris": 5908,
+  "verts": 2942,
+  "modifiers": []
+ },
+ {
+  "site_id": "biceps-brachii",
+  "kind": "muscle",
+  "en": "Biceps brachii",
+  "zh": "肱二头肌",
+  "objects": [
+   "Long head of biceps brachii.l",
+   "Long head of biceps brachii.r",
+   "Short head of biceps brachii.l",
+   "Short head of biceps brachii.r"
+  ],
+  "tris": 11828,
+  "verts": 5910,
+  "modifiers": []
+ },
+ {
+  "site_id": "brachialis",
+  "kind": "muscle",
+  "en": "Brachialis",
+  "zh": "肱肌",
+  "objects": [
+   "Brachialis muscle.l",
+   "Brachialis muscle.r"
+  ],
+  "tris": 6956,
+  "verts": 3482,
+  "modifiers": []
+ },
+ {
+  "site_id": "brachioradialis",
+  "kind": "muscle",
+  "en": "Brachioradialis",
+  "zh": "肱桡肌",
+  "objects": [
+   "Brachioradialis muscle.l",
+   "Brachioradialis muscle.r"
+  ],
+  "tris": 14624,
+  "verts": 7316,
+  "modifiers": []
+ },
+ {
+  "site_id": "triceps-brachii",
+  "kind": "muscle",
+  "en": "Triceps brachii",
+  "zh": "肱三头肌",
+  "objects": [
+   "Lateral head of triceps brachii.l",
+   "Lateral head of triceps brachii.r",
+   "Long head of triceps brachii.l",
+   "Long head of triceps brachii.r",
+   "Medial head of triceps brachii.l",
+   "Medial head of triceps brachii.r"
+  ],
+  "tris": 20528,
+  "verts": 10276,
+  "modifiers": []
+ },
+ {
+  "site_id": "pronator-teres",
+  "kind": "muscle",
+  "en": "Pronator teres",
+  "zh": "旋前圆肌",
+  "objects": [
+   "Deep head of pronator teres.l",
+   "Deep head of pronator teres.r",
+   "Superficial head of pronator teres.l",
+   "Superficial head of pronator teres.r"
+  ],
+  "tris": 7320,
+  "verts": 3664,
+  "modifiers": []
+ },
+ {
+  "site_id": "supinator",
+  "kind": "muscle",
+  "en": "Supinator",
+  "zh": "旋后肌",
+  "objects": [
+   "Supinator.l",
+   "Supinator.r"
+  ],
+  "tris": 5508,
+  "verts": 2758,
+  "modifiers": []
+ },
+ {
+  "site_id": "flexor-carpi-radialis",
+  "kind": "muscle",
+  "en": "Flexor carpi radialis",
+  "zh": "桡侧腕屈肌",
+  "objects": [
+   "Flexor carpi radialis.l",
+   "Flexor carpi radialis.r"
+  ],
+  "tris": 3332,
+  "verts": 1670,
+  "modifiers": []
+ },
+ {
+  "site_id": "extensor-carpi-radialis-longus",
+  "kind": "muscle",
+  "en": "Extensor carpi radialis longus",
+  "zh": "桡侧腕长伸肌",
+  "objects": [
+   "Extensor carpi radialis longus.l",
+   "Extensor carpi radialis longus.r"
+  ],
+  "tris": 7412,
+  "verts": 3714,
+  "modifiers": []
+ },
+ {
+  "site_id": "extensor-digitorum",
+  "kind": "muscle",
+  "en": "Extensor digitorum",
+  "zh": "指伸肌",
+  "objects": [
+   "Extensor digitorum.l",
+   "Extensor digitorum.r"
+  ],
+  "tris": 12820,
+  "verts": 6402,
+  "modifiers": []
+ },
+ {
+  "site_id": "sternocleidomastoid",
+  "kind": "muscle",
+  "en": "Sternocleidomastoid",
+  "zh": "胸锁乳突肌",
+  "objects": [
+   "Sternocleidomastoid muscle.l",
+   "Sternocleidomastoid muscle.r"
+  ],
+  "tris": 9904,
+  "verts": 4944,
+  "modifiers": []
+ },
+ {
+  "site_id": "scalenus-anterior",
+  "kind": "muscle",
+  "en": "Scalenus anterior",
+  "zh": "前斜角肌",
+  "objects": [
+   "Scalenus anterior muscle.l",
+   "Scalenus anterior muscle.r"
+  ],
+  "tris": 2772,
+  "verts": 1400,
+  "modifiers": []
+ },
+ {
+  "site_id": "scalenus-medius",
+  "kind": "muscle",
+  "en": "Scalenus medius",
+  "zh": "中斜角肌",
+  "objects": [
+   "Scalenus medius muscle.l",
+   "Scalenus medius muscle.r"
+  ],
+  "tris": 4156,
+  "verts": 2074,
+  "modifiers": []
+ },
+ {
+  "site_id": "longus-colli",
+  "kind": "muscle",
+  "en": "Longus colli",
+  "zh": "颈长肌",
+  "objects": [
+   "Longus colli muscle.l",
+   "Longus colli muscle.r"
+  ],
+  "tris": 12588,
+  "verts": 6308,
+  "modifiers": []
+ },
+ {
+  "site_id": "longus-capitis",
+  "kind": "muscle",
+  "en": "Longus capitis",
+  "zh": "头长肌",
+  "objects": [
+   "Longus capitis muscle.l",
+   "Longus capitis muscle.r"
+  ],
+  "tris": 3960,
+  "verts": 1976,
+  "modifiers": []
+ },
+ {
+  "site_id": "splenius-capitis",
+  "kind": "muscle",
+  "en": "Splenius capitis",
+  "zh": "头夹肌",
+  "objects": [
+   "Splenius capitis muscle.l",
+   "Splenius capitis muscle.r"
+  ],
+  "tris": 10524,
+  "verts": 5258,
+  "modifiers": []
+ },
+ {
+  "site_id": "semispinalis-capitis",
+  "kind": "muscle",
+  "en": "Semispinalis capitis",
+  "zh": "头半棘肌",
+  "objects": [
+   "Spinalis capitis muscle.l",
+   "Spinalis capitis muscle.r"
+  ],
+  "tris": 5120,
+  "verts": 2550,
+  "modifiers": []
+ },
+ {
+  "site_id": "frontal-bone",
+  "kind": "bone",
+  "en": "Frontal bone",
+  "zh": "额骨",
+  "objects": [
+   "Frontal bone",
+   "Sinus of frontal bone"
+  ],
+  "tris": 9280,
+  "verts": 4672,
+  "modifiers": []
+ },
+ {
+  "site_id": "temporal-bone",
+  "kind": "bone",
+  "en": "Temporal bone",
+  "zh": "颞骨",
+  "objects": [
+   "Temporal bone.l",
+   "Temporal bone.r"
+  ],
+  "tris": 28188,
+  "verts": 14102,
+  "modifiers": []
+ },
+ {
+  "site_id": "occipital-bone",
+  "kind": "bone",
+  "en": "Occipital bone",
+  "zh": "枕骨",
+  "objects": [
+   "Occipital bone"
+  ],
+  "tris": 7531,
+  "verts": 3757,
+  "modifiers": []
+ },
+ {
+  "site_id": "mandible",
+  "kind": "bone",
+  "en": "Mandible",
+  "zh": "下颌骨",
+  "objects": [
+   "Mandible"
+  ],
+  "tris": 18838,
+  "verts": 9388,
+  "modifiers": []
+ },
+ {
+  "site_id": "maxilla",
+  "kind": "bone",
+  "en": "Maxilla",
+  "zh": "上颌骨",
+  "objects": [
+   "Maxilla.l",
+   "Maxilla.r"
+  ],
+  "tris": 9596,
+  "verts": 4798,
+  "modifiers": []
+ },
+ {
+  "site_id": "zygomatic-bone",
+  "kind": "bone",
+  "en": "Zygomatic bone",
+  "zh": "颧骨",
+  "objects": [
+   "Zygomatic bone.l",
+   "Zygomatic bone.r"
+  ],
+  "tris": 2656,
+  "verts": 1332,
+  "modifiers": []
+ },
+ {
+  "site_id": "hyoid-bone",
+  "kind": "bone",
+  "en": "Hyoid bone",
+  "zh": "舌骨",
+  "objects": [
+   "Hyoid bone"
+  ],
+  "tris": 1324,
+  "verts": 664,
+  "modifiers": []
+ },
+ {
+  "site_id": "atlas",
+  "kind": "bone",
+  "en": "Atlas (C1)",
+  "zh": "寰椎",
+  "objects": [
+   "Atlas (C1)"
+  ],
+  "tris": 2194,
+  "verts": 1106,
+  "modifiers": []
+ },
+ {
+  "site_id": "axis",
+  "kind": "bone",
+  "en": "Axis (C2)",
+  "zh": "枢椎",
+  "objects": [
+   "Axis (C2)"
+  ],
+  "tris": 2334,
+  "verts": 1168,
+  "modifiers": []
+ },
+ {
+  "site_id": "cervical-vertebrae",
+  "kind": "bone",
+  "en": "Cervical vertebrae",
+  "zh": "颈椎",
+  "objects": [
+   "Vertebra C3",
+   "Vertebra C4",
+   "Vertebra C5",
+   "Vertebra C6",
+   "Vertebra C7"
+  ],
+  "tris": 11184,
+  "verts": 5578,
+  "modifiers": []
+ },
+ {
+  "site_id": "thoracic-vertebrae",
+  "kind": "bone",
+  "en": "Thoracic vertebrae",
+  "zh": "胸椎",
+  "objects": [
+   "Vertebra T1",
+   "Vertebra T10",
+   "Vertebra T11",
+   "Vertebra T12",
+   "Vertebra T2",
+   "Vertebra T3",
+   "Vertebra T4",
+   "Vertebra T5",
+   "Vertebra T6",
+   "Vertebra T7",
+   "Vertebra T8",
+   "Vertebra T9"
+  ],
+  "tris": 27527,
+  "verts": 13765,
+  "modifiers": []
+ },
+ {
+  "site_id": "lumbar-vertebrae",
+  "kind": "bone",
+  "en": "Lumbar vertebrae",
+  "zh": "腰椎",
+  "objects": [
+   "Vertebra L1",
+   "Vertebra L2",
+   "Vertebra L3",
+   "Vertebra L4",
+   "Vertebra L5"
+  ],
+  "tris": 16846,
+  "verts": 8443,
+  "modifiers": []
+ },
+ {
+  "site_id": "sacrum",
+  "kind": "bone",
+  "en": "Sacrum",
+  "zh": "骶骨",
+  "objects": [
+   "Sacrum"
+  ],
+  "tris": 11676,
+  "verts": 5832,
+  "modifiers": []
+ },
+ {
+  "site_id": "coccyx",
+  "kind": "bone",
+  "en": "Coccyx",
+  "zh": "尾骨",
+  "objects": [
+   "Coccyx"
+  ],
+  "tris": 1166,
+  "verts": 589,
+  "modifiers": []
+ },
+ {
+  "site_id": "sternum",
+  "kind": "bone",
+  "en": "Sternum",
+  "zh": "胸骨",
+  "objects": [
+   "Body of sternum",
+   "Manubrium of sternum",
+   "Xiphoid process"
+  ],
+  "tris": 8042,
+  "verts": 4035,
+  "modifiers": [
+   "Xiphoid process:MIRROR"
+  ]
+ },
+ {
+  "site_id": "ribs",
+  "kind": "bone",
+  "en": "Ribs",
+  "zh": "肋骨",
+  "objects": [
+   "Eighth rib.l",
+   "Eighth rib.r",
+   "Eleventh rib.l",
+   "Eleventh rib.r",
+   "Fifth rib.l",
+   "Fifth rib.r",
+   "First rib.l",
+   "First rib.r",
+   "Fourth rib.l",
+   "Fourth rib.r",
+   "Ninth rib.l",
+   "Ninth rib.r",
+   "Second rib.r",
+   "Second rib.l",
+   "Seventh rib.l",
+   "Seventh rib.r",
+   "Sixth rib.l",
+   "Sixth rib.r",
+   "Tenth rib.l",
+   "Tenth rib.r",
+   "Third rib.l",
+   "Third rib.r",
+   "Twelfth rib.l",
+   "Twelfth rib.r"
+  ],
+  "tris": 169188,
+  "verts": 84662,
+  "modifiers": []
+ },
+ {
+  "site_id": "clavicle",
+  "kind": "bone",
+  "en": "Clavicle",
+  "zh": "锁骨",
+  "objects": [
+   "Clavicle.l",
+   "Clavicle.r"
+  ],
+  "tris": 3100,
+  "verts": 1578,
+  "modifiers": []
+ },
+ {
+  "site_id": "scapula",
+  "kind": "bone",
+  "en": "Scapula",
+  "zh": "肩胛骨",
+  "objects": [
+   "Scapula.l",
+   "Scapula.r"
+  ],
+  "tris": 50652,
+  "verts": 25380,
+  "modifiers": []
+ },
+ {
+  "site_id": "acromion",
+  "kind": "bone",
+  "en": "Acromion",
+  "zh": "肩峰",
+  "objects": [],
+  "tris": 0,
+  "verts": 0,
+  "modifiers": []
+ },
+ {
+  "site_id": "coracoid-process",
+  "kind": "bone",
+  "en": "Coracoid process",
+  "zh": "喙突",
+  "objects": [],
+  "tris": 0,
+  "verts": 0,
+  "modifiers": []
+ },
+ {
+  "site_id": "glenoid-cavity",
+  "kind": "bone",
+  "en": "Glenoid cavity",
+  "zh": "关节盂",
+  "objects": [],
+  "tris": 0,
+  "verts": 0,
+  "modifiers": []
+ },
+ {
+  "site_id": "humerus",
+  "kind": "bone",
+  "en": "Humerus",
+  "zh": "肱骨",
+  "objects": [
+   "Humerus.l",
+   "Humerus.r"
+  ],
+  "tris": 8560,
+  "verts": 4286,
+  "modifiers": []
+ },
+ {
+  "site_id": "radius",
+  "kind": "bone",
+  "en": "Radius",
+  "zh": "桡骨",
+  "objects": [
+   "Radius.l",
+   "Radius.r"
+  ],
+  "tris": 1568,
+  "verts": 788,
+  "modifiers": []
+ },
+ {
+  "site_id": "ulna",
+  "kind": "bone",
+  "en": "Ulna",
+  "zh": "尺骨",
+  "objects": [
+   "Ulna.l",
+   "Ulna.r"
+  ],
+  "tris": 1808,
+  "verts": 908,
+  "modifiers": []
+ },
+ {
+  "site_id": "carpal-bones",
+  "kind": "bone",
+  "en": "Carpal bones",
+  "zh": "腕骨",
+  "objects": [
+   "Capitate bone.l",
+   "Capitate bone.r",
+   "Hamate bone.l",
+   "Hamate bone.r",
+   "Lunate bone.l",
+   "Lunate bone.r",
+   "Pisiform bone.l",
+   "Pisiform bone.r",
+   "Scaphoid bone.r",
+   "Scaphoid bone.l",
+   "Trapezium bone.l",
+   "Trapezium bone.r",
+   "Trapezoid bone.l",
+   "Trapezoid bone.r",
+   "Triquetrum bone.l",
+   "Triquetrum bone.r"
+  ],
+  "tris": 6128,
+  "verts": 3096,
+  "modifiers": [
+   "Lunate bone.l:SUBSURF",
+   "Lunate bone.r:SUBSURF",
+   "Pisiform bone.l:SUBSURF",
+   "Pisiform bone.r:SUBSURF"
+  ]
+ },
+ {
+  "site_id": "hip-bone",
+  "kind": "bone",
+  "en": "Hip bone",
+  "zh": "髋骨",
+  "objects": [
+   "Hip bone.l",
+   "Hip bone.r"
+  ],
+  "tris": 7576,
+  "verts": 3788,
+  "modifiers": []
+ },
+ {
+  "site_id": "ilium",
+  "kind": "bone",
+  "en": "Ilium",
+  "zh": "髂骨",
+  "objects": [],
+  "tris": 0,
+  "verts": 0,
+  "modifiers": []
+ },
+ {
+  "site_id": "ischium",
+  "kind": "bone",
+  "en": "Ischium",
+  "zh": "坐骨",
+  "objects": [],
+  "tris": 0,
+  "verts": 0,
+  "modifiers": []
+ },
+ {
+  "site_id": "pubis",
+  "kind": "bone",
+  "en": "Pubis",
+  "zh": "耻骨",
+  "objects": [],
+  "tris": 0,
+  "verts": 0,
+  "modifiers": []
+ },
+ {
+  "site_id": "asis",
+  "kind": "bone",
+  "en": "Anterior superior iliac spine (ASIS)",
+  "zh": "髂前上棘",
+  "objects": [],
+  "tris": 0,
+  "verts": 0,
+  "modifiers": []
+ },
+ {
+  "site_id": "psis",
+  "kind": "bone",
+  "en": "Posterior superior iliac spine (PSIS)",
+  "zh": "髂后上棘",
+  "objects": [],
+  "tris": 0,
+  "verts": 0,
+  "modifiers": []
+ },
+ {
+  "site_id": "femur",
+  "kind": "bone",
+  "en": "Femur",
+  "zh": "股骨",
+  "objects": [
+   "Femur.l",
+   "Femur.r"
+  ],
+  "tris": 7588,
+  "verts": 3798,
+  "modifiers": []
+ },
+ {
+  "site_id": "greater-trochanter",
+  "kind": "bone",
+  "en": "Greater trochanter",
+  "zh": "大转子",
+  "objects": [],
+  "tris": 0,
+  "verts": 0,
+  "modifiers": []
+ },
+ {
+  "site_id": "patella",
+  "kind": "bone",
+  "en": "Patella",
+  "zh": "髌骨",
+  "objects": [
+   "Patella.l",
+   "Patella.r"
+  ],
+  "tris": 552,
+  "verts": 280,
+  "modifiers": []
+ },
+ {
+  "site_id": "tibia",
+  "kind": "bone",
+  "en": "Tibia",
+  "zh": "胫骨",
+  "objects": [
+   "Tibia.l",
+   "Tibia.r"
+  ],
+  "tris": 3340,
+  "verts": 1674,
+  "modifiers": []
+ },
+ {
+  "site_id": "fibula",
+  "kind": "bone",
+  "en": "Fibula",
+  "zh": "腓骨",
+  "objects": [
+   "Fibula.l",
+   "Fibula.r"
+  ],
+  "tris": 2528,
+  "verts": 1306,
+  "modifiers": []
+ },
+ {
+  "site_id": "talus",
+  "kind": "bone",
+  "en": "Talus",
+  "zh": "距骨",
+  "objects": [
+   "Talus.l",
+   "Talus.r"
+  ],
+  "tris": 2700,
+  "verts": 1354,
+  "modifiers": []
+ },
+ {
+  "site_id": "calcaneus",
+  "kind": "bone",
+  "en": "Calcaneus",
+  "zh": "跟骨",
+  "objects": [
+   "Calcaneus.l",
+   "Calcaneus.r"
+  ],
+  "tris": 2896,
+  "verts": 1452,
+  "modifiers": []
+ },
+ {
+  "site_id": "navicular-bone",
+  "kind": "bone",
+  "en": "Navicular bone",
+  "zh": "足舟骨",
+  "objects": [
+   "Navicular bone.l",
+   "Navicular bone.r"
+  ],
+  "tris": 1464,
+  "verts": 736,
+  "modifiers": []
+ },
+ {
+  "site_id": "metatarsals",
+  "kind": "bone",
+  "en": "Metatarsals",
+  "zh": "跖骨",
+  "objects": [
+   "Fifth metatarsal bone.l",
+   "Fifth metatarsal bone.r",
+   "First metatarsal bone.l",
+   "First metatarsal bone.r",
+   "Fourth metatarsal bone.l",
+   "Fourth metatarsal bone.r",
+   "Second metatarsal bone.r",
+   "Second metatarsal bone.l",
+   "Third metatarsal bone.l",
+   "Third metatarsal bone.r"
+  ],
+  "tris": 8640,
+  "verts": 4340,
+  "modifiers": []
+ }
+]

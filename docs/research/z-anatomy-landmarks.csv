@@ -1,0 +1,10 @@
+site_id,en,zh,x_m,y_m,z_m,parent_bone,nearest_vertex_cm,source
+acromion,Acromion,肩峰,0.162,0.047,1.426,Scapula.l,1.1,"Acromion.j midpoint, X mirrored"
+coracoid-process,Coracoid process,喙突,0.148,-0.008,1.391,Scapula.l,1.1,"Coracoid process.j midpoint, X mirrored"
+glenoid-cavity,Glenoid cavity,关节盂,0.157,0.037,1.378,Scapula.l,1.0,"Glenoid fossa.j midpoint, X mirrored"
+ilium,Ilium,髂骨,0.119,0.043,0.955,Hip bone.l,3.6,"Ilium.j midpoint, X mirrored"
+ischium,Ischium,坐骨,0.070,0.047,0.804,Hip bone.l,0.7,"Ischium.j midpoint, X mirrored"
+pubis,Pubis,耻骨,-0.004,-0.050,0.841,Hip bone.l,1.2,"Pubis.j midpoint, X mirrored (near midline)"
+asis,Anterior superior iliac spine (ASIS),髂前上棘,0.121,-0.074,0.945,Hip bone.l,1.8,"Anterior superior iliac spine.j midpoint, X mirrored"
+psis,Posterior superior iliac spine (PSIS),髂后上棘,0.030,0.097,0.949,Hip bone.l,1.8,"Posterior superior iliac spine.j midpoint, X mirrored"
+greater-trochanter,Greater trochanter,大转子,0.166,0.014,0.843,Femur.l,2.0,"Greater trochanter.j midpoint, X mirrored"
