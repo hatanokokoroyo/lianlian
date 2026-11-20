@@ -1,0 +1,312 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>可读性对比 · 原型</title>
+<!--
+  一次性原型，不是生产代码。
+  问题：同样的 C·节拍 视觉语言，字号与深色表面如何调整才更易读？
+  A = 现状；B = 抬字号 + 抬表面；C = B 再亮一档、字号再大一档。
+  切换：?view=compare|a|b|c，或点底部圆点 / 键盘 ← →。
+-->
+<style>
+  :root {
+    color-scheme: dark;
+    --stage: #0a0b0d;
+    --stage-line: #24272d;
+    --stage-text: #e8edf2;
+    --stage-muted: #8f98a5;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--stage); color: var(--stage-text); }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC",
+      "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    -webkit-font-smoothing: antialiased;
+    padding: 28px 28px 76px;
+  }
+  .page-head { max-width: 1180px; margin: 0 auto 20px; }
+  .page-head h1 { font-size: 18px; font-weight: 600; margin: 0 0 6px; letter-spacing: 0.2px; }
+  .page-head p { font-size: 12px; line-height: 1.6; color: var(--stage-muted); margin: 0; }
+
+  .stage {
+    max-width: 1180px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: repeat(3, 360px);
+    justify-content: center;
+    gap: 28px;
+    align-items: start;
+  }
+  body[data-view="a"] .stage,
+  body[data-view="b"] .stage,
+  body[data-view="c"] .stage { grid-template-columns: 360px; }
+  body[data-view="a"] .panel:not([data-v="a"]),
+  body[data-view="b"] .panel:not([data-v="b"]),
+  body[data-view="c"] .panel:not([data-v="c"]) { display: none; }
+
+  .panel { display: flex; flex-direction: column; gap: 10px; }
+  .panel-label { display: flex; align-items: baseline; justify-content: space-between; }
+  .panel-label strong { font-size: 13px; font-weight: 600; }
+  .panel-label span { font-size: 10px; color: var(--stage-muted); font-variant-numeric: tabular-nums; }
+
+  .phone {
+    width: 360px;
+    min-height: 760px;
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--border);
+    border-radius: 26px;
+    overflow: hidden;
+    background: var(--bg);
+    color: var(--fg);
+  }
+
+  /* A · 现状 */
+  .phone[data-v="a"] {
+    --bg: #0f1114; --card: #171a1f; --muted: #1e2229; --border: #23272e;
+    --fg: #e8edf2; --mfg: #8a93a0; --primary: #c8f04a; --primary-fg: #10120c;
+    --accent: #6ee7f0;
+    --fs-title: 20px; --fs-item: 15px; --fs-body: 12px; --fs-meta: 10px;
+    --fs-label: 10px; --fs-tab: 10px; --fs-num: 22px; --ls-label: 1.4px;
+  }
+  /* B · 建议 */
+  .phone[data-v="b"] {
+    --bg: #14171c; --card: #1e232b; --muted: #272d36; --border: #353c47;
+    --fg: #e8edf2; --mfg: #aab2bd; --primary: #c8f04a; --primary-fg: #10120c;
+    --accent: #6ee7f0;
+    --fs-title: 22px; --fs-item: 16px; --fs-body: 14px; --fs-meta: 12px;
+    --fs-label: 12px; --fs-tab: 12px; --fs-num: 24px; --ls-label: 0.4px;
+  }
+  /* C · B 再亮一档 */
+  .phone[data-v="c"] {
+    --bg: #1a1e24; --card: #262c35; --muted: #303741; --border: #414954;
+    --fg: #f0f3f7; --mfg: #b8c0cb; --primary: #c8f04a; --primary-fg: #10120c;
+    --accent: #6ee7f0;
+    --fs-title: 24px; --fs-item: 17px; --fs-body: 15px; --fs-meta: 13px;
+    --fs-label: 13px; --fs-tab: 13px; --fs-num: 26px; --ls-label: 0.2px;
+  }
+
+  .screen { flex: 1; display: flex; flex-direction: column; padding: 14px 16px 0; gap: 12px; }
+  .top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+  .date { margin: 0; font-size: var(--fs-meta); color: var(--mfg); }
+  .title { margin: 2px 0 0; font-size: var(--fs-title); font-weight: 650; letter-spacing: -0.3px; }
+  .week {
+    border: 1px solid var(--border); border-radius: 999px;
+    padding: 4px 10px; font-size: var(--fs-meta); color: var(--mfg); white-space: nowrap;
+  }
+
+  .card { background: var(--card); border-radius: 20px; padding: 16px; }
+  .summary { display: flex; align-items: center; gap: 14px; }
+  .ring-wrap { position: relative; width: 96px; height: 96px; flex: none; }
+  .ring-wrap svg { display: block; transform: rotate(-90deg); }
+  .ring-track { stroke: var(--muted); }
+  .ring-value { stroke: var(--primary); }
+  .ring-center {
+    position: absolute; inset: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+  }
+  .pct { font-size: var(--fs-num); font-weight: 650; line-height: 1; font-variant-numeric: tabular-nums; }
+  .count { margin-top: 4px; font-size: var(--fs-meta); color: var(--mfg); }
+  .summary-copy { min-width: 0; }
+  .summary-copy p { margin: 0; font-size: var(--fs-body); line-height: 1.55; color: var(--mfg); }
+  .summary-copy strong { color: var(--fg); font-weight: 600; }
+  .evidence { display: inline-block; margin-top: 8px; font-size: var(--fs-meta); color: var(--accent); }
+
+  .section {
+    margin: 2px 2px 0; font-size: var(--fs-label);
+    letter-spacing: var(--ls-label); color: var(--mfg);
+  }
+  .list { display: flex; flex-direction: column; gap: 8px; }
+  .row {
+    display: flex; align-items: center; gap: 12px;
+    background: var(--card); border-radius: 20px; padding: 12px 14px;
+  }
+  .row.current { box-shadow: 0 0 0 1px color-mix(in srgb, var(--primary) 40%, transparent); }
+  .tick {
+    width: 32px; height: 32px; flex: none; border-radius: 999px;
+    display: flex; align-items: center; justify-content: center;
+    border: 2px solid var(--border); font-size: var(--fs-body); font-weight: 650;
+  }
+  .tick.done { background: var(--primary); border-color: var(--primary); color: var(--primary-fg); }
+  .tick.current { border-color: var(--primary); color: var(--primary); }
+  .row-main { min-width: 0; flex: 1; }
+  .name { display: block; font-size: var(--fs-item); font-weight: 550; }
+  .row.done .name { color: var(--mfg); text-decoration: line-through; text-decoration-thickness: 1px; }
+  .sub { display: block; margin-top: 2px; font-size: var(--fs-meta); color: var(--mfg); }
+  .sets { flex: none; font-size: var(--fs-meta); color: var(--mfg); font-variant-numeric: tabular-nums; }
+
+  .foot { margin-top: auto; padding: 12px 16px 8px; display: flex; flex-direction: column; gap: 8px; }
+  .cta {
+    width: 100%; border: 0; border-radius: 999px; padding: 12px;
+    background: var(--muted); color: var(--mfg);
+    font-family: inherit; font-size: var(--fs-body); font-weight: 650;
+  }
+  .links { display: flex; justify-content: center; gap: 18px; font-size: var(--fs-meta); color: var(--mfg); }
+  .links i { color: var(--border); font-style: normal; }
+  .tabs {
+    display: grid; grid-template-columns: repeat(4, 1fr);
+    border-top: 1px solid var(--border); padding: 9px 0 10px;
+    text-align: center; font-size: var(--fs-tab);
+  }
+  .tabs .on { color: var(--primary); }
+  .tabs .off { color: var(--mfg); }
+
+  .switcher {
+    position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%);
+    display: flex; align-items: center; gap: 6px;
+    padding: 6px; border-radius: 999px;
+    background: #23262c; border: 1px solid #3a3f47;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+    font-size: 11px; color: #cfd5dd;
+  }
+  .switcher button {
+    border: 0; border-radius: 999px; padding: 6px 12px;
+    background: transparent; color: inherit; font: inherit; cursor: pointer;
+  }
+  .switcher button[aria-pressed="true"] { background: #e8edf2; color: #10120c; font-weight: 600; }
+  .switcher .hint { padding: 0 8px 0 4px; color: #8f98a5; }
+</style>
+</head>
+<body data-view="compare">
+
+<div class="page-head">
+  <h1>可读性对比 · 一次性原型</h1>
+  <p>A 现状 / B 抬字号与表面 / C 再亮一档。三屏使用同一份内容与同一套青柠主色，只比较字号与深色表面。</p>
+</div>
+
+<div class="stage">
+  <section class="panel" data-v="a">
+    <div class="panel-label"><strong>A · 现状</strong><span>10 / 13px · card 1.08:1</span></div>
+    <div class="phone" data-v="a" id="phone-a"></div>
+  </section>
+  <section class="panel" data-v="b">
+    <div class="panel-label"><strong>B · 建议</strong><span>12 / 14px · card 1.14:1</span></div>
+    <div class="phone" data-v="b" id="phone-b"></div>
+  </section>
+  <section class="panel" data-v="c">
+    <div class="panel-label"><strong>C · 再亮一档</strong><span>13 / 15px · card 1.19:1</span></div>
+    <div class="phone" data-v="c" id="phone-c"></div>
+  </section>
+</div>
+
+<div class="switcher" role="group" aria-label="原型切换">
+  <button type="button" data-go="compare" aria-pressed="true">并排</button>
+  <button type="button" data-go="a" aria-pressed="false">A</button>
+  <button type="button" data-go="b" aria-pressed="false">B</button>
+  <button type="button" data-go="c" aria-pressed="false">C</button>
+  <span class="hint">← →</span>
+</div>
+
+<template id="screen-tpl">
+  <div class="screen">
+    <header class="top">
+      <div>
+        <p class="date">11月15日 周日</p>
+        <h1 class="title">臀腿日</h1>
+      </div>
+      <span class="week">本周 2/3</span>
+    </header>
+
+    <section class="card summary">
+      <div class="ring-wrap">
+        <svg width="96" height="96" viewBox="0 0 96 96" aria-hidden="true">
+          <circle class="ring-track" cx="48" cy="48" r="40" fill="none" stroke-width="8"></circle>
+          <circle class="ring-value" cx="48" cy="48" r="40" fill="none" stroke-width="8"
+                  stroke-linecap="round" stroke-dasharray="251.3" stroke-dashoffset="188.5"></circle>
+        </svg>
+        <div class="ring-center">
+          <span class="pct">25%</span>
+          <span class="count">1/4 项</span>
+        </div>
+      </div>
+      <div class="summary-copy">
+        <p>臀中肌在单腿支撑时会掉髋——<strong>蚌式开合做完再上单腿臀桥，顺序别反。</strong></p>
+        <span class="evidence">看依据 · 11月12日</span>
+      </div>
+    </section>
+
+    <p class="section">今天的动作</p>
+
+    <div class="list">
+      <div class="row done">
+        <span class="tick done">✓</span>
+        <span class="row-main">
+          <span class="name">臀桥</span>
+          <span class="sub">臀大肌 张力弱 · 左</span>
+        </span>
+        <span class="sets">3×10</span>
+      </div>
+      <div class="row current">
+        <span class="tick current">2</span>
+        <span class="row-main">
+          <span class="name">蚌式开合</span>
+          <span class="sub">臀中肌 左弱 · 还剩 1 组</span>
+        </span>
+        <span class="sets">3×10</span>
+      </div>
+      <div class="row">
+        <span class="tick"></span>
+        <span class="row-main">
+          <span class="name">死虫式</span>
+          <span class="sub">腹横肌 稳定性差</span>
+        </span>
+        <span class="sets">3×10</span>
+      </div>
+      <div class="row">
+        <span class="tick"></span>
+        <span class="row-main">
+          <span class="name">单腿臀桥</span>
+          <span class="sub">臀中肌 左弱 · 膝不要内扣</span>
+        </span>
+        <span class="sets">2×8</span>
+      </div>
+    </div>
+
+    <div class="foot">
+      <button class="cta" type="button" disabled>还差 3 项</button>
+      <div class="links"><span>整天推迟</span><i>·</i><span>跳过一项</span></div>
+    </div>
+  </div>
+  <nav class="tabs">
+    <span class="on">今日</span>
+    <span class="off">日历</span>
+    <span class="off">对话</span>
+    <span class="off">档案</span>
+  </nav>
+</template>
+
+<script>
+  const tpl = document.getElementById("screen-tpl");
+  for (const id of ["phone-a", "phone-b", "phone-c"]) {
+    document.getElementById(id).appendChild(tpl.content.cloneNode(true));
+  }
+
+  const views = ["compare", "a", "b", "c"];
+  const buttons = [...document.querySelectorAll("[data-go]")];
+
+  function setView(view, push) {
+    if (!views.includes(view)) view = "compare";
+    document.body.dataset.view = view;
+    for (const b of buttons) b.setAttribute("aria-pressed", String(b.dataset.go === view));
+    if (push) {
+      const url = new URL(location.href);
+      url.searchParams.set("view", view);
+      history.replaceState(null, "", url);
+    }
+  }
+
+  for (const b of buttons) b.addEventListener("click", () => setView(b.dataset.go, true));
+  addEventListener("keydown", (e) => {
+    if (e.target.closest("input, textarea, [contenteditable]")) return;
+    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+    const current = document.body.dataset.view;
+    const next = views[(views.indexOf(current) + (e.key === "ArrowRight" ? 1 : views.length - 1)) % views.length];
+    setView(next, true);
+  });
+
+  setView(new URL(location.href).searchParams.get("view") || "compare", false);
+</script>
+</body>
+</html>
