@@ -1,6 +1,8 @@
 # 3D 解剖图：可行性结论与 spike
 
-> 状态：调研完成（2026-11-18）；建议进入 1–2 周真机 spike，**未排期实现**。
+> 状态：调研完成（2026-11-18）；独立 viewer 与 NSH WebView spike 已完成
+> （2026-11-20），模拟器截图见 `design/prototypes/anatomy-3d/screenshots/app-*.png`；
+> 目标真机的帧率、发热与内存仍待实测。
 > 深度报告与逐条映射：`docs/research/z-anatomy-feasibility.md`、`docs/research/z-anatomy-site-map.csv`；
 > Human Atlas 对照：`docs/research/human-atlas-feasibility.md`、`docs/research/human-atlas-site-map.csv`。
 

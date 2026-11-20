@@ -8,6 +8,7 @@ import type { ProfileView } from "lianlian/native";
 
 import type { ProfileDrafts } from "../ui/drafts";
 import { BasicsFields, TrainingFields, basicsPayload, trainingPayload } from "../ui/forms";
+import { Anatomy3dScreen } from "./anatomy3d";
 import { FindingsOverview, FindingsSectionPage, PlanPage } from "./findings";
 import { MeasurementsScreen } from "./measurements";
 import { SettingsScreen } from "./settings";
@@ -41,6 +42,7 @@ type ProfileRoute =
   | { name: "measurements" }
   | { name: "training" }
   | { name: "storage" }
+  | { name: "anatomy3d" }
   | { name: "settings" };
 
 export function ProfileScreen(props: {
@@ -50,11 +52,12 @@ export function ProfileScreen(props: {
   onGoConversations: () => void;
   settingsRequest: Signal<"none" | "settings">;
   onRootBack: () => void;
+  onDetailOpenChange?: (open: boolean) => void;
 }) {
   const nav = createNavStack<ProfileRoute>([{ name: "root" }]);
 
   const openPage = (
-    name: "plan" | "basics" | "measurements" | "training" | "storage" | "settings",
+    name: "plan" | "basics" | "measurements" | "training" | "storage" | "anatomy3d" | "settings",
   ) => {
     const top = nav.routes()[nav.routes().length - 1];
     if (top?.name === name) {
@@ -88,6 +91,9 @@ export function ProfileScreen(props: {
         if (event.routes.length === 1) {
           props.onSaved();
         }
+        props.onDetailOpenChange?.(
+          event.routes[event.routes.length - 1]?.name === "anatomy3d",
+        );
       }}
     >
       {(route) =>
@@ -108,6 +114,7 @@ export function ProfileScreen(props: {
               onGoMeasurements={() => openPage("measurements")}
               onGoTraining={() => openPage("training")}
               onGoStorage={() => openPage("storage")}
+              onGoAnatomy3d={() => openPage("anatomy3d")}
               onGoSettings={() => openPage("settings")}
               onGoConversations={props.onGoConversations}
             />
@@ -150,6 +157,10 @@ export function ProfileScreen(props: {
         ) : route.name === "storage" ? (
           <NavPage title="本地数据" headerVisible={false} style={pageStyle()}>
             <StoragePage onBack={() => nav.pop()} />
+          </NavPage>
+        ) : route.name === "anatomy3d" ? (
+          <NavPage title="3D 解剖 spike" headerVisible={false} style={pageStyle()}>
+            <Anatomy3dScreen onBack={() => nav.pop()} />
           </NavPage>
         ) : (
           <NavPage title="设置" headerVisible={false} style={pageStyle()}>
@@ -255,6 +266,7 @@ function ProfileRoot(props: {
   onGoMeasurements: () => void;
   onGoTraining: () => void;
   onGoStorage: () => void;
+  onGoAnatomy3d: () => void;
   onGoSettings: () => void;
   onGoConversations: () => void;
 }) {
@@ -269,7 +281,12 @@ function ProfileRoot(props: {
       />
 
       <View style={{ padding: 16, gap: 12 }}>
-        <View style={{ flexDirection: "row", justifyContent: "flex-end" }}>
+        <View style={{ flexDirection: "row", justifyContent: "flex-end", gap: 8 }}>
+          <TextButton
+            testID="open-anatomy3d"
+            label="3D 解剖 spike"
+            onPress={props.onGoAnatomy3d}
+          />
           <TextButton testID="open-settings" label="设置与 key" onPress={props.onGoSettings} />
         </View>
 

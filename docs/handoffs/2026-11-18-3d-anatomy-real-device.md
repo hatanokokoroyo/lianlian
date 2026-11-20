@@ -3,8 +3,9 @@
 ## 这次会话要交接什么
 
 2D 身体图原型没有达到预期，方向转为 3D。本次已完成数据源选型、Z-Anatomy
-子集导出、平滑/减面/压缩实测，并把两档测试 GLB 放进了仓库。**App 代码还没有接
-3D**；下一步是在另一台电脑上搭 WebView + Three.js spike，然后上真机测帧率与交互。
+子集导出、平滑/减面/压缩实测，并把两档测试 GLB 放进了仓库。独立 viewer 与
+NSH WebView spike 已在 2026-11-20 完成（见文末进展）；下一步是上目标真机测
+帧率与交互。
 
 先读这三份，不要重复调研：
 
@@ -119,3 +120,21 @@
 在目标 Android 真机上离线加载两档模型，连续旋转 30 秒达标；点击能正确高亮
 臀大肌、腹横肌、多裂肌；给出默认档位的实测依据；把设备数据补回
 `docs/anatomy-3d-direction.md` 和 `docs/research/z-anatomy-feasibility.md`。
+
+## 2026-11-20 进展
+
+- 独立 viewer 已实现并验证：`design/prototypes/anatomy-3d/`（自检 52 项、独立 QA 63 项通过）。
+- 已接进 App：档案页右上角「3D 解剖 spike」→ `screens/anatomy3d.tsx`；
+  `src/anatomy3d.rs` 用 `127.0.0.1:0` loopback 服务提供嵌入的 viewer、Three.js、
+  Draco、映射与两档 GLB。进入详情页时底部 Tab 收起。
+- 模拟器（Android 15 / WebView 124 / SwiftShader）实测：
+  `cap3000` 加载约 803 ms、743,912 面、3 draw calls、`WEBGL_multi_draw` 有；
+  深层预设 2 draw calls；隔离多裂肌 1 draw call / 6 个对象；
+  自转全身约 2 fps、深层约 3 fps（软件渲染，不代表真机）。
+  WebView renderer PSS 约 107 MB，整体增量约 100 MB（debug 构建）。
+- 仍未完成：目标真机上的 ≥30 fps、连续 30 秒发热、APK 增量、点击高亮延迟。
+- 数据备注：raw GLB 实际 accessor 合计 1,525,071 面，原文档写 1,502,535；
+  另有 9/119 个 site 的三角面与 `za-export.json` 不一致，待上游确认。
+- 截图：`design/prototypes/anatomy-3d/screenshots/app-*.png`；
+  `android.usesCleartextTraffic` 在 0.4.0 spike 暂时保留（只用于访问
+  127.0.0.1 loopback）；生产前应改成仅放行 127.0.0.1 的 network security config。

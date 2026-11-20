@@ -2369,6 +2369,18 @@ impl Storage {
     }
 }
 
+/// 3D 解剖 spike：返回本地 loopback viewer 的地址。
+#[module]
+pub struct Anatomy3d;
+
+#[module]
+impl Anatomy3d {
+    /// 页面地址；默认性能档 `cap3000`，模拟器优先。服务启动失败时返回空串。
+    pub async fn url() -> String {
+        crate::anatomy3d::viewer_url()
+    }
+}
+
 fn capacity_view() -> CapacityView {
     let store = match Store::open_app() {
         Ok(store) => store,

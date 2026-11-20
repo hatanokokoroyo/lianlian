@@ -8,6 +8,7 @@
 
 mod api;
 pub mod anatomy;
+pub mod anatomy3d;
 pub mod domain;
 pub mod llm;
 pub mod photos;
@@ -31,4 +32,5 @@ fn native(registry: &mut Registry) {
     registry.module::<api::Updates>();
     registry.module::<api::Storage>();
     registry.module::<api::Testing>();
+    registry.module::<api::Anatomy3d>();
 }

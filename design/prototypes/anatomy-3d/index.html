@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#14171c">
+<title>3D 解剖 viewer · lianlian spike</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="style.css">
+<script type="importmap">
+{
+  "imports": {
+    "three": "./vendor/three/three.module.js",
+    "three/addons/": "./vendor/three/addons/"
+  }
+}
+</script>
+</head>
+<body data-ui="1">
+<main id="app">
+  <canvas id="scene" aria-label="可旋转的 3D 人体解剖模型"></canvas>
+
+  <div id="ui" class="ui">
+    <header class="topbar">
+      <div class="brand">
+        <span class="eyebrow">ANATOMY / SPIKE</span>
+        <h1>3D 解剖</h1>
+      </div>
+      <div class="top-actions">
+        <div class="tier-switch" id="tier-switch" role="group" aria-label="模型档位">
+          <button type="button" data-tier="raw" aria-pressed="true">
+            <span>视觉档</span><small>1.5M 面</small>
+          </button>
+          <button type="button" data-tier="cap3000" aria-pressed="false">
+            <span>性能档</span><small>744k 面</small>
+          </button>
+        </div>
+        <button type="button" class="spin-toggle" id="spin-toggle" aria-pressed="false"
+          aria-label="自转/性能测试" title="自转/性能测试">
+          <span class="spin-glyph" aria-hidden="true">↻</span>
+          <span class="spin-label">自转</span>
+        </button>
+      </div>
+    </header>
+
+    <section class="stats" aria-label="渲染统计">
+      <div class="stats-line">
+        <span id="stat-tier">视觉档</span>
+        <span id="stat-tris">— 面</span>
+      </div>
+      <div class="stats-line">
+        <span id="stat-draw">draw —</span>
+        <span id="stat-fps">— fps</span>
+      </div>
+      <div class="stats-line">
+        <span id="stat-load">加载 — ms</span>
+        <span id="stat-multi">multi_draw —</span>
+      </div>
+    </section>
+
+    <div class="hint" id="hint">
+      <span class="legend"><i class="swatch swatch-left"></i>左</span>
+      <span class="legend"><i class="swatch swatch-right"></i>右</span>
+      <span class="hint-copy">拖动旋转 · 双指缩放 · 点击结构</span>
+    </div>
+
+    <div class="bottom-stack">
+      <section class="info" id="info" hidden aria-live="polite">
+        <div class="info-head">
+          <div class="info-title">
+            <h2 id="info-zh">—</h2>
+            <p id="info-en">—</p>
+          </div>
+          <button type="button" class="icon-button" id="info-close" aria-label="取消选择">×</button>
+        </div>
+        <div class="info-meta">
+          <span class="tag" id="info-kind">肌肉</span>
+          <span class="tag" id="info-side">双侧</span>
+          <span class="mono" id="info-tris">— 面</span>
+          <span class="mono" id="info-objects">— 个对象</span>
+        </div>
+        <div class="info-actions">
+          <button type="button" class="primary-button" id="isolate-btn">只看这块</button>
+          <span class="info-note">同一 site 的对象会一起显示</span>
+        </div>
+      </section>
+
+      <div class="controls">
+        <div class="control-row">
+          <span class="row-label">视角</span>
+          <div class="segmented" role="group" aria-label="视角">
+            <button type="button" data-view="front" aria-pressed="true">正</button>
+            <button type="button" data-view="back" aria-pressed="false">背</button>
+            <button type="button" data-view="left" aria-pressed="false">左</button>
+            <button type="button" data-view="right" aria-pressed="false">右</button>
+          </div>
+        </div>
+        <div class="control-row">
+          <span class="row-label">层级</span>
+          <div class="segmented" role="group" aria-label="层级预设">
+            <button type="button" data-preset="all" aria-pressed="true">全身</button>
+            <button type="button" data-preset="shallow" aria-pressed="false">浅层</button>
+            <button type="button" data-preset="deep" aria-pressed="false">深层</button>
+            <button type="button" data-preset="bone" aria-pressed="false">骨骼</button>
+          </div>
+        </div>
+        <div class="quick-row" role="group" aria-label="快捷目标">
+          <span class="row-label">快捷</span>
+          <button type="button" class="quick" data-target="gluteus-maximus">
+            <span>臀大肌</span><small>背视 · 全身</small>
+          </button>
+          <button type="button" class="quick" data-target="transversus-abdominis">
+            <span>腹横肌</span><small>前视 · 深层</small>
+          </button>
+          <button type="button" class="quick" data-target="multifidus">
+            <span>多裂肌</span><small>背视 · 深层</small>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="loading" id="loading" role="status">
+    <div class="loading-mark" aria-hidden="true"><span></span></div>
+    <h2 id="loading-title">正在加载解剖模型</h2>
+    <p id="loading-detail">Draco 解码 · 合批 · 建立 site 映射</p>
+    <div class="loading-bar" aria-hidden="true"><i></i></div>
+  </div>
+
+  <noscript>这个原型需要 JavaScript 与 WebGL2。</noscript>
+</main>
+<script type="module" src="viewer.js"></script>
+</body>
+</html>

@@ -184,7 +184,10 @@ test("档案页 D：顺序、区域/计划跳转与我的数据子页", async ()
   await app.press("id:archive-section-gluteal-group");
   await app.waitFor("id:site-gluteus-medius-left");
   await app.press("id:tab-today");
-  await app.waitFor("id:today-rest");
+  // 计划可能把今天排成训练日，也可能留成休息日；只验证真的切到了今日页。
+  await app.waitUntil(
+    () => app.shows("id:today-rest") || app.shows("id:today-exercises-scroll"),
+  );
   await app.press("id:tab-profile");
   await app.waitFor("id:open-basics");
   expect(app.shows("id:site-gluteus-medius-left")).toBe(false);

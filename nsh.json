@@ -1,13 +1,16 @@
 {
   "name": "练练",
   "id": "com.lianlian.app",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "build": 2,
   "updater": {
     "github": "hatanokokoroyo/lianlian",
     "publicKey": "GwcZ8i+y/3okb22wBM6N1hUEYhmb+4sHKUQsWjT19J4="
   },
   "rust": ".",
+  "android": {
+    "usesCleartextTraffic": true
+  },
   "theme": {
     "cssVars": {
       "theme": {

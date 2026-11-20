@@ -41,10 +41,13 @@ function App() {
   const profileIntent = signal<"none" | "settings">("none");
   // 聊天是详情页：它占满整屏，底部 Tab 只在四个顶层页出现。
   const chatOpen = signal(false);
+  // 3D 解剖 spike 也是详情页：进入后同样收起底部 Tab。
+  const profileDetailOpen = signal(false);
 
   const selectTab = (next: Tab) => {
     tab.set(next);
     chatOpen.set(false);
+    profileDetailOpen.set(false);
   };
 
   // 注意：accessor 的读取都写在 JSX 里——NSH 只跟踪渲染期间读到的信号，
@@ -89,6 +92,7 @@ function App() {
                 onGoConversations={() => selectTab("conversations")}
                 settingsRequest={profileIntent}
                 onRootBack={() => selectTab("today")}
+                onDetailOpenChange={(open) => profileDetailOpen.set(open)}
               />
             ) : null}
             {tab() === "calendar" ? (
@@ -105,7 +109,8 @@ function App() {
               />
             ) : null}
           </View>
-          {tab() === "conversations" && chatOpen() ? null : (
+          {(tab() === "conversations" && chatOpen())
+            || (tab() === "profile" && profileDetailOpen()) ? null : (
             <TabBar current={tab()} onSelect={(next) => selectTab(next as Tab)} />
           )}
         </View>
