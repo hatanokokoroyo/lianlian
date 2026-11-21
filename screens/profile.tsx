@@ -42,7 +42,7 @@ type ProfileRoute =
   | { name: "measurements" }
   | { name: "training" }
   | { name: "storage" }
-  | { name: "anatomy3d" }
+  | { name: "anatomy3d"; focus?: "attention" }
   | { name: "settings" };
 
 export function ProfileScreen(props: {
@@ -57,13 +57,21 @@ export function ProfileScreen(props: {
   const nav = createNavStack<ProfileRoute>([{ name: "root" }]);
 
   const openPage = (
-    name: "plan" | "basics" | "measurements" | "training" | "storage" | "anatomy3d" | "settings",
+    name: "plan" | "basics" | "measurements" | "training" | "storage" | "settings",
   ) => {
     const top = nav.routes()[nav.routes().length - 1];
     if (top?.name === name) {
       return;
     }
     nav.push({ name });
+  };
+
+  const openAnatomy3d = (focus?: "attention") => {
+    const top = nav.routes()[nav.routes().length - 1];
+    if (top?.name === "anatomy3d" && top.focus === focus) {
+      return;
+    }
+    nav.push({ name: "anatomy3d", focus });
   };
 
   const openSection = (id: string, focus?: string) => {
@@ -114,7 +122,8 @@ export function ProfileScreen(props: {
               onGoMeasurements={() => openPage("measurements")}
               onGoTraining={() => openPage("training")}
               onGoStorage={() => openPage("storage")}
-              onGoAnatomy3d={() => openPage("anatomy3d")}
+              onGoAnatomy3d={() => openAnatomy3d()}
+              onGoAnatomy3dAttention={() => openAnatomy3d("attention")}
               onGoSettings={() => openPage("settings")}
               onGoConversations={props.onGoConversations}
             />
@@ -159,8 +168,12 @@ export function ProfileScreen(props: {
             <StoragePage onBack={() => nav.pop()} />
           </NavPage>
         ) : route.name === "anatomy3d" ? (
-          <NavPage title="3D 解剖 spike" headerVisible={false} style={pageStyle()}>
-            <Anatomy3dScreen onBack={() => nav.pop()} />
+          <NavPage title="3D 身体图" headerVisible={false} style={pageStyle()}>
+            <Anatomy3dScreen
+              onBack={() => nav.pop()}
+              onOpenSection={openSection}
+              focus={route.focus}
+            />
           </NavPage>
         ) : (
           <NavPage title="设置" headerVisible={false} style={pageStyle()}>
@@ -267,6 +280,7 @@ function ProfileRoot(props: {
   onGoTraining: () => void;
   onGoStorage: () => void;
   onGoAnatomy3d: () => void;
+  onGoAnatomy3dAttention: () => void;
   onGoSettings: () => void;
   onGoConversations: () => void;
 }) {
@@ -284,7 +298,7 @@ function ProfileRoot(props: {
         <View style={{ flexDirection: "row", justifyContent: "flex-end", gap: 8 }}>
           <TextButton
             testID="open-anatomy3d"
-            label="3D 解剖 spike"
+            label="3D 身体图"
             onPress={props.onGoAnatomy3d}
           />
           <TextButton testID="open-settings" label="设置与 key" onPress={props.onGoSettings} />
@@ -294,6 +308,7 @@ function ProfileRoot(props: {
           onGoConversations={props.onGoConversations}
           onOpenSection={props.onOpenSection}
           onOpenPlan={props.onOpenPlan}
+          onGoAnatomy3dAttention={props.onGoAnatomy3dAttention}
         />
 
         <View style={{ gap: 6 }}>

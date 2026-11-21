@@ -6,6 +6,7 @@
 
 use nsh_core::prelude::*;
 use std::collections::BTreeMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::domain::DomainError;
 use crate::domain::basics::{AGE_RANGE, Basics, Sex};
@@ -1477,6 +1478,9 @@ pub struct Findings;
 impl Findings {
     /// 读档案页：按区域分组的卡片、依据、时间线与肌群聚合。
     pub async fn load() -> FindingsView {
+        if FINDINGS_FAILURE.load(Ordering::SeqCst) {
+            return empty_findings_view(Some("测试：模拟档案读库失败。".to_owned()));
+        }
         match Store::open_app() {
             Ok(store) => findings_view(&store, None),
             Err(error) => empty_findings_view(Some(error.to_string())),
@@ -1712,10 +1716,14 @@ fn retract_at(
 #[module]
 pub struct Testing;
 
+/// 测试用：让 `Findings::load` 返回一次读库失败，验证原生页的降级路径。
+static FINDINGS_FAILURE: AtomicBool = AtomicBool::new(false);
+
 #[module]
 impl Testing {
     /// 清空本地库并重建空表；返回失败原因，成功是 `null`。
     pub async fn reset() -> Option<String> {
+        FINDINGS_FAILURE.store(false, Ordering::SeqCst);
         match Store::open_app() {
             Ok(store) => store.reset_all().err().map(|error| error.to_string()),
             Err(error) => Some(error.to_string()),
@@ -1728,6 +1736,12 @@ impl Testing {
         save(&Store::open_app(), |store| {
             store.set_active_plan_review_at(now_ms() - crate::domain::tool::DAY_MS)
         })
+    }
+
+    /// 测试用：模拟 `Findings::load` 读库失败，`false` 恢复正常。
+    pub async fn fail_findings(fail: bool) -> Option<String> {
+        FINDINGS_FAILURE.store(fail, Ordering::SeqCst);
+        None
     }
 }
 
@@ -2375,7 +2389,7 @@ pub struct Anatomy3d;
 
 #[module]
 impl Anatomy3d {
-    /// 页面地址；默认性能档 `cap3000`，模拟器优先。服务启动失败时返回空串。
+    /// 页面地址；默认视觉档，viewer 会在就绪后自动测量并降档。服务启动失败时返回空串。
     pub async fn url() -> String {
         crate::anatomy3d::viewer_url()
     }

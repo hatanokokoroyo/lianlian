@@ -2,8 +2,27 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
+import {
+  FRAME_COMMAND_TYPES,
+  attentionFocusView,
+  buildAttention,
+  colorForInstance,
+  createCards,
+  createHighlight,
+  createViewerState,
+  exportViewerState,
+  isolationControl,
+  isAbnormalInstance,
+  missingHighlightSites,
+  nextTierForFps,
+  reduce,
+  resolveCard,
+  restoreViewerState,
+} from './viewer-state.js';
 
 const PARAMS = new URLSearchParams(location.search);
+const TIER_TEST_MODE = PARAMS.get('tierTest') === '1';
+const AUTO_TIER_ENABLED = PARAMS.get('autoTier') !== '0' && !TIER_TEST_MODE;
 
 const TIERS = {
   raw: {
@@ -13,6 +32,10 @@ const TIERS = {
   cap3000: {
     label: '性能档',
     url: '../../../docs/research/assets/za-cap3000-smooth.glb',
+  },
+  cap2000: {
+    label: '流畅档',
+    url: '../../../docs/research/assets/za-cap2000-smooth.glb',
   },
 };
 
@@ -25,13 +48,6 @@ const VIEWS = {
 
 const PRESETS = new Set(['all', 'shallow', 'deep', 'bone']);
 const BATCH_NAMES = ['shallow', 'deep', 'bone'];
-
-const COLORS = {
-  left: new THREE.Color('#6ee7f0'),
-  right: new THREE.Color('#f0a26e'),
-  mid: new THREE.Color('#aab2bd'),
-  selected: new THREE.Color('#c8f04a'),
-};
 
 // Deep view: intrinsic/core muscles. Everything else is treated as superficial.
 const DEEP_SITES = new Set([
@@ -67,22 +83,31 @@ const DEEP_SITES = new Set([
   'supinator',
 ]);
 
-const QUICK_TARGETS = {
-  'gluteus-maximus': { view: 'back', preset: 'all' },
-  'transversus-abdominis': { view: 'front', preset: 'deep' },
-  multifidus: { view: 'back', preset: 'deep' },
+const PRESET_LABELS = {
+  all: '全身',
+  shallow: '浅层',
+  deep: '深层',
+  bone: '骨骼',
 };
+
+const HINT_KEY = 'lianlian.anatomy3d.hintSeen';
+const SLOW_LOAD_MS = 3000;
+const AUTO_TIER_SAMPLE_MS = 2000;
+const AUTO_TIER_MIN_FRAMES = 3;
+const TIER_NOTICE_MS = 3000;
 
 function readChoice(value, allowed, fallback) {
   return allowed.has(value) ? value : fallback;
 }
 
 let state = {
-  tier: readChoice(PARAMS.get('tier'), new Set(Object.keys(TIERS)), 'raw'),
-  view: readChoice(PARAMS.get('view'), new Set(Object.keys(VIEWS)), 'front'),
-  preset: readChoice(PARAMS.get('preset'), PRESETS, 'all'),
-  selectedSite: null,
-  isolate: false,
+  ...createViewerState({
+    tier: readChoice(PARAMS.get('tier'), new Set(Object.keys(TIERS)), 'raw'),
+    view: readChoice(PARAMS.get('view'), new Set(Object.keys(VIEWS)), 'front'),
+    preset: readChoice(PARAMS.get('preset'), PRESETS, 'all'),
+  }),
+  highlight: createHighlight(),
+  cards: [],
   spin: PARAMS.get('spin') === '1',
   urlStateApplied: false,
   ready: false,
@@ -92,8 +117,8 @@ let state = {
   lookups: Object.create(null),
   bounds: new THREE.Box3(),
   viewTarget: new THREE.Vector3(),
-  infoHeight: 102,
-  layout: { top: 150, bottom: 250, usableH: 400, width: 390, height: 844, offsetY: 0 },
+  layout: { top: 24, bottom: 190, usableH: 400, width: 390, height: 844, offsetY: 0 },
+  attentionAutoOpened: false,
 };
 
 const stats = {
@@ -111,9 +136,40 @@ const stats = {
   instances: 0,
   sites: 0,
   selectedSite: null,
+  selectedSide: null,
   selectedObjectCount: 0,
+  cards: 0,
   highlightColor: null,
+  highlightSites: [],
+  highlightedSiteIds: [],
+  abnormalObjectCount: 0,
+  missingSites: [],
+  palette: { ...createHighlight().palette },
   visibleInstances: 0,
+  view: state.view,
+  preset: state.preset,
+  cameraDistance: 0,
+  cameraTarget: null,
+  cameraPosition: null,
+  cameraMinDistance: 0,
+  cameraMaxDistance: 0,
+  isolate: false,
+  isolateLabel: '只看这块',
+  archiveAvailable: false,
+  presetLocked: false,
+  attentionOpen: false,
+  attentionCount: 0,
+  attentionGroups: 0,
+  attentionMissing: 0,
+  frameCommands: 0,
+  lastFrameCommand: null,
+  autoTier: AUTO_TIER_ENABLED,
+  autoTierSampledFps: 0,
+  autoTierDecision: null,
+  tierNoticeCount: 0,
+  tierNoticeVisible: false,
+  slowDevice: false,
+  slowDeviceCount: 0,
   ready: false,
   error: null,
 };
@@ -126,38 +182,49 @@ const api = {
   setPreset,
   selectSite,
   setIsolate,
+  setHighlight,
+  exportState,
+  restoreState,
+  openAttention,
   setSpin,
   setTier,
   reset,
 };
+if (TIER_TEST_MODE) {
+  api.testTierFps = testTierFps;
+}
 window.__viewer = api;
 
 const body = document.body;
 const canvas = document.querySelector('#scene');
 const loadingEl = document.querySelector('#loading');
 const loadingTitleEl = document.querySelector('#loading-title');
-const loadingDetailEl = document.querySelector('#loading-detail');
-const statsEl = document.querySelector('.stats');
+const loadingSlowEl = document.querySelector('#loading-slow');
+const loadingRetryEl = document.querySelector('#loading-retry');
 const bottomStackEl = document.querySelector('.bottom-stack');
-const infoEl = document.querySelector('#info');
-const hintEl = document.querySelector('#hint');
-
-const statTierEl = document.querySelector('#stat-tier');
-const statTrisEl = document.querySelector('#stat-tris');
-const statDrawEl = document.querySelector('#stat-draw');
-const statFpsEl = document.querySelector('#stat-fps');
-const statLoadEl = document.querySelector('#stat-load');
-const statMultiEl = document.querySelector('#stat-multi');
-
-const infoZhEl = document.querySelector('#info-zh');
-const infoEnEl = document.querySelector('#info-en');
-const infoKindEl = document.querySelector('#info-kind');
-const infoSideEl = document.querySelector('#info-side');
-const infoTrisEl = document.querySelector('#info-tris');
-const infoObjectsEl = document.querySelector('#info-objects');
-const isolateBtn = document.querySelector('#isolate-btn');
-const infoCloseBtn = document.querySelector('#info-close');
-const spinToggle = document.querySelector('#spin-toggle');
+const gestureHintEl = document.querySelector('#gesture-hint');
+const sheetEl = document.querySelector('#detail-sheet');
+const sheetHeadEl = document.querySelector('#sheet-head');
+const sheetCloseEl = document.querySelector('#sheet-close');
+const sheetTitleEl = document.querySelector('#sheet-title');
+const sheetSideEl = document.querySelector('#sheet-side');
+const sheetAxesEl = document.querySelector('#sheet-axes');
+const sheetWorstEl = document.querySelector('#sheet-worst');
+const sheetIsolateEl = document.querySelector('#sheet-isolate');
+const sheetOpenEl = document.querySelector('#sheet-open');
+const attentionTriggerEl = document.querySelector('#attention-trigger');
+const attentionCountEl = document.querySelector('#attention-count');
+const attentionSheetEl = document.querySelector('#attention-sheet');
+const attentionHeadEl = document.querySelector('#attention-head');
+const attentionCloseEl = document.querySelector('#attention-close');
+const attentionTitleEl = document.querySelector('#attention-title');
+const attentionListEl = document.querySelector('#attention-list');
+const viewButtons = Array.from(document.querySelectorAll('[data-view]'));
+const presetButtons = Array.from(document.querySelectorAll('[data-preset]'));
+const presetTrigger = document.querySelector('#preset-trigger');
+const presetMenu = document.querySelector('#preset-menu');
+const presetLabel = document.querySelector('#preset-label');
+const tierNoticeEl = document.querySelector('#tier-notice');
 
 let renderer;
 let scene;
@@ -175,16 +242,49 @@ let lastFrameTime = 0;
 let spinSamples = [];
 let spinSampleTotal = 0;
 let lastSpinTimestamp = 0;
-let lastStatsUiUpdate = 0;
 let spinAngle = 0;
 let pointerDown = null;
 let activePointers = new Set();
 let maxPointersInGesture = 0;
+let slowLoadTimer = 0;
+let menuOpen = false;
+let sheetOpen = false;
+let attentionOpen = false;
+let attentionFacingApplied = false;
+let userMovedCamera = false;
+let cameraGestureActive = false;
+let pendingRestore = null;
+let statePublishTimer = 0;
+let autoTierActive = false;
+let autoTierStarted = false;
+let autoTierDone = false;
+let autoTierSamples = [];
+let autoTierWindowStart = 0;
+let autoTierLastTimestamp = 0;
+let tierNoticeShown = false;
+let tierNoticeTimer = 0;
+let tierNoticeHideTimer = 0;
+let slowDevicePosted = false;
+
+const FRAME_COMMANDS = new Set(FRAME_COMMAND_TYPES);
 
 const pointerNdc = new THREE.Vector2();
 const focusBox = new THREE.Box3();
 const focusCenter = new THREE.Vector3();
 const focusSize = new THREE.Vector3();
+const attentionBox = new THREE.Box3();
+const attentionCenter = new THREE.Vector3();
+const viewDirection = new THREE.Vector3();
+const colorCache = new Map();
+
+function toColor(value) {
+  let color = colorCache.get(value);
+  if (!color) {
+    color = new THREE.Color(value);
+    colorCache.set(value, color);
+  }
+  return color;
+}
 
 body.dataset.ui = PARAMS.get('ui') === '0' ? '0' : '1';
 
@@ -240,7 +340,18 @@ function init() {
   controls.minPolarAngle = Math.PI * 0.12;
   controls.maxPolarAngle = Math.PI * 0.88;
   controls.touches.TWO = THREE.TOUCH.DOLLY_ROTATE;
-  controls.addEventListener('change', requestRender);
+  controls.addEventListener('start', () => {
+    cameraGestureActive = true;
+  });
+  controls.addEventListener('change', () => {
+    if (cameraGestureActive) userMovedCamera = true;
+    syncViewFromCamera();
+    requestRender();
+  });
+  controls.addEventListener('end', () => {
+    cameraGestureActive = false;
+    scheduleStatePublish();
+  });
 
   raycaster = new THREE.Raycaster();
 
@@ -250,33 +361,163 @@ function init() {
 
   bindUi();
   bindPicking();
+  applyPaletteVars(state.highlight.palette);
   resize();
 
   const observer = new ResizeObserver(() => resize());
   observer.observe(document.querySelector('#app'));
 
-  updateStatsUi();
+  initGestureHint();
   updateUiFromState();
   loadTier(state.tier);
 }
 
 function bindUi() {
-  for (const button of document.querySelectorAll('[data-tier]')) {
-    button.addEventListener('click', () => setTier(button.dataset.tier));
-  }
-  for (const button of document.querySelectorAll('[data-view]')) {
+  for (const button of viewButtons) {
     button.addEventListener('click', () => setView(button.dataset.view));
   }
-  for (const button of document.querySelectorAll('[data-preset]')) {
-    button.addEventListener('click', () => setPreset(button.dataset.preset));
-  }
-  for (const button of document.querySelectorAll('[data-target]')) {
-    button.addEventListener('click', () => applyQuickTarget(button.dataset.target));
+
+  for (const button of presetButtons) {
+    button.addEventListener('click', () => {
+      if (isIsolated()) return;
+      setPreset(button.dataset.preset);
+      setMenuOpen(false, { focusTrigger: true });
+    });
   }
 
-  isolateBtn.addEventListener('click', () => setIsolate(!state.isolate));
-  infoCloseBtn.addEventListener('click', () => selectSite(null));
-  spinToggle.addEventListener('click', () => setSpin(!state.spin));
+  presetTrigger.addEventListener('click', () => {
+    if (isIsolated()) return;
+    setMenuOpen(!menuOpen);
+  });
+  document.addEventListener('pointerdown', (event) => {
+    if (!menuOpen) return;
+    if (presetMenu.contains(event.target) || presetTrigger.contains(event.target)) return;
+    setMenuOpen(false);
+  }, true);
+  document.addEventListener('keydown', (event) => {
+    if (!menuOpen || event.key !== 'Escape') return;
+    event.preventDefault();
+    setMenuOpen(false, { focusTrigger: true });
+  });
+  document.addEventListener('keydown', (event) => {
+    if (!attentionOpen || event.key !== 'Escape') return;
+    event.preventDefault();
+    closeAttention();
+  });
+
+  loadingRetryEl.addEventListener('click', () => location.reload());
+  canvas.addEventListener('wheel', noteUserInteraction, { passive: true });
+  bindSheet();
+  bindAttention();
+}
+
+/** Theme colors arrive through setHighlight; the sheet only reads CSS vars. */
+function applyPaletteVars(palette) {
+  const style = document.documentElement.style;
+  style.setProperty('--palette-left', palette.left);
+  style.setProperty('--palette-right', palette.right);
+  style.setProperty('--palette-mid', palette.mid);
+  style.setProperty('--palette-abnormal', palette.abnormal);
+  style.setProperty('--palette-selected', palette.selected);
+}
+
+function bindSheet() {
+  sheetCloseEl.addEventListener('click', () => selectSite(null));
+  sheetIsolateEl.addEventListener('click', () => setIsolate(!isIsolated()));
+  sheetOpenEl.addEventListener('click', () => {
+    if (!state.selectedSite) return;
+    if (!resolveCard(state.cards, state.selectedSite, state.selectedSide).card) return;
+    try {
+      window.nsh?.postMessage(JSON.stringify({
+        type: 'anatomy3d:open-section',
+        siteId: state.selectedSite,
+        side: state.selectedSide,
+      }));
+    } catch {
+      // Outside NSH (plain browser) there is nobody to notify.
+    }
+  });
+
+  let drag = null;
+  sheetHeadEl.addEventListener('pointerdown', (event) => {
+    if (event.target.closest('button')) return;
+    drag = {
+      pointerId: event.pointerId,
+      y: event.clientY,
+      at: performance.now(),
+    };
+    sheetEl.classList.add('is-dragging');
+    try {
+      sheetHeadEl.setPointerCapture(event.pointerId);
+    } catch {
+      // Pointer capture is an enhancement; the move/up listeners still work.
+    }
+  });
+  sheetHeadEl.addEventListener('pointermove', (event) => {
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    const distance = Math.max(0, event.clientY - drag.y);
+    sheetEl.style.transform = `translateY(${distance}px)`;
+  });
+  const finishDrag = (event) => {
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    const distance = Math.max(0, event.clientY - drag.y);
+    const elapsed = performance.now() - drag.at;
+    drag = null;
+    sheetEl.classList.remove('is-dragging');
+    if (distance > 56 || (distance > 24 && elapsed < 220)) {
+      selectSite(null);
+    } else {
+      sheetEl.style.transform = '';
+    }
+  };
+  sheetHeadEl.addEventListener('pointerup', finishDrag);
+  sheetHeadEl.addEventListener('pointercancel', finishDrag);
+}
+
+function bindAttention() {
+  attentionTriggerEl.addEventListener('click', () => {
+    if (attentionOpen) {
+      closeAttention();
+    } else {
+      openAttention();
+    }
+  });
+  attentionCloseEl.addEventListener('click', () => closeAttention());
+
+  let drag = null;
+  attentionHeadEl.addEventListener('pointerdown', (event) => {
+    if (event.target.closest('button')) return;
+    drag = {
+      pointerId: event.pointerId,
+      y: event.clientY,
+      at: performance.now(),
+    };
+    attentionSheetEl.classList.add('is-dragging');
+    try {
+      attentionHeadEl.setPointerCapture(event.pointerId);
+    } catch {
+      // Pointer capture is an enhancement; the move/up listeners still work.
+    }
+  });
+  attentionHeadEl.addEventListener('pointermove', (event) => {
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    const distance = Math.max(0, event.clientY - drag.y);
+    attentionSheetEl.style.transform = `translateY(${distance}px)`;
+  });
+  const finishDrag = (event) => {
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    const distance = Math.max(0, event.clientY - drag.y);
+    const elapsed = performance.now() - drag.at;
+    drag = null;
+    attentionSheetEl.classList.remove('is-dragging');
+    if (distance > 56 || (distance > 24 && elapsed < 220)) {
+      closeAttention();
+    } else {
+      attentionSheetEl.style.transform = '';
+    }
+  };
+  attentionHeadEl.addEventListener('pointerup', finishDrag);
+  attentionHeadEl.addEventListener('pointercancel', finishDrag);
 }
 
 function bindPicking() {
@@ -294,12 +535,19 @@ function bindPicking() {
   });
 
   canvas.addEventListener('pointerup', (event) => {
+    const moved = pointerDown && pointerDown.pointerId === event.pointerId
+      ? Math.hypot(event.clientX - pointerDown.x, event.clientY - pointerDown.y)
+      : 0;
     const wasTap =
       pointerDown &&
       pointerDown.pointerId === event.pointerId &&
       maxPointersInGesture === 1 &&
-      Math.hypot(event.clientX - pointerDown.x, event.clientY - pointerDown.y) <= 6 &&
+      moved <= 6 &&
       performance.now() - pointerDown.time <= 650;
+
+    if (maxPointersInGesture > 1 || moved > 6) {
+      noteUserInteraction();
+    }
 
     activePointers.delete(event.pointerId);
     if (activePointers.size === 0) {
@@ -307,8 +555,11 @@ function bindPicking() {
       maxPointersInGesture = 0;
     }
 
-    if (wasTap) {
-      pickAt(event.clientX, event.clientY);
+    if (wasTap && attentionOpen) {
+      closeAttention({ focus: false });
+    }
+    if (wasTap && pickAt(event.clientX, event.clientY)) {
+      noteUserInteraction();
     }
   });
 
@@ -332,21 +583,16 @@ function resize() {
   camera.aspect = width / height;
   updateProjectionLayout(width, height);
   if (state.ready) {
-    applyView(state.view);
     updateLights();
   }
   requestRender();
 }
 
 function updateProjectionLayout(width, height) {
-  const statsBottom = statsEl && getComputedStyle(statsEl).display !== 'none'
-    ? statsEl.getBoundingClientRect().bottom
-    : 72;
   const stackTop = bottomStackEl ? bottomStackEl.getBoundingClientRect().top : height - 250;
-  const reservedStackTop = infoEl?.hidden ? stackTop - state.infoHeight - 8 : stackTop;
 
-  const topInset = Math.min(Math.max(statsBottom + 22, 150), height * 0.32);
-  const bottomInset = Math.min(Math.max(height - reservedStackTop + 8, 220), height * 0.5);
+  const topInset = Math.min(Math.max(height * 0.02, 16), 48);
+  const bottomInset = Math.min(Math.max(height - stackTop + 8, 150), height * 0.6);
   const usableH = Math.max(180, height - topInset - bottomInset);
   const desiredCenter = topInset + usableH / 2;
   const offsetY = Math.round(height / 2 - desiredCenter);
@@ -362,6 +608,377 @@ function updateProjectionLayout(width, height) {
   camera.updateProjectionMatrix();
 }
 
+function syncViewFromCamera() {
+  if (!state.ready || !camera || !controls) return;
+
+  viewDirection.copy(camera.position).sub(controls.target);
+  if (viewDirection.lengthSq() === 0) return;
+  viewDirection.normalize();
+
+  let nearest = state.view;
+  let best = -Infinity;
+  for (const view of Object.keys(VIEWS)) {
+    const dot = viewDirection.dot(VIEWS[view].dir);
+    if (dot > best) {
+      best = dot;
+      nearest = view;
+    }
+  }
+
+  if (nearest !== state.view) {
+    state.view = nearest;
+    updateViewButtons();
+  }
+}
+
+function setMenuOpen(open, options = {}) {
+  menuOpen = Boolean(open) && !isIsolated();
+  presetMenu.hidden = !menuOpen;
+  presetTrigger.setAttribute('aria-expanded', String(menuOpen));
+  if (options.focusTrigger) {
+    presetTrigger.focus();
+  }
+}
+
+function isIsolated() {
+  return isolationControl(state).active;
+}
+
+function siteHasInstances(siteId) {
+  return Boolean(siteId)
+    && state.instances.some((item) => item.siteId === siteId);
+}
+
+function siteHasCard(siteId) {
+  return Boolean(siteId)
+    && state.cards.some((card) => card.siteId === siteId);
+}
+
+function loadedSiteIds() {
+  if (!state.ready) return null;
+  return new Set(state.instances.map((item) => item.siteId));
+}
+
+function attentionModel() {
+  return buildAttention(state.cards, state.highlight.sites, loadedSiteIds());
+}
+
+function renderAttentionRow(row) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'attention-row';
+  button.dataset.siteId = row.siteId;
+  button.dataset.side = row.side ?? '';
+  button.setAttribute(
+    'aria-label',
+    `${row.siteZh}${row.sideZh ?? '中线'}，${row.worst}${row.missing ? '，模型里暂缺' : ''}`,
+  );
+
+  const main = document.createElement('span');
+  main.className = 'attention-row-main';
+  const head = document.createElement('span');
+  head.className = 'attention-row-head';
+  const site = document.createElement('span');
+  site.className = 'attention-site';
+  site.textContent = row.siteZh;
+  const side = document.createElement('span');
+  side.className = 'attention-side';
+  side.textContent = row.sideZh ?? '中线';
+  head.append(site, side);
+  const worst = document.createElement('span');
+  worst.className = 'attention-worst';
+  worst.textContent = row.worst;
+  main.append(head, worst);
+  button.append(main);
+
+  if (row.missing) {
+    const missing = document.createElement('span');
+    missing.className = 'attention-missing';
+    missing.textContent = '模型里暂缺';
+    button.append(missing);
+  }
+
+  button.addEventListener('click', () => selectAttentionRow(row.siteId, row.side));
+  return button;
+}
+
+function renderAttention(model = attentionModel()) {
+  attentionTitleEl.textContent = `需要注意 · ${model.count} 处`;
+  attentionListEl.replaceChildren(
+    ...model.sections.map((section) => {
+      const group = document.createElement('section');
+      group.className = 'attention-group';
+      const title = document.createElement('h3');
+      title.className = 'attention-group-title';
+      title.textContent = section.groupZh;
+      const rows = document.createElement('div');
+      rows.className = 'attention-rows';
+      rows.replaceChildren(...section.rows.map(renderAttentionRow));
+      group.append(title, rows);
+      return group;
+    }),
+  );
+}
+
+function updateAttentionUi() {
+  const model = attentionModel();
+  const count = model.count;
+  attentionCountEl.textContent = String(count);
+  attentionTriggerEl.hidden = count === 0;
+  attentionTriggerEl.setAttribute('aria-expanded', String(attentionOpen));
+  stats.attentionCount = count;
+  stats.attentionGroups = model.sections.length;
+  stats.attentionMissing = model.sections.reduce(
+    (total, section) => total + section.rows.filter((row) => row.missing).length,
+    0,
+  );
+  stats.attentionOpen = attentionOpen;
+
+  if (count === 0) {
+    if (attentionOpen) closeAttention({ focus: false });
+    return;
+  }
+  if (attentionOpen) renderAttention(model);
+}
+
+function openAttention() {
+  const model = attentionModel();
+  if (model.count === 0) return false;
+  if (sheetOpen) closeSheet({ focus: false });
+  renderAttention(model);
+  attentionOpen = true;
+  attentionSheetEl.hidden = false;
+  attentionTriggerEl.setAttribute('aria-expanded', 'true');
+  stats.attentionOpen = true;
+  requestAnimationFrame(() => {
+    if (attentionOpen) attentionSheetEl.classList.add('is-open');
+  });
+  try {
+    attentionSheetEl.focus({ preventScroll: true });
+  } catch {
+    // Focus is best-effort on hosts that do not expose options.
+  }
+  return true;
+}
+
+function closeAttention(options = {}) {
+  attentionTriggerEl.setAttribute('aria-expanded', 'false');
+  stats.attentionOpen = false;
+  if (!attentionOpen) {
+    attentionSheetEl.hidden = true;
+    return;
+  }
+  attentionOpen = false;
+  attentionSheetEl.classList.remove('is-open', 'is-dragging');
+  attentionSheetEl.style.transform = '';
+  attentionSheetEl.hidden = true;
+  if (options.focus !== false) {
+    try {
+      attentionTriggerEl.focus({ preventScroll: true });
+    } catch {
+      // Keyboard focus is optional.
+    }
+  }
+}
+
+function selectAttentionRow(siteId, side) {
+  closeAttention({ focus: false });
+  selectSite(siteId, side);
+}
+
+function maybeAutoOpenAttention() {
+  if (state.attentionAutoOpened) return false;
+  if (PARAMS.get('focus') !== 'attention') return false;
+  if (attentionModel().count === 0) return false;
+  state.attentionAutoOpened = true;
+  return openAttention();
+}
+
+/** Mesh-center z for each abnormal site that exists in the loaded model. */
+function attentionMeshCenters() {
+  const centers = [];
+  for (const entry of state.highlight.sites) {
+    attentionBox.makeEmpty();
+    for (const item of state.instances) {
+      if (item.kind === 'bone' || item.siteId !== entry.siteId || !item.bounds) {
+        continue;
+      }
+      if (entry.side !== null && item.side !== entry.side) {
+        continue;
+      }
+      attentionBox.union(item.bounds);
+    }
+    if (!attentionBox.isEmpty()) {
+      attentionBox.getCenter(attentionCenter);
+      centers.push(attentionCenter.z);
+    }
+  }
+  return centers;
+}
+
+/**
+ * Attention entry starts on the side where most abnormal meshes live. This is
+ * a one-shot reorient after the first non-empty abnormal set and the initial
+ * whole-body framing; any earlier camera move by the user wins.
+ */
+function maybeApplyAttentionFacing() {
+  if (attentionFacingApplied) return false;
+  if (PARAMS.get('focus') !== 'attention') return false;
+  if (!state.ready || !state.framed) return false;
+  if (state.highlight.sites.length === 0) return false;
+
+  attentionFacingApplied = true;
+  if (userMovedCamera) return false;
+
+  const centers = attentionMeshCenters();
+  if (centers.length === 0) return false;
+  const view = attentionFocusView(centers);
+  dispatch({ type: 'view', view });
+  updateUiFromState();
+  return true;
+}
+
+function hintWasSeen() {
+  try {
+    return localStorage.getItem(HINT_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function initGestureHint() {
+  if (hintWasSeen()) {
+    dismissGestureHint(true);
+  }
+}
+
+function dismissGestureHint(immediately = false) {
+  if (gestureHintEl.classList.contains('is-dismissed')) {
+    gestureHintEl.hidden = true;
+    return;
+  }
+  gestureHintEl.classList.add('is-dismissed');
+  gestureHintEl.setAttribute('aria-hidden', 'true');
+  if (immediately) {
+    gestureHintEl.hidden = true;
+    return;
+  }
+  setTimeout(() => {
+    gestureHintEl.hidden = true;
+  }, 260);
+}
+
+function noteUserInteraction() {
+  if (gestureHintEl.classList.contains('is-dismissed')) return;
+  dismissGestureHint();
+  try {
+    localStorage.setItem(HINT_KEY, '1');
+  } catch {
+    // Storage can be unavailable; the hint still goes away for this session.
+  }
+}
+
+function siteName(siteId) {
+  return state.sites.get(siteId)?.zh ?? siteId;
+}
+
+/**
+ * Left / right follow the picked instance; a null selection is "双侧" only
+ * when the site actually has meshes on both sides, otherwise "中线".
+ */
+function selectionSideLabel() {
+  if (state.selectedSide === 'left') return '左侧';
+  if (state.selectedSide === 'right') return '右侧';
+  const sideOf = (wanted) => state.instances.some(
+    (item) => item.siteId === state.selectedSite && item.side === wanted,
+  );
+  return sideOf('left') && sideOf('right') ? '双侧' : '中线';
+}
+
+function axisChip(axis) {
+  const chip = document.createElement('span');
+  chip.className = 'axis-chip';
+  chip.dataset.axis = axis.axis;
+  chip.dataset.state = axis.abnormal
+    ? 'abnormal'
+    : axis.measured
+      ? 'normal'
+      : 'unmeasured';
+  chip.textContent = axis.measured
+    ? `${axis.label} ${axis.value}`
+    : `${axis.label} 未测`;
+  return chip;
+}
+
+function renderSheet() {
+  if (!state.selectedSite) return;
+
+  const resolved = resolveCard(state.cards, state.selectedSite, state.selectedSide);
+  const card = resolved.card;
+  const site = state.sites.get(state.selectedSite);
+  const canIsolate = siteHasInstances(state.selectedSite);
+  sheetTitleEl.textContent = card?.siteZh ?? siteName(state.selectedSite);
+  sheetSideEl.textContent = canIsolate
+    ? selectionSideLabel()
+    : (card?.sideZh ?? '中线');
+  sheetAxesEl.replaceChildren(
+    ...(card?.axes ?? []).map((axis) => axisChip(axis)),
+  );
+  if (card) {
+    sheetWorstEl.textContent = card.worst;
+  } else if (site?.kind === 'bone') {
+    sheetWorstEl.textContent = '骨骼部位请在档案里查看';
+  } else {
+    sheetWorstEl.textContent = resolved.reason === 'side'
+      ? '这一侧还没有判定'
+      : '这个部位还没有判定';
+  }
+  const hasCard = Boolean(card);
+  sheetOpenEl.hidden = !hasCard;
+  sheetOpenEl.disabled = !hasCard;
+  stats.archiveAvailable = hasCard;
+  applyIsolateUi();
+}
+
+function openSheet() {
+  if (!state.selectedSite) {
+    closeSheet({ focus: false });
+    return;
+  }
+  renderSheet();
+  const wasOpen = sheetOpen;
+  sheetOpen = true;
+  sheetEl.hidden = false;
+  requestAnimationFrame(() => {
+    if (sheetOpen) sheetEl.classList.add('is-open');
+  });
+  if (!wasOpen) {
+    try {
+      sheetEl.focus({ preventScroll: true });
+    } catch {
+      // Focus is best-effort on hosts that do not expose options.
+    }
+  }
+}
+
+function closeSheet(options = {}) {
+  if (!sheetOpen) {
+    sheetEl.hidden = true;
+    return;
+  }
+  sheetOpen = false;
+  sheetEl.classList.remove('is-open', 'is-dragging');
+  sheetEl.style.transform = '';
+  sheetEl.hidden = true;
+  if (options.focus !== false) {
+    try {
+      canvas.focus({ preventScroll: true });
+    } catch {
+      // Canvas focus is only for keyboard continuity.
+    }
+  }
+}
+
 function fitDistance(view, size) {
   const { usableH, width, height } = state.layout;
   const widthAxis = VIEWS[view].widthAxis;
@@ -375,14 +992,26 @@ function fitDistance(view, size) {
   return Math.max(0.9, Math.max(distForHeight, distForWidth) * 1.06);
 }
 
-function applyView(view) {
+function focusBoxFor(siteId) {
+  if (!siteId) return focusBox.copy(state.bounds);
+
+  focusBox.makeEmpty();
+  for (const item of state.instances) {
+    if (item.siteId === siteId && item.bounds) {
+      focusBox.union(item.bounds);
+    }
+  }
+  return focusBox.isEmpty() ? focusBox.copy(state.bounds) : focusBox;
+}
+
+function frameFocus(view, siteId = null) {
   if (!state.ready || !camera || !controls) return;
   updateProjectionLayout(
     Math.max(1, canvas.clientWidth || window.innerWidth),
     Math.max(1, canvas.clientHeight || window.innerHeight),
   );
 
-  const focus = currentFocusBox(focusBox);
+  const focus = focusBoxFor(siteId);
   focus.getCenter(focusCenter);
   focus.getSize(focusSize);
   state.viewTarget.copy(focusCenter);
@@ -401,6 +1030,158 @@ function applyView(view) {
   requestRender();
 }
 
+function reorientTo(view) {
+  if (!state.ready || !camera || !controls) return;
+  const target = controls.target;
+  const distance = camera.position.distanceTo(target);
+  if (!(distance > 0)) return;
+
+  camera.position.copy(target).addScaledVector(VIEWS[view].dir, distance);
+  camera.up.set(0, 1, 0);
+  state.viewTarget.copy(target);
+  controls.update();
+  updateLights();
+  requestRender();
+}
+
+function snapshotCamera() {
+  if (!camera || !controls) return null;
+  return {
+    position: camera.position.toArray(),
+    target: controls.target.toArray(),
+    up: camera.up.toArray(),
+    fov: camera.fov,
+    near: camera.near,
+    far: camera.far,
+    minDistance: controls.minDistance,
+    maxDistance: controls.maxDistance,
+  };
+}
+
+function restoreCamera(snapshot, view = 'front') {
+  if (!camera || !controls) return;
+  if (!snapshot) {
+    // A URL that starts isolated has no "before" camera; leaving it returns to
+    // the whole body instead of staying at the isolated framing.
+    frameFocus(view, null);
+    return;
+  }
+  controls.target.fromArray(snapshot.target);
+  camera.position.fromArray(snapshot.position);
+  camera.up.fromArray(snapshot.up);
+  camera.fov = snapshot.fov;
+  camera.near = snapshot.near;
+  camera.far = snapshot.far;
+  camera.updateProjectionMatrix();
+  controls.minDistance = snapshot.minDistance;
+  controls.maxDistance = snapshot.maxDistance;
+  state.viewTarget.copy(controls.target);
+  controls.update();
+  updateLights();
+  requestRender();
+}
+
+function exportState() {
+  if (!state.ready) return null;
+  return exportViewerState(state, snapshotCamera());
+}
+
+function applyRestoredSnapshot(restored) {
+  state = { ...state, ...restored.state };
+  if (restored.camera) {
+    // Apply directly instead of dispatching a frame command: a restore must
+    // never show the whole body first and then jump to the saved view.
+    restoreCamera(restored.camera, restored.state.view);
+  }
+  updateUiFromState();
+  if (state.ready) applyVisibility();
+  if (state.selectedSite) {
+    openSheet();
+  } else {
+    closeSheet({ focus: false });
+  }
+  requestRender();
+  return true;
+}
+
+/**
+ * Cross-page restore entry point. Before the model is ready the snapshot only
+ * hydrates state and sets `framed`; `loadTier` applies the camera after the
+ * first build. Marking attention facing as applied keeps `focus=attention`
+ * from replacing the saved view when the user returns from the archive.
+ */
+function restoreState(snapshot) {
+  const restored = restoreViewerState(snapshot);
+  attentionFacingApplied = true;
+
+  if (!state.ready) {
+    pendingRestore = snapshot;
+    state = { ...state, ...restored.state };
+    updateUiFromState();
+    return true;
+  }
+
+  return applyRestoredSnapshot(restored);
+}
+
+function applyCommand(command) {
+  if (FRAME_COMMANDS.has(command.type)) {
+    stats.frameCommands += 1;
+    stats.lastFrameCommand = command.type;
+  }
+  switch (command.type) {
+    case 'frameBody':
+      frameFocus(command.view, null);
+      break;
+    case 'frameSite':
+      frameFocus(command.view, command.siteId);
+      break;
+    case 'reorient':
+      reorientTo(command.view);
+      break;
+    case 'restoreCamera':
+      restoreCamera(command.camera, command.view);
+      break;
+    case 'setVisibility':
+      applyVisibility();
+      break;
+    default:
+      break;
+  }
+}
+
+function dispatch(action) {
+  const result = reduce(state, action);
+  state = result.state;
+  for (const command of result.commands) applyCommand(command);
+  scheduleStatePublish();
+  return result;
+}
+
+/**
+ * Keep the native page's in-memory snapshot current. The system back gesture can
+ * unmount us without calling the header's back handler, so a state pushed after
+ * every explicit action and orbit is the only reliable save point.
+ */
+function publishState() {
+  if (!state.ready) return;
+  const snapshot = exportState();
+  if (!snapshot) return;
+  try {
+    window.nsh?.postMessage(JSON.stringify({ type: 'anatomy3d:state', state: snapshot }));
+  } catch {
+    // Plain browser: nobody listens.
+  }
+}
+
+function scheduleStatePublish() {
+  if (statePublishTimer) return;
+  statePublishTimer = setTimeout(() => {
+    statePublishTimer = 0;
+    publishState();
+  }, 250);
+}
+
 function updateLights() {
   if (!camera || !keyLight || !fillLight) return;
   keyLight.position.copy(camera.position).add(new THREE.Vector3(1.3, 2.1, 0.8));
@@ -410,19 +1191,6 @@ function updateLights() {
   fillLight.position.copy(camera.position).add(new THREE.Vector3(-1.8, -0.4, 1.2));
   fillLight.target.position.copy(state.viewTarget);
   fillLight.target.updateMatrixWorld();
-}
-
-function currentFocusBox(target) {
-  if (state.isolate && state.selectedSite) {
-    target.makeEmpty();
-    for (const item of state.instances) {
-      if (item.siteId === state.selectedSite && item.bounds) {
-        target.union(item.bounds);
-      }
-    }
-    if (!target.isEmpty()) return target;
-  }
-  return target.copy(state.bounds);
 }
 
 function requestRender() {
@@ -456,12 +1224,14 @@ function renderFrame(now) {
 
   stats.drawCalls = renderer.info.render.calls;
   stats.renderedTriangles = renderer.info.render.triangles;
+  stats.cameraDistance = camera.position.distanceTo(controls.target);
+  stats.cameraTarget = controls.target.toArray();
+  stats.cameraPosition = camera.position.toArray();
+  stats.cameraMinDistance = controls.minDistance;
+  stats.cameraMaxDistance = controls.maxDistance;
   updateFps(now);
-  if (!state.spin || now - lastStatsUiUpdate >= 180) {
-    updateStatsUi();
-    lastStatsUiUpdate = now;
-  }
-  if (state.spin) scheduleFrame();
+  updateAutoTierSample(now);
+  if (state.spin || autoTierActive) scheduleFrame();
 }
 
 function resetSpinSamples() {
@@ -501,6 +1271,157 @@ function updateFps(now) {
     }
   }
   lastFrameTime = now;
+}
+
+/**
+ * Automatic tier sampling. This runs only for a bounded window, renders every
+ * frame so it measures real drawing cost rather than display refresh, and then
+ * hands the average to the pure ladder in `viewer-state.js`.
+ */
+function startAutoTierSampling() {
+  if (!AUTO_TIER_ENABLED || autoTierDone || autoTierStarted || !state.ready) return;
+  autoTierStarted = true;
+  beginAutoTierWindow();
+}
+
+function beginAutoTierWindow() {
+  if (!AUTO_TIER_ENABLED || autoTierDone || !state.ready) return;
+  stopAutoTierSampling();
+  autoTierActive = true;
+  autoTierSamples = [];
+  autoTierWindowStart = 0;
+  autoTierLastTimestamp = 0;
+  scheduleFrame();
+}
+
+function stopAutoTierSampling() {
+  autoTierActive = false;
+  autoTierSamples = [];
+  autoTierWindowStart = 0;
+  autoTierLastTimestamp = 0;
+}
+
+function updateAutoTierSample(now) {
+  if (!autoTierActive) return;
+
+  if (!autoTierWindowStart) {
+    autoTierWindowStart = now;
+    autoTierLastTimestamp = now;
+    return;
+  }
+
+  const delta = now - autoTierLastTimestamp;
+  autoTierLastTimestamp = now;
+  if (delta > 0 && delta < 1000) autoTierSamples.push(delta);
+
+  if (now - autoTierWindowStart < AUTO_TIER_SAMPLE_MS) return;
+
+  autoTierActive = false;
+  const samples = autoTierSamples.slice();
+  autoTierSamples = [];
+  autoTierWindowStart = 0;
+  autoTierLastTimestamp = 0;
+
+  if (samples.length < AUTO_TIER_MIN_FRAMES) {
+    stats.autoTierSampledFps = 0;
+    stats.autoTierDecision = null;
+    autoTierDone = true;
+    return;
+  }
+
+  const total = samples.reduce((sum, sample) => sum + sample, 0);
+  const avgFps = (samples.length * 1000) / total;
+  stats.autoTierSampledFps = Math.round(avgFps * 10) / 10;
+  const decision = nextTierForFps(avgFps, state.tier);
+  stats.autoTierDecision = decision;
+  void applyTierDecision(decision).then((result) => {
+    if (result.switched && !autoTierDone) beginAutoTierWindow();
+  });
+}
+
+async function applyTierDecision(decision) {
+  if (!decision) {
+    autoTierDone = true;
+    return { decision: null, switched: false };
+  }
+  if (decision === 'slow') {
+    autoTierDone = true;
+    reportSlowDevice();
+    return { decision, switched: false };
+  }
+
+  dispatch({ type: 'downgrade', tier: decision });
+  const loaded = await loadTier(decision);
+  if (loaded) {
+    showTierNoticeOnce();
+  } else {
+    autoTierDone = true;
+    stopAutoTierSampling();
+  }
+  return { decision, switched: loaded };
+}
+
+/** Deterministic hook for the headless contract check; never shown in the UI. */
+async function testTierFps(fps) {
+  if (!TIER_TEST_MODE) return null;
+  const value = Number(fps);
+  if (!Number.isFinite(value)) return null;
+  autoTierDone = true;
+  stopAutoTierSampling();
+  const decision = nextTierForFps(value, state.tier);
+  stats.autoTierSampledFps = Math.round(value * 10) / 10;
+  stats.autoTierDecision = decision;
+  return applyTierDecision(decision);
+}
+
+function showTierNoticeOnce() {
+  if (tierNoticeShown) return;
+  tierNoticeShown = true;
+  stats.tierNoticeCount += 1;
+  if (!tierNoticeEl) return;
+
+  tierNoticeEl.hidden = false;
+  requestAnimationFrame(() => {
+    tierNoticeEl.classList.add('is-visible');
+    stats.tierNoticeVisible = true;
+  });
+  tierNoticeTimer = setTimeout(() => {
+    tierNoticeTimer = 0;
+    tierNoticeEl.classList.remove('is-visible');
+    stats.tierNoticeVisible = false;
+    tierNoticeHideTimer = setTimeout(() => {
+      tierNoticeHideTimer = 0;
+      tierNoticeEl.hidden = true;
+    }, 260);
+  }, TIER_NOTICE_MS);
+}
+
+function stopTierNoticeTimers() {
+  if (tierNoticeTimer) {
+    clearTimeout(tierNoticeTimer);
+    tierNoticeTimer = 0;
+  }
+  if (tierNoticeHideTimer) {
+    clearTimeout(tierNoticeHideTimer);
+    tierNoticeHideTimer = 0;
+  }
+  if (tierNoticeEl) {
+    tierNoticeEl.classList.remove('is-visible');
+    tierNoticeEl.hidden = true;
+  }
+  stats.tierNoticeVisible = false;
+}
+
+function reportSlowDevice() {
+  if (slowDevicePosted) return;
+  slowDevicePosted = true;
+  stats.slowDevice = true;
+  stats.slowDeviceCount += 1;
+  try {
+    window.nsh?.postMessage(JSON.stringify({ type: 'anatomy3d:slow-device' }));
+  } catch {
+    // Outside NSH (plain browser) there is nobody to notify.
+  }
 }
 
 function getManifest() {
@@ -560,7 +1481,6 @@ async function loadTier(tier) {
   delete body.dataset.viewerError;
   setLoadingState('loading');
   updateUiFromState();
-  updateStatsUi();
 
   try {
     const [manifest, gltf] = await Promise.all([getManifest(), loadGlb(tier)]);
@@ -581,26 +1501,50 @@ async function loadTier(tier) {
     api.error = null;
 
     if (!state.urlStateApplied) {
-      const requestedSite = PARAMS.get('site');
-      state.selectedSite = requestedSite && state.sites.has(requestedSite) ? requestedSite : null;
-      state.isolate = PARAMS.get('isolate') === '1' && Boolean(state.selectedSite);
-      state.urlStateApplied = true;
-    } else if (state.selectedSite && !state.sites.has(state.selectedSite)) {
+      if (pendingRestore) {
+        // A queued restore is a stronger source than the entry URL.
+        state.urlStateApplied = true;
+      } else {
+        const requestedSite = PARAMS.get('site');
+        state.selectedSite = requestedSite && state.sites.has(requestedSite) ? requestedSite : null;
+        state.selectedSide = null;
+        state.isolate = PARAMS.get('isolate') === '1' && Boolean(state.selectedSite);
+        if (state.isolate) {
+          state.saved = {
+            camera: null,
+            preset: state.preset,
+            selectedSite: state.selectedSite,
+            selectedSide: null,
+            view: state.view,
+          };
+        }
+        state.urlStateApplied = true;
+      }
+    } else if (
+      state.selectedSite
+      && !state.sites.has(state.selectedSite)
+      && !siteHasCard(state.selectedSite)
+    ) {
       state.selectedSite = null;
+      state.selectedSide = null;
       state.isolate = false;
+      state.saved = null;
     }
 
-    applyVisibility();
-    updateInfoPanel();
+    if (pendingRestore) {
+      const snapshot = pendingRestore;
+      pendingRestore = null;
+      applyRestoredSnapshot(restoreViewerState(snapshot));
+    }
     updateUiFromState();
-    applyView(state.view);
-    updateStatsUi();
+    dispatch({ type: 'modelLoaded' });
+    maybeApplyAttentionFacing();
     setLoadingState('hidden');
     body.dataset.viewerReady = '1';
     if (state.spin) {
       resetSpinSamples();
-      lastStatsUiUpdate = 0;
     }
+    startAutoTierSampling();
     requestRender();
     return true;
   } catch (error) {
@@ -678,11 +1622,11 @@ function buildBatches(manifest, gltf) {
       objectName,
       siteId,
       batch,
+      kind: site.kind,
       side,
       triangles,
       bounds: geometry.boundingBox.clone(),
       geometry,
-      baseColor: COLORS[side].clone(),
     });
   });
 
@@ -732,7 +1676,10 @@ function buildBatches(manifest, gltf) {
     for (const item of group) {
       const geometryId = batched.addGeometry(item.geometry);
       const instanceId = batched.addInstance(geometryId);
-      batched.setColorAt(instanceId, item.baseColor);
+      batched.setColorAt(
+        instanceId,
+        toColor(colorForInstance(item, state.highlight, null)),
+      );
       item.instanceId = instanceId;
       lookup.set(instanceId, item);
       state.instances.push(item);
@@ -794,11 +1741,15 @@ function detectSide(objectName, centerX) {
 
 function applyVisibility() {
   const selected = state.selectedSite;
-  const isolating = state.isolate && Boolean(selected);
+  const selectedSide = state.selectedSide;
+  const isolating = isIsolated();
   const preset = state.preset;
   const visibleByBatch = { shallow: false, deep: false, bone: false };
   let visibleInstances = 0;
   let selectedObjectCount = 0;
+  let selectedSiteInstanceCount = 0;
+  let abnormalObjectCount = 0;
+  const highlightedSiteIds = new Set();
 
   for (const item of state.instances) {
     let visible;
@@ -817,20 +1768,38 @@ function applyVisibility() {
     const batch = state.batches[item.batch];
     if (!batch) continue;
     batch.setVisibleAt(item.instanceId, visible);
+    const abnormal = isAbnormalInstance(item, state.highlight);
+    const selectedItem = Boolean(selected)
+      && item.siteId === selected
+      && (selectedSide === null || selectedSide === item.side);
     batch.setColorAt(
       item.instanceId,
-      selected && item.siteId === selected ? COLORS.selected : item.baseColor,
+      toColor(colorForInstance(item, state.highlight, selected, selectedSide)),
     );
     if (visible) {
       visibleByBatch[item.batch] = true;
       visibleInstances += 1;
     }
-    if (selected && item.siteId === selected) selectedObjectCount += 1;
+    if (selected && item.siteId === selected) selectedSiteInstanceCount += 1;
+    if (selectedItem) selectedObjectCount += 1;
+    if (abnormal && !selectedItem) {
+      abnormalObjectCount += 1;
+      highlightedSiteIds.add(item.siteId);
+    }
   }
 
   stats.selectedSite = selected;
+  stats.selectedSide = selectedSide;
   stats.selectedObjectCount = selected ? selectedObjectCount : 0;
-  stats.highlightColor = selected ? '#c8f04a' : null;
+  stats.selectedSiteInstanceCount = selected ? selectedSiteInstanceCount : 0;
+  stats.highlightColor = selected ? state.highlight.palette.selected : null;
+  stats.highlightSites = state.highlight.sites.map((entry) => ({ ...entry }));
+  stats.highlightedSiteIds = [...highlightedSiteIds];
+  stats.abnormalObjectCount = abnormalObjectCount;
+  stats.missingSites = missingHighlightSites(
+    state.highlight,
+    new Set(state.instances.map((item) => item.siteId)),
+  );
   stats.visibleInstances = visibleInstances;
 
   for (const batchName of BATCH_NAMES) {
@@ -853,7 +1822,6 @@ function stopSpinForExplicitAction() {
   spinAngle = 0;
   stats.spinYaw = 0;
   if (spinPivot) spinPivot.rotation.y = 0;
-  updateStatsUi();
 }
 
 function setGhost(batchName, ghost) {
@@ -871,7 +1839,7 @@ function setGhost(batchName, ghost) {
 }
 
 function pickAt(clientX, clientY) {
-  if (!state.ready || !raycaster) return;
+  if (!state.ready || !raycaster) return false;
   const rect = canvas.getBoundingClientRect();
   pointerNdc.set(
     ((clientX - rect.left) / rect.width) * 2 - 1,
@@ -891,92 +1859,46 @@ function pickAt(clientX, clientY) {
     const lookup = state.lookups[batch.userData.batchName];
     const item = lookup?.get(instanceId);
     if (item) {
-      selectSite(item.siteId);
-      return;
+      selectSite(item.siteId, item.side);
+      return true;
     }
   }
 
   selectSite(null);
+  return false;
 }
 
-function selectSite(siteId) {
-  if (siteId === null || siteId === undefined) {
-    state.selectedSite = null;
-    state.isolate = false;
-  } else if (state.sites.has(siteId)) {
-    state.selectedSite = siteId;
+function isDeepSite(siteId) {
+  return state.instances.some(
+    (item) => item.siteId === siteId && item.batch === 'deep',
+  );
+}
+
+function selectSite(siteId, side = null) {
+  const clear = siteId === null || siteId === undefined;
+  if (!clear && !state.sites.has(siteId) && !siteHasCard(siteId)) return false;
+  if (!clear && state.isolate && !siteHasInstances(siteId)) {
+    dispatch({ type: 'isolate', enabled: false });
+  }
+  stopSpinForExplicitAction();
+  const selectedSide = side === 'left' || side === 'right' ? side : null;
+  const preset = !clear
+    && isDeepSite(siteId)
+    && (state.preset === 'all' || state.preset === 'bone')
+    ? 'deep'
+    : undefined;
+  dispatch({
+    type: 'select',
+    siteId: clear ? null : siteId,
+    side: selectedSide,
+    preset,
+  });
+  updateUiFromState();
+  if (clear) {
+    closeSheet();
   } else {
-    return false;
+    openSheet();
   }
-
-  stopSpinForExplicitAction();
-  applyVisibility();
-  updateInfoPanel();
-  updateUiFromState();
-  if (state.ready) {
-    updateProjectionLayout(
-      Math.max(1, canvas.clientWidth || window.innerWidth),
-      Math.max(1, canvas.clientHeight || window.innerHeight),
-    );
-    applyView(state.view);
-  }
-  requestRender();
-  return true;
-}
-
-function updateInfoPanel() {
-  if (!state.selectedSite) {
-    infoEl.hidden = true;
-    return;
-  }
-
-  const site = state.sites.get(state.selectedSite);
-  if (!site) {
-    infoEl.hidden = true;
-    return;
-  }
-
-  const items = state.instances.filter((item) => item.siteId === state.selectedSite);
-  const triangles = items.reduce((total, item) => total + item.triangles, 0);
-  const sides = new Set(items.map((item) => item.side));
-  const sideKey = sides.has('left') && sides.has('right')
-    ? 'both'
-    : sides.has('left')
-      ? 'left'
-      : sides.has('right')
-        ? 'right'
-        : 'mid';
-  const sideLabel = {
-    both: '双侧',
-    left: '左侧',
-    right: '右侧',
-    mid: '中线',
-  }[sideKey];
-
-  infoZhEl.textContent = site.zh;
-  infoEnEl.textContent = site.en;
-  infoKindEl.textContent = site.kind === 'bone' ? '骨骼' : '肌肉';
-  infoSideEl.textContent = sideLabel;
-  infoSideEl.className = `tag side-${sideKey}`;
-  infoTrisEl.textContent = `${formatNumber(triangles)} 面`;
-  infoObjectsEl.textContent = `${items.length} 个对象`;
-  infoEl.hidden = false;
-  state.infoHeight = infoEl.getBoundingClientRect().height || state.infoHeight;
-}
-
-function applyQuickTarget(siteId) {
-  const target = QUICK_TARGETS[siteId];
-  if (!target) return false;
-
-  stopSpinForExplicitAction();
-  state.view = target.view;
-  state.preset = target.preset;
-  state.isolate = false;
-  state.selectedSite = state.sites.has(siteId) ? siteId : state.selectedSite;
-  applyVisibility();
-  updateInfoPanel();
-  updateUiFromState();
-  if (state.ready) applyView(state.view);
   requestRender();
   return true;
 }
@@ -984,41 +1906,60 @@ function applyQuickTarget(siteId) {
 function setView(view) {
   if (!VIEWS[view]) return false;
   stopSpinForExplicitAction();
-  state.view = view;
+  userMovedCamera = true;
+  dispatch({ type: 'view', view });
   updateUiFromState();
-  applyView(view);
   return true;
 }
 
 function setPreset(preset) {
   if (!PRESETS.has(preset)) return false;
+  if (isIsolated()) return false;
   stopSpinForExplicitAction();
-  state.preset = preset;
-  applyVisibility();
+  dispatch({ type: 'preset', preset });
   updateUiFromState();
-  if (state.ready) {
-    updateProjectionLayout(
-      Math.max(1, canvas.clientWidth || window.innerWidth),
-      Math.max(1, canvas.clientHeight || window.innerHeight),
-    );
-    applyView(state.view);
-  }
   return true;
 }
 
 function setIsolate(isolate) {
   const next = Boolean(isolate);
-  if (next && !state.selectedSite) return false;
-  state.isolate = next;
-  applyVisibility();
+  if (next && !siteHasInstances(state.selectedSite)) return false;
+  if (next === Boolean(state.isolate)) return true;
+  stopSpinForExplicitAction();
+  userMovedCamera = true;
+  dispatch({ type: 'isolate', enabled: next, camera: snapshotCamera() });
   updateUiFromState();
+  return true;
+}
+
+/**
+ * Native highlight contract. Stores the palette and abnormal sites, then
+ * recolors what is already loaded; it never reloads the model. A call made
+ * before the model is ready is kept and applied by `buildBatches` /
+ * `applyVisibility` when the first tier finishes.
+ */
+function setHighlight(options = {}) {
+  state.highlight = createHighlight(options?.palette, options?.sites);
+  state.cards = createCards(options?.cards);
+  applyPaletteVars(state.highlight.palette);
+  stats.highlightSites = state.highlight.sites.map((entry) => ({ ...entry }));
+  stats.palette = { ...state.highlight.palette };
+  stats.cards = state.cards.length;
   if (state.ready) {
-    updateProjectionLayout(
-      Math.max(1, canvas.clientWidth || window.innerWidth),
-      Math.max(1, canvas.clientHeight || window.innerHeight),
-    );
-    applyView(state.view);
+    applyVisibility();
+  } else {
+    stats.highlightColor = state.selectedSite
+      ? state.highlight.palette.selected
+      : null;
+    stats.highlightedSiteIds = [];
+    stats.abnormalObjectCount = 0;
+    stats.missingSites = [];
+    requestRender();
   }
+  if (sheetOpen) renderSheet();
+  updateAttentionUi();
+  maybeApplyAttentionFacing();
+  maybeAutoOpenAttention();
   return true;
 }
 
@@ -1034,7 +1975,6 @@ function setSpin(spin) {
 
   if (next) {
     resetSpinSamples();
-    lastStatsUiUpdate = 0;
     if (spinPivot) spinPivot.rotation.y = spinAngle;
   } else {
     lastSpinTimestamp = 0;
@@ -1042,95 +1982,134 @@ function setSpin(spin) {
   }
 
   updateUiFromState();
-  updateStatsUi();
   requestRender();
   return true;
 }
 
 function reset() {
+  stopTierNoticeTimers();
   stopSpinForExplicitAction();
-  state.selectedSite = null;
-  state.isolate = false;
-  state.preset = 'all';
-  state.view = 'front';
-  updateInfoPanel();
+  userMovedCamera = true;
+  pendingRestore = null;
+  closeSheet({ focus: false });
+  closeAttention({ focus: false });
+  const result = reduce(state, { type: 'reset' });
+  state = result.state;
   updateUiFromState();
-  if (state.tier !== 'raw') {
-    return loadTier('raw');
-  }
-  if (state.ready) {
-    applyVisibility();
-    applyView('front');
-  }
+  for (const command of result.commands) applyCommand(command);
+  scheduleStatePublish();
   return true;
 }
 
 function setTier(tier) {
   if (!TIERS[tier]) return Promise.resolve(false);
+  autoTierDone = true;
+  stopAutoTierSampling();
+  dispatch({ type: 'setTier', tier });
   return loadTier(tier);
 }
 
 function updateUiFromState() {
-  for (const button of document.querySelectorAll('[data-tier]')) {
-    button.setAttribute('aria-pressed', String(button.dataset.tier === state.tier));
-  }
-  for (const button of document.querySelectorAll('[data-view]')) {
-    button.setAttribute('aria-pressed', String(button.dataset.view === state.view));
-  }
-  for (const button of document.querySelectorAll('[data-preset]')) {
-    button.setAttribute('aria-pressed', String(button.dataset.preset === state.preset));
-  }
-  for (const button of document.querySelectorAll('[data-target]')) {
-    button.setAttribute('aria-pressed', String(button.dataset.target === state.selectedSite));
-  }
+  updateViewButtons();
+  updateIsolateUi();
+  updateAttentionUi();
 
-  isolateBtn.setAttribute('aria-pressed', String(state.isolate));
-  isolateBtn.textContent = state.isolate ? '显示全部' : '只看这块';
-  spinToggle.setAttribute('aria-pressed', String(state.spin));
+  const label = PRESET_LABELS[state.preset] ?? state.preset;
+  presetLabel.textContent = label;
+  presetTrigger.setAttribute('aria-label', `层级：${label}`);
+  for (const button of presetButtons) {
+    button.setAttribute('aria-checked', String(button.dataset.preset === state.preset));
+  }
+  stats.preset = state.preset;
+  if (sheetOpen) renderSheet();
+}
 
-  if (state.selectedSite) {
-    hintEl.style.opacity = '0';
+function applyIsolateUi() {
+  const control = isolationControl(state);
+  const missing = Boolean(state.selectedSite)
+    && !siteHasInstances(state.selectedSite);
+  sheetIsolateEl.textContent = missing ? '模型里暂缺' : control.label;
+  sheetIsolateEl.disabled = missing;
+  sheetIsolateEl.setAttribute('aria-pressed', String(control.pressed && !missing));
+  if (missing) {
+    sheetIsolateEl.title = '模型里暂缺，无法只看这块';
+    sheetIsolateEl.setAttribute('aria-label', '模型里暂缺，无法只看这块');
   } else {
-    hintEl.style.opacity = '1';
+    sheetIsolateEl.removeAttribute('title');
+    sheetIsolateEl.removeAttribute('aria-label');
   }
 }
 
-function updateStatsUi() {
-  if (!statTierEl) return;
-  statTierEl.textContent = `${TIERS[stats.tier]?.label ?? stats.tier} · ${formatNumber(stats.instances)} 件`;
-  statTrisEl.textContent = `${formatNumber(stats.triangles)} 面`;
-  statDrawEl.textContent = `draw ${stats.drawCalls}`;
-  statFpsEl.textContent = stats.spin
-    ? stats.fpsAvg
-      ? `${stats.fpsAvg}/${stats.fpsMin} fps`
-      : '— fps'
-    : '— fps';
-  statFpsEl.title = stats.spin ? '自转平均/最低帧率' : '';
-  statLoadEl.textContent = stats.loadMs ? `加载 ${Math.round(stats.loadMs)} ms` : '加载 — ms';
-  statMultiEl.textContent = stats.multiDraw === null
-    ? 'multi_draw —'
-    : `multi_draw ${stats.multiDraw ? '有' : '无'}`;
+function updateIsolateUi() {
+  const control = isolationControl(state);
+  applyIsolateUi();
 
-  statDrawEl.classList.toggle('warn', stats.drawCalls > 5);
-  statMultiEl.classList.toggle(stats.multiDraw ? 'ok' : 'warn', stats.multiDraw !== null);
+  presetTrigger.setAttribute('aria-disabled', String(control.active));
+  for (const button of presetButtons) {
+    button.setAttribute('aria-disabled', String(control.active));
+  }
+  if (control.active && menuOpen) {
+    menuOpen = false;
+    presetMenu.hidden = true;
+    presetTrigger.setAttribute('aria-expanded', 'false');
+  }
+
+  stats.isolate = control.active;
+  stats.isolateLabel = control.label;
+  stats.presetLocked = control.active;
+}
+
+function updateViewButtons() {
+  for (const button of viewButtons) {
+    button.setAttribute('aria-pressed', String(button.dataset.view === state.view));
+  }
+  stats.view = state.view;
+}
+
+function sentence(message) {
+  const text = String(message ?? '').trim() || '未知原因';
+  return /[。！？.!?]$/.test(text) ? text : `${text}。`;
+}
+
+function clearSlowLoadTimer() {
+  if (!slowLoadTimer) return;
+  clearTimeout(slowLoadTimer);
+  slowLoadTimer = 0;
 }
 
 function setLoadingState(kind, error) {
   if (!loadingEl) return;
+  clearSlowLoadTimer();
   loadingEl.classList.toggle('is-error', kind === 'error');
   loadingEl.classList.toggle('is-hidden', kind === 'hidden');
 
   if (kind === 'loading') {
-    loadingTitleEl.textContent = '正在加载解剖模型';
-    loadingDetailEl.textContent = 'Draco 解码 · 合批 · 建立 site 映射';
+    loadingEl.setAttribute('role', 'status');
+    loadingTitleEl.textContent = '正在载入身体模型…';
+    loadingSlowEl.textContent = '设备较慢时，可以先回档案页看依据';
+    loadingSlowEl.hidden = true;
+    loadingRetryEl.hidden = true;
+    slowLoadTimer = setTimeout(() => {
+      if (!loadingEl.classList.contains('is-error') && !loadingEl.classList.contains('is-hidden')) {
+        loadingSlowEl.hidden = false;
+      }
+    }, SLOW_LOAD_MS);
   } else if (kind === 'error') {
-    loadingTitleEl.textContent = '模型加载失败';
-    loadingDetailEl.textContent = `${error}。请通过本地 HTTP 打开，见 README。`;
+    loadingEl.setAttribute('role', 'alert');
+    loadingTitleEl.textContent = '3D 身体图没能载入';
+    loadingSlowEl.textContent = sentence(error);
+    loadingSlowEl.hidden = false;
+    loadingRetryEl.hidden = false;
+  } else {
+    loadingSlowEl.hidden = true;
+    loadingRetryEl.hidden = true;
   }
 }
 
 function fail(error) {
   const message = error?.message || String(error);
+  autoTierDone = true;
+  stopAutoTierSampling();
   api.ready = false;
   api.error = message;
   stats.ready = false;
@@ -1139,7 +2118,11 @@ function fail(error) {
   delete body.dataset.viewerReady;
   body.dataset.viewerError = message;
   setLoadingState('error', message);
-  updateStatsUi();
+  try {
+    window.nsh?.postMessage(JSON.stringify({ type: 'anatomy3d:error', message }));
+  } catch {
+    // Outside NSH (plain browser) there is nobody to notify.
+  }
   console.error('[anatomy-3d]', error);
 }
 
@@ -1158,6 +2141,9 @@ function teardownModel() {
   stats.selectedSite = null;
   stats.selectedObjectCount = 0;
   stats.highlightColor = null;
+  stats.highlightedSiteIds = [];
+  stats.abnormalObjectCount = 0;
+  stats.missingSites = [];
   stats.visibleInstances = 0;
   lastSpinTimestamp = 0;
   framePending = false;
@@ -1169,11 +2155,7 @@ function disposeGltf(gltf) {
   });
 }
 
-function formatNumber(value) {
-  return Math.round(value).toLocaleString('zh-CN');
-}
-
-updateStatsUi();
+initGestureHint();
 updateUiFromState();
 init();
 

@@ -1,19 +1,27 @@
 # 3D 解剖测试资产
 
-这两个 GLB 是从 Z-Anatomy 抽出的 311 个对象（79/79 肌肉、31/40 骨骼部位），
+这三个 GLB 是从 Z-Anatomy 抽出的 311 个对象（79/79 肌肉、31/40 骨骼部位），
 用于真机几何/性能测试，不是最终生产资产。
 
 | 文件 | 三角面（含左右） | 顶点 | 大小 | 说明 |
 |---|---:|---:|---:|---|
 | `za-raw-smooth.glb` | 1,502,535 | 420,845 | 2.73 MB | 原始几何 + smooth，视觉档 |
 | `za-cap3000-smooth.glb` | 743,912 | 326,450 | 2.38 MB | 每对象 3,000 面上限 + smooth，性能档 |
+| `za-cap2000-smooth.glb` | 541,822 | 271,197 | 2.01 MB | 每对象 2,000 面上限 + smooth，流畅档 |
 
 SHA-256：
 
 ```text
 9bbfa25a39a394742baf9c11731f3abc507cef8e5890a009a83106a2f3c2c0f2  za-raw-smooth.glb
 d2ecd5cabe793d8a0c127ff2e3e81b4ff2f5b13aa0dc2fa509f8e4ddd69a73fa  za-cap3000-smooth.glb
+69a5b438200553d68a98b0c58f012e3823e8ca4eb26b3b010b52b207d345540e  za-cap2000-smooth.glb
 ```
+
+`za-cap2000-smooth.glb` 由 `scripts/anatomy/decimate_glb.py` 从
+`za-cap3000-smooth.glb` 再次简化得到。源 Z-Anatomy `Startup.blend` 不在本机，
+所以它不是官方 2,000 档的逐字节复刻；脚本会重新做 COLLAPSE 简化、全面 smooth、
+清 custom split normals，并使用与 `export_za_smooth.py` 相同的 Draco 参数。
+复现命令见 `scripts/anatomy/README.md`。
 
 ## 限制
 
@@ -21,7 +29,7 @@ d2ecd5cabe793d8a0c127ff2e3e81b4ff2f5b13aa0dc2fa509f8e4ddd69a73fa  za-cap3000-smo
 - 没有 `site_id` 顶点属性；节点名是 Z-Anatomy 对象名，可用
   `scripts/anatomy/za-export.json` 反查。
 - 9 个骨性标志（肩峰、喙突、关节盂、髂骨、坐骨、耻骨、ASIS、PSIS、大转子）
-  不在这两个 GLB 里；坐标见 `docs/research/z-anatomy-landmarks.csv`。
+  不在这些 GLB 里；坐标见 `docs/research/z-anatomy-landmarks.csv`。
 - 左右共享的 mesh 在 GLB 里仍是两个节点；运行时用 `BatchedMesh` 合批。
 
 ## 许可与署名

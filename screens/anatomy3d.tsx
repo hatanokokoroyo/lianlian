@@ -1,67 +1,251 @@
-// 3D 解剖 spike：Rust loopback 服务提供 viewer 与 GLB，WebView 只负责显示。
-// 这里不碰档案业务，只验证 Android WebView 能否离线加载 Three.js 页面。
-// 注意：`nsh.json` 的 `android.usesCleartextTraffic` 在 0.4.0 spike 里暂时保留，
-// 只为访问 127.0.0.1 的 loopback；生产前应改成仅放行 127.0.0.1 的
-// network security config，或换 HTTPS/自定义 scheme。
-import { resource, signal, Text, token, View, WebView } from "nsh";
+// 3D 身体图：Rust loopback 服务提供 viewer 与 GLB，WebView 负责显示。
+// 这里只读档案里的肌肉异常，把主题色、异常集合与卡片推给 viewer，并承接跨页恢复与慢设备提示。
+import { effect, resource, signal, Text, token, View, WebView } from "nsh";
 import type { WebViewRef } from "nsh";
-import { Anatomy3d } from "lianlian/native";
+import { Anatomy3d, Findings } from "lianlian/native";
 
-import { TextButton } from "../ui/parts";
-import { typeScale } from "../ui/type";
+import { PrimaryButton, TextButton } from "../ui/parts";
+import { leading, typeScale } from "../ui/type";
+import {
+  deriveAbnormalSites,
+  deriveCards,
+  exportStateScript,
+  highlightScript,
+  rememberViewerState,
+  restoreStateScript,
+  savedViewerSnapshot,
+  sectionForSite,
+  type HighlightPalette,
+} from "./anatomy3d-model";
 
-/** 等 viewer 的异步加载结束再读统计；失败就保持空白，不影响页面。 */
-const READ_STATS = `(async () => {
-  for (let i = 0; i < 60; i += 1) {
-    if (window.__viewer && window.__viewer.ready) {
-      return window.__viewer.stats;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 250));
-  }
-  return window.__viewer ? window.__viewer.stats : null;
-})()`;
-
-function numberField(value: unknown, key: string): number | null {
-  if (typeof value !== "object" || value === null) {
-    return null;
-  }
-  const field = (value as Record<string, unknown>)[key];
-  return typeof field === "number" && Number.isFinite(field) ? field : null;
+function loadError(event: { message?: string; code?: string }): string {
+  const code = event.code ? `（${event.code}）` : "";
+  return event.message ? `页面加载失败：${event.message}${code}` : "页面加载失败。";
 }
 
-/** 「744k 面 · 3 dc」；没拿到统计时返回 null。 */
-function statsLabel(value: unknown): string | null {
-  const triangles = numberField(value, "triangles");
-  const drawCalls = numberField(value, "drawCalls");
-  const parts: string[] = [];
-  if (triangles !== null && triangles > 0) {
-    parts.push(`${Math.round(triangles / 1000)}k 面`);
-  }
-  if (drawCalls !== null && drawCalls > 0) {
-    parts.push(`${Math.round(drawCalls)} dc`);
-  }
-  return parts.length > 0 ? parts.join(" · ") : null;
+function withSentenceEnd(message: string): string {
+  const text = message.trim() || "未知原因";
+  return /[。！？.!?]$/.test(text) ? text : `${text}。`;
 }
 
-export function Anatomy3dScreen(props: { onBack: () => void }) {
+/** 往已有地址追加查询串，保留原有的 `?` 与参数。 */
+function appendQuery(base: string, query: string): string {
+  return `${base}${base.includes("?") ? "&" : "?"}${query}`;
+}
+
+/** 重试时换一个查询串，保证 WebView 重新加载而不是复用同一个地址。 */
+function retryUrl(base: string, nonce: number): string {
+  if (nonce === 0) {
+    return base;
+  }
+  return appendQuery(base, `retry=${nonce}`);
+}
+
+/** 关注模式只影响 3D 页面自己的初始行为，不改查询里的档位与默认视角。 */
+function withFocus(base: string, focus?: "attention"): string {
+  return focus === "attention" ? appendQuery(base, "focus=attention") : base;
+}
+
+/** 整页错误态：说明原因、重试，并保留回档案这条路。 */
+function ViewerError(props: {
+  reason: string;
+  onRetry: () => void;
+  onBack: () => void;
+}) {
+  return (
+    <View
+      testID="anatomy3d-error"
+      style={{
+        flex: 1,
+        justifyContent: "center",
+        paddingHorizontal: 20,
+        paddingBottom: 32,
+        gap: 10,
+      }}
+    >
+      <Text
+        testID="anatomy3d-error-title"
+        style={{
+          fontSize: typeScale.title,
+          lineHeight: leading.title,
+          fontWeight: "bold",
+          color: token("foreground"),
+        }}
+      >
+        3D 身体图没能载入
+      </Text>
+      <Text
+        testID="anatomy3d-error-reason"
+        style={{
+          fontSize: typeScale.body,
+          lineHeight: leading.body,
+          color: token("muted-foreground"),
+        }}
+      >
+        {withSentenceEnd(props.reason)}
+      </Text>
+      <View style={{ gap: 6, marginTop: 10 }}>
+        <PrimaryButton testID="anatomy3d-retry" label="重试" onPress={props.onRetry} />
+        <TextButton
+          testID="anatomy3d-error-back"
+          label="回档案"
+          hint="回档案"
+          onPress={props.onBack}
+        />
+      </View>
+    </View>
+  );
+}
+
+export function Anatomy3dScreen(props: {
+  onBack: () => void;
+  onOpenSection: (sectionId: string, focusSlug?: string) => void;
+  focus?: "attention";
+}) {
   const viewer = resource(() => Anatomy3d.url());
-  const error = signal<string | null>(null);
-  const stats = signal<string | null>(null);
+  const findings = resource(() => Findings.load());
+  const failure = signal<string | null>(null);
+  const slowDevice = signal(false);
+  const retryNonce = signal(0);
   let webview: WebViewRef | undefined;
+  let highlightReady = false;
+  let restoreDone = false;
+  let saveInFlight: Promise<void> | null = null;
 
-  const readStats = async () => {
+  const palette = (): HighlightPalette => ({
+    left: token("chart-1"),
+    right: token("chart-2"),
+    abnormal: token("destructive"),
+    selected: token("primary"),
+  });
+
+  const saveViewerState = () => {
+    if (saveInFlight) {
+      return saveInFlight;
+    }
+    const node = webview;
+    if (!node) {
+      return Promise.resolve();
+    }
+    const pending = (async () => {
+      try {
+        const result = await node.evaluate(exportStateScript(), { timeout: 2500 });
+        if (result.value && typeof result.value === "object") {
+          rememberViewerState(result.value);
+        }
+      } catch {
+        // Leaving must not depend on the WebView still answering.
+      }
+    })();
+    saveInFlight = pending.finally(() => {
+      saveInFlight = null;
+    });
+    return saveInFlight;
+  };
+
+  const pushHighlight = () => {
+    if (!highlightReady) {
+      return;
+    }
+    const data = findings();
+    const resourceError = findings.error();
+    if (!webview || !data) {
+      return;
+    }
+    const unavailable = Boolean(resourceError || data.error);
+    const sites = unavailable ? [] : deriveAbnormalSites(data);
+    const cards = unavailable ? [] : deriveCards(data);
+    try {
+      void webview
+        .evaluate(highlightScript(palette(), sites, cards))
+        .catch(() => {});
+    } catch {
+      // The page can navigate as the WebView is replaced; the next onLoad pushes again.
+    }
+  };
+
+  const restoreThenHighlight = async () => {
+    if (restoreDone) {
+      highlightReady = true;
+      pushHighlight();
+      return;
+    }
+    restoreDone = true;
+    const node = webview;
+    const snapshot = savedViewerSnapshot();
+    if (node && snapshot) {
+      try {
+        await node.evaluate(restoreStateScript(snapshot), { timeout: 8000 });
+      } catch {
+        // Restoring is best-effort; the viewer stays usable without it.
+      }
+    }
+    highlightReady = true;
+    pushHighlight();
+  };
+
+  const leaveViewer = async () => {
+    await saveViewerState();
+    props.onBack();
+  };
+
+  const openArchiveSection = async (message: {
+    siteId?: unknown;
+    side?: unknown;
+  }) => {
+    if (typeof message.siteId !== "string" || !message.siteId) {
+      return;
+    }
+    try {
+      await saveViewerState();
+      const data = findings() ?? (await Findings.load());
+      const target = sectionForSite(
+        data,
+        message.siteId,
+        typeof message.side === "string" ? message.side : null,
+      );
+      if (!target) {
+        return;
+      }
+      props.onOpenSection(target.sectionId, target.focusSlug);
+    } catch {
+      // A failed archive lookup leaves the user on the model, not on a broken page.
+    }
+  };
+
+  // Findings can land after the page (or change after a retry); onLoad alone is not enough.
+  effect(pushHighlight);
+
+  const resetViewer = () => {
     if (!webview) {
       return;
     }
     try {
-      const result = await webview.evaluate(READ_STATS);
-      const label = statsLabel(result.value);
-      if (label) {
-        stats.set(label);
-      }
+      void webview.evaluate("window.__viewer.reset()").catch(() => {});
     } catch {
-      // 统计只是 spike 的附加信息；evaluate 不可用或页面还没准备好就算了。
+      // 重置失败保持静默；页面仍可继续操作。
     }
+  };
+
+  const retry = () => {
+    failure.set(null);
+    slowDevice.set(false);
+    retryNonce.set(retryNonce() + 1);
+    viewer.refetch();
+  };
+
+  const retryFindings = () => {
+    findings.refetch();
+  };
+
+  const serviceFailure = () => (viewer() === "" ? "本地 3D 服务没能启动。" : null);
+  const failureReason = () => failure() ?? serviceFailure();
+  const findingsFailure = () => {
+    const error = findings.error();
+    if (error) {
+      return String(error);
+    }
+    return findings()?.error ?? null;
   };
 
   return (
@@ -76,7 +260,15 @@ export function Anatomy3dScreen(props: { onBack: () => void }) {
           borderColor: token("border"),
         }}
       >
-        <TextButton testID="anatomy3d-back" label="← 档案" onPress={props.onBack} />
+        <View style={{ minWidth: 68 }}>
+          <TextButton
+            testID="anatomy3d-back"
+            label="← 档案"
+            onPress={() => {
+              void leaveViewer();
+            }}
+          />
+        </View>
         <Text
           testID="anatomy3d-title"
           style={{
@@ -87,68 +279,131 @@ export function Anatomy3dScreen(props: { onBack: () => void }) {
             color: token("foreground"),
           }}
         >
-          3D 解剖 · spike
+          3D 身体图
         </Text>
-        <View style={{ minWidth: 64, alignItems: "flex-end" }}>
-          {stats() ? (
-            <Text
-              testID="anatomy3d-stats"
-              style={{ fontSize: 10, color: token("muted-foreground") }}
-            >
-              {stats()}
-            </Text>
-          ) : null}
+        <View style={{ minWidth: 68, alignItems: "flex-end" }}>
+          <TextButton testID="anatomy3d-reset" label="重置" onPress={resetViewer} />
         </View>
       </View>
 
-      {error() ? (
+      {slowDevice() && !failureReason() ? (
         <View
-          testID="anatomy3d-error"
+          testID="anatomy3d-slow-device"
           style={{
-            paddingHorizontal: 16,
-            paddingVertical: 10,
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 8,
+            paddingHorizontal: 12,
+            paddingVertical: 8,
+            borderBottomWidth: 1,
+            borderColor: token("border"),
             backgroundColor: token("card"),
           }}
         >
-          <Text style={{ fontSize: typeScale.label, color: token("destructive") }}>
-            {error()}
+          <Text
+            style={{
+              flex: 1,
+              fontSize: typeScale.label,
+              lineHeight: leading.label,
+              color: token("muted-foreground"),
+            }}
+          >
+            这台设备可能较慢
           </Text>
+          <TextButton
+            testID="anatomy3d-slow-device-back"
+            label="回档案"
+            onPress={() => {
+              void leaveViewer();
+            }}
+          />
         </View>
       ) : null}
 
-      {viewer() === undefined ? (
+      {findingsFailure() && !failureReason() ? (
+        <View
+          testID="anatomy3d-findings-warning"
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 8,
+            paddingHorizontal: 12,
+            paddingVertical: 8,
+            borderBottomWidth: 1,
+            borderColor: token("border"),
+            backgroundColor: token("card"),
+          }}
+        >
+          <Text
+            style={{
+              flex: 1,
+              fontSize: typeScale.label,
+              lineHeight: leading.label,
+              color: token("muted-foreground"),
+            }}
+          >
+            档案没读出来，现在只显示解剖图
+          </Text>
+          <TextButton
+            testID="anatomy3d-findings-retry"
+            label="重试"
+            onPress={retryFindings}
+          />
+        </View>
+      ) : null}
+
+      {failureReason() ? (
+        <ViewerError
+          reason={failureReason()!}
+          onRetry={retry}
+          onBack={() => {
+            void leaveViewer();
+          }}
+        />
+      ) : viewer() === undefined ? (
         <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
           <Text style={{ fontSize: typeScale.body, color: token("muted-foreground") }}>
             正在准备本地 3D 资源…
           </Text>
         </View>
-      ) : viewer() ? (
+      ) : (
         <WebView
           ref={(node) => {
             webview = node;
           }}
           testID="anatomy3d-webview"
-          src={viewer()!}
+          src={retryUrl(withFocus(viewer()!, props.focus), retryNonce())}
           javaScriptEnabled
           style={{ flex: 1 }}
-          onError={(event) => {
-            const code = event.code ? `（${event.code}）` : "";
-            error.set(`3D 页面加载失败：${event.message}${code}`);
+          onLoadStart={() => {
+            highlightReady = false;
+            restoreDone = false;
+            failure.set(null);
+            slowDevice.set(false);
           }}
           onLoad={() => {
-            error.set(null);
-            void readStats();
+            void restoreThenHighlight();
+          }}
+          onError={(event) => failure.set(loadError(event))}
+          onMessage={(event) => {
+            try {
+              const message = JSON.parse(event.data);
+              if (message?.type === "anatomy3d:error") {
+                failure.set(
+                  message.message ? `模型没能载入：${message.message}` : "模型没能载入。",
+                );
+              } else if (message?.type === "anatomy3d:open-section") {
+                void openArchiveSection(message);
+              } else if (message?.type === "anatomy3d:state") {
+                rememberViewerState(message.state);
+              } else if (message?.type === "anatomy3d:slow-device") {
+                slowDevice.set(true);
+              }
+            } catch {
+              // 页面消息不是我们的契约时忽略。
+            }
           }}
         />
-      ) : (
-        <View
-          testID="anatomy3d-service-error"
-          style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: 24 }}
-        >
-          <Text style={{ fontSize: typeScale.body, color: token("destructive") }}>
-            本地 3D 服务没能启动，viewer 无法加载。
-          </Text>
-        </View>
       )}
     </View>
   );

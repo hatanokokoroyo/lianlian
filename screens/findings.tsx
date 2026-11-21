@@ -99,6 +99,14 @@ function attentionSections(sections: SiteSectionView[]): SiteSectionView[] {
     );
 }
 
+/** 「需要先处理」里所有肌群的异常卡总数：与每行「N 处」同一口径。 */
+function attentionCount(sections: SiteSectionView[]): number {
+  return attentionSections(sections).reduce(
+    (total, section) => total + abnormalCount(section),
+    0,
+  );
+}
+
 /** 根页的一张区域索引卡。 */
 function RegionTile(props: { section: SiteSectionView; onOpen: () => void }) {
   const section = props.section;
@@ -557,6 +565,7 @@ export function FindingsOverview(props: {
   onGoConversations: () => void;
   onOpenSection: (sectionId: string, focusSlug?: string) => void;
   onOpenPlan: () => void;
+  onGoAnatomy3dAttention: () => void;
 }) {
   const data = resource(() => Findings.load());
   const plans = resource(() => Plans.load(todayIso()));
@@ -685,6 +694,16 @@ export function FindingsOverview(props: {
                 </View>
               )}
             </Each>
+            <If when={attentionSections(data()!.sections).length > 0}>
+              <View style={{ flexDirection: "row", justifyContent: "flex-end" }}>
+                <TextButton
+                  testID="open-anatomy3d-attention"
+                  label={`在 3D 里看这 ${attentionCount(data()!.sections)} 处 ›`}
+                  hint="在 3D 身体图里查看这些需要先处理的肌群"
+                  onPress={props.onGoAnatomy3dAttention}
+                />
+              </View>
+            </If>
           </View>
 
           <SectionLabel text="全部区域" />

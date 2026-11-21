@@ -21,10 +21,20 @@ blender --background /path/to/Startup.blend \
 blender --background /path/to/Startup.blend \
   --python scripts/anatomy/export_za_smooth.py -- 3000 /tmp/za-cap3000-smooth.glb
 
+# 流畅档：从已有的 3,000 档再简化到每对象 2,000 面上限（约 2.01 MB）
+blender --background --python scripts/anatomy/decimate_glb.py -- \
+  docs/research/assets/za-cap3000-smooth.glb \
+  docs/research/assets/za-cap2000-smooth.glb 2000
+
 # 对照：保留 split normals 的 faceted 版本
 blender --background /path/to/Startup.blend \
   --python scripts/anatomy/export_za_dec.py -- 3000 /tmp/za-cap3000-draco.glb
 ```
+
+`decimate_glb.py` 用于没有源 `.blend` 的机器：它以 `za-cap3000-smooth.glb`
+为输入，对每个超过上限的对象做 COLLAPSE 简化、全面 smooth、清 custom split
+normals，再用与 `export_za_smooth.py` 相同的 Draco 参数导出。这是可复现的派生，
+不是官方 2,000 档的逐字节复刻。
 
 导出的 GLB **没有材质、UV、site 属性**，只用于几何/性能测试。节点名就是
 Z-Anatomy 对象名，可用 `za-export.json` 反查 `site_id`。

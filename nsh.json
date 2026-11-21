@@ -27,6 +27,8 @@
         "accent-foreground": "#06201f",
         "destructive": "#ff6b6b",
         "destructive-foreground": "#1a0b0b",
+        "chart-1": "#6ee7f0",
+        "chart-2": "#f0a26e",
         "border": "#353c47"
       }
     }

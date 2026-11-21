@@ -12,7 +12,7 @@ use std::thread;
 use std::time::Duration;
 
 const PAGE_PATH: &str = "/design/prototypes/anatomy-3d/";
-const PAGE_URL: &str = "/design/prototypes/anatomy-3d/?tier=cap3000&view=front";
+const PAGE_URL: &str = "/design/prototypes/anatomy-3d/?view=front";
 const INDEX_PATH: &str = "/design/prototypes/anatomy-3d/index.html";
 
 const HTML: &str = "text/html; charset=utf-8";
@@ -45,6 +45,11 @@ const ASSETS: &[Asset] = &[
         path: "/design/prototypes/anatomy-3d/viewer.js",
         content_type: JS,
         bytes: include_bytes!("../design/prototypes/anatomy-3d/viewer.js"),
+    },
+    Asset {
+        path: "/design/prototypes/anatomy-3d/viewer-state.js",
+        content_type: JS,
+        bytes: include_bytes!("../design/prototypes/anatomy-3d/viewer-state.js"),
     },
     Asset {
         path: "/design/prototypes/anatomy-3d/vendor/three/three.module.js",
@@ -114,6 +119,11 @@ const ASSETS: &[Asset] = &[
         content_type: GLB,
         bytes: include_bytes!("../docs/research/assets/za-cap3000-smooth.glb"),
     },
+    Asset {
+        path: "/docs/research/assets/za-cap2000-smooth.glb",
+        content_type: GLB,
+        bytes: include_bytes!("../docs/research/assets/za-cap2000-smooth.glb"),
+    },
 ];
 
 static BASE_URL: OnceLock<Option<String>> = OnceLock::new();
@@ -139,7 +149,7 @@ fn base_url() -> Option<&'static str> {
         .as_deref()
 }
 
-/// viewer 页面地址；默认走性能档，模拟器优先。
+/// viewer 页面地址；默认视觉档，由 viewer 在模型就绪后测量并自动降档。
 pub fn viewer_url() -> String {
     match base_url() {
         Some(base) => format!("{base}{PAGE_URL}"),
@@ -290,7 +300,7 @@ mod tests {
         for path in [
             "/design/prototypes/anatomy-3d/",
             "/design/prototypes/anatomy-3d/index.html",
-            "/design/prototypes/anatomy-3d/?tier=cap3000&view=back",
+            "/design/prototypes/anatomy-3d/?view=back",
         ] {
             let response = route("GET", path);
             assert_eq!(response.status, 200, "{path}");
@@ -307,12 +317,14 @@ mod tests {
         let cases = [
             ("/design/prototypes/anatomy-3d/style.css", CSS),
             ("/design/prototypes/anatomy-3d/viewer.js", JS),
+            ("/design/prototypes/anatomy-3d/viewer-state.js", JS),
             (
                 "/design/prototypes/anatomy-3d/vendor/draco/draco_decoder.wasm",
                 WASM,
             ),
             ("/scripts/anatomy/za-export.json", JSON),
             ("/docs/research/assets/za-cap3000-smooth.glb", GLB),
+            ("/docs/research/assets/za-cap2000-smooth.glb", GLB),
             ("/docs/research/assets/za-raw-smooth.glb", GLB),
         ];
         for (path, content_type) in cases {
@@ -351,12 +363,12 @@ mod tests {
     }
 
     #[test]
-    fn viewer_url_defaults_to_the_performance_tier() {
+    fn viewer_url_defaults_to_the_visual_tier() {
         if let Some(base) = base_url() {
             assert!(base.starts_with("http://127.0.0.1:"));
             assert_eq!(
                 viewer_url(),
-                format!("{base}/design/prototypes/anatomy-3d/?tier=cap3000&view=front")
+                format!("{base}/design/prototypes/anatomy-3d/?view=front")
             );
         }
     }
@@ -373,8 +385,10 @@ mod tests {
             ("/__health", JSON),
             (PAGE_PATH, HTML),
             ("/design/prototypes/anatomy-3d/viewer.js", JS),
+            ("/design/prototypes/anatomy-3d/viewer-state.js", JS),
             ("/scripts/anatomy/za-export.json", JSON),
             ("/docs/research/assets/za-cap3000-smooth.glb", GLB),
+            ("/docs/research/assets/za-cap2000-smooth.glb", GLB),
             ("/docs/research/assets/za-raw-smooth.glb", GLB),
         ];
         for (path, content_type) in cases {

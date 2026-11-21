@@ -1,8 +1,9 @@
-# 3D 解剖 viewer（throwaway spike）
+# 3D 身体图 viewer（页面骨架）
 
-独立可用的移动优先 3D 解剖原型，用来验证 Z-Anatomy 两档 GLB 的加载、
-`BatchedMesh` 合批、拾取、左右分色、层级预设与隔离。**不修改 App**，也没有
-接入档案页。
+移动优先的 3D 身体图 viewer，用来验证 Z-Anatomy 三档 GLB 的加载、
+`BatchedMesh` 合批、拾取、左右分色、层级预设与隔离。它已经接进 App 的档案栈；
+当前页面骨架保留返回、重置、视角四段、层级菜单、首次提示、加载/失败态与
+档案异常高亮；详情卡与异常列表尚未进入这一票的页面骨架。
 
 模型：79 块肌肉 + 31 个有网格的骨骼部位，311 个节点；映射表 119 个 site，
 其中 110 个在 GLB 里有几何（9 个骨性定位点只有坐标，不在这两个 GLB 里）。
@@ -23,19 +24,22 @@ python3 -m http.server 8765 --bind 127.0.0.1
 http://127.0.0.1:8765/design/prototypes/anatomy-3d/
 ```
 
-默认加载视觉档（`raw`）。桌面上 viewer 居中，宽度上限 760 px；手机为全屏。
+默认加载视觉档（`raw`）。模型就绪后连续采样约 2 秒真实帧率：低于 24 fps
+自动切到 `cap3000`，仍低于 20 fps 再切到 `cap2000`；`cap2000` 仍低于 20 fps
+时向原生报告设备较慢。切档保留相机、选中、层级、视角与 `saved` 快照，且只显示
+一次「已切到流畅档」提示。桌面上 viewer 居中，宽度上限 760 px；手机为全屏。
 
-## App 内 spike（Android）
+## App 内页面（Android）
 
 viewer 已经通过 NSH WebView 接进 App，入口在「档案」页右上角：
 
 ```sh
 nsh run --target android
-# 档案 → 3D 解剖 spike
+# 档案 → 3D 身体图
 ```
 
 - Rust 侧 `src/anatomy3d.rs` 用 `127.0.0.1:0` 起 loopback HTTP 服务，把 viewer、
-  Three.js、Draco、映射表与两档 GLB 用 `include_bytes!` 编进二进制。
+  Three.js、Draco、映射表与三档 GLB 用 `include_bytes!` 编进二进制。
 - TSX 侧 `screens/anatomy3d.tsx` 全屏 WebView；进入时收起底部 Tab，返回走
   `nav.pop()`。
 - `nsh.json` 的 `android.usesCleartextTraffic: true` 只为访问 127.0.0.1 的
@@ -64,41 +68,52 @@ nsh run --target android
 
 - 拖动旋转，滚轮/双指缩放；极角限制在约 22°–158°，防止钻到头顶/脚底。
 - 四视角：正（+Z）、背（−Z）、左（+X）、右（−X）。
-- 左 `#6ee7f0`、右 `#f0a26e`、中线 `#aab2bd`；选中 site 统一高亮 `#c8f04a`。
-- 点击肌肉/骨骼按 site 选中，显示中文名、英文名、kind、左右、当前档位三角面与对象数；
-  点空白取消。
+- 正常肌肉保留左青 / 右橙（默认 `#6ee7f0` / `#f0a26e`）；异常部位用
+  `destructive`，选中用 `primary`。App 内这三个颜色与左右底色都由原生侧从主题
+  token 传入；独立浏览器没有原生宿主时用 `viewer-state.js` 里的默认 palette。
+- 高亮粒度是「部位 + 侧别」：`side: null` 表示该部位左右两侧都算异常。
+  只给肌肉染色，骨骼即使出现在异常集合里也忽略。
+- 视角按钮反映相机真实方向：自由旋转停止后，高亮最接近的正/背/左/右；
+  旋转本身不触发取景。
 - 层级：全身 / 浅层 / 深层 / 骨骼。深层保留深层肌肉、隐藏骨骼，浅层以 0.06
   透明度作为轮廓；浅层与骨骼预设各自只保留对应批次。
-- “只看这块”隔离当前 site，并把相机聚焦到该 site 的包围盒；多对象 site
-  （如多裂肌 6 个对象）全部保留。
-- 快捷目标：臀大肌（背视/全身）、腹横肌（前视/深层）、多裂肌（背视/深层）。
-- 顶部“自转”开关：开启后模型绕身体中轴持续旋转并每帧渲染，用于性能观察；
-  关闭后恢复按需渲染。自转时统计显示滚动窗口的 `平均/最低 fps`。
-- 直接关闭自转会保留当前模型角度；但任何显式视角、层级、选中或快捷目标操作
-  都会先停止自转、把模型 yaw 归零，再应用新状态。
+- 层级菜单从「层级：<当前> ▾」打开，点外部或 Escape 关闭；当前项有选中态。
+- 首次进入显示「拖动旋转 · 双指缩放 · 点肌肉看详情」，第一次成功拖动/缩放/点选后
+  淡出，并在 `localStorage` 记住，之后不再出现。
+- 点选、切层级、开关浮层都不改变相机；只有首屏加载、重置和「只看这块」取景。
+  隔离按钮在进入后变为「显示全部」，退出时原样恢复相机、层级、选中与侧别。
+  隔离中层级控件禁用（视角仍可切），关闭详情卡也会退出隔离并恢复相机。
+- 有异常时，第二行右侧出现「需注意 N 处 ›」。打开后按肌群分组列出部位、侧别与最差
+  一条；缺网格的部位标「模型里暂缺」，仍可打开详情卡，但不提供「只看这块」。
+  列表是绝对定位浮层，开关不影响画布尺寸与相机。
+- 档位切换、自转与统计面板已从产品 UI 移除；对应能力保留在 `window.__viewer`
+  里，供自动化契约检查使用。
 
-渲染是需求驱动：交互/状态变化时渲染，静止后停止 `requestAnimationFrame`，
-所以不自转时统计固定显示 `— fps`；开启自转后显示如 `60/60 fps`。
+渲染是需求驱动：交互/状态变化时渲染，静止后停止 `requestAnimationFrame`。
 自转约 0.45 rad/s（约 14 秒一圈）。
 
 ## URL 参数
 
 | 参数 | 值 | 默认 | 说明 |
 |---|---|---|---|
-| `tier` | `raw` / `cap3000` | `raw` | 视觉档 / 性能档 |
+| `tier` | `raw` / `cap3000` / `cap2000` | `raw` | 视觉档 / 性能档 / 流畅档 |
 | `view` | `front` / `back` / `left` / `right` | `front` | 初始视角 |
 | `preset` | `all` / `shallow` / `deep` / `bone` | `all` | 层级预设 |
 | `site` | `site_id` | 无 | 初始选中 site，如 `multifidus` |
-| `isolate` | `1` | 关 | 配合 `site` 使用；只看该 site |
+| `isolate` | `1` | 关 | 配合 `site` 使用；进入只看该 site，按钮可退出并恢复 |
+| `focus` | `attention` | 无 | 首次 `setHighlight` 有异常行后自动打开异常列表 |
 | `spin` | `1` | 关 | 启动自转/性能模式，持续渲染 |
 | `ui` | `0` / `1` | `1` | `0` 隐藏全部 UI，便于截图 |
+| `autoTier` | `0` / `1` | `1` | `0` 关闭自动帧率采样与降档 |
+| `tierTest` | `1` | 关 | 测试模式：不跑真实采样，暴露 `testTierFps(fps)` |
 
 示例：
 
 ```text
-?tier=cap3000&view=back
-?tier=cap3000&view=back&spin=1
-?tier=cap3000&view=back&preset=deep&site=multifidus&isolate=1&ui=0
+?view=back
+?tier=cap3000&view=back&autoTier=0
+?tier=cap2000&view=back&autoTier=0
+?view=back&preset=deep&site=multifidus&isolate=1&ui=0
 ```
 
 `site_id` 与对象映射来自运行时 `fetch` 的 `/scripts/anatomy/za-export.json`。
@@ -111,15 +126,25 @@ window.__viewer = {
   ready,                 // boolean
   error,                 // string | null
   stats,                 // 见下
+  setHighlight({ palette, sites }), // 主题色 + 异常部位；不重新加载模型
   setView(v),            // front|back|left|right
   setPreset(p),          // all|shallow|deep|bone
   selectSite(id),        // site_id | null
   setIsolate(b),         // boolean
+  openAttention(),       // 打开「需注意 N 处」列表；无异常时返回 false
   setSpin(b),            // boolean；开启自转/性能模式
-  setTier(t),            // raw|cap3000，返回 Promise<boolean>
-  reset(),               // 回 raw/front/all，清选择并关闭自转
+  setTier(t),            // raw|cap3000|cap2000，返回 Promise<boolean>
+  reset(),               // 回 front/all，清选择与隔离；保留当前设备档位
 };
 ```
+
+`?tierTest=1` 时额外暴露 `testTierFps(fps)`：把给定的平均帧率直接送进与真实
+采样相同的纯函数决策与切档路径，用于无头校验。生产页面不显示任何测试控件。
+
+`setHighlight` 的 `sites` 是 `{ siteId, side }` 数组，`side` 为 `left` /
+`right` / `null`。`palette` 可只给 `left`、`right`、`abnormal`、`selected`，
+其余键沿用默认；缺网格的部位会出现在 `stats.missingSites` 里，不会静默消失。
+换档或重载模型后会沿用同一份高亮集合重新套色。
 
 Ready 后写 `document.body.dataset.viewerReady = '1'`；失败写
 `document.body.dataset.viewerError`。加载/渲染不依赖用户手势，截图模式可直接跑。
@@ -129,7 +154,10 @@ Ready 后写 `document.body.dataset.viewerReady = '1'`；失败写
 ```text
 tier, triangles, renderedTriangles, drawCalls, fps, fpsAvg, fpsMin, spin, spinYaw, loadMs, multiDraw,
 instances, sites, selectedSite, selectedObjectCount, highlightColor,
-visibleInstances
+highlightSites, highlightedSiteIds, abnormalObjectCount, missingSites, palette,
+visibleInstances, view, preset, cameraDistance, cameraTarget,
+attentionOpen, attentionCount, attentionGroups, attentionMissing,
+autoTierSampledFps, autoTierDecision, tierNoticeCount, slowDevice
 ```
 
 - `spin`：自转模式是否开启
@@ -138,8 +166,20 @@ visibleInstances
 - `spinYaw`：模型当前自转 yaw（弧度）。显式视角/层级/选中/快捷操作后归零
 - `selectedSite`：当前 site id 或 `null`
 - `selectedObjectCount`：该 site 在当前档位下的对象数
-- `highlightColor`：选中时为 `#c8f04a`，未选中为 `null`
+- `highlightColor`：选中时为当前 palette 的 `selected`，未选中为 `null`
+- `highlightSites`：最近一次 `setHighlight` 收到的部位 + 侧别
+- `highlightedSiteIds`：实际匹配到肌肉网格的异常 site（骨性忽略）
+- `abnormalObjectCount`：当前真正染成异常色的对象数（被选中覆盖的不算）
+- `missingSites`：异常集合里没有网格的 site id
+- `palette`：当前生效的 palette
 - `visibleInstances`：当前实际可见 instance 数
+- `view` / `preset`：当前视角与层级；自由旋转后 `view` 会更新为最接近的方向
+- `cameraDistance` / `cameraTarget`：相机到目标点的距离与目标点，用于断言取景契约
+- `attentionOpen` / `attentionCount`：异常列表是否打开、行数（含缺网格行）
+- `attentionGroups` / `attentionMissing`：异常列表的分组数与缺网格行数
+- `autoTierSampledFps` / `autoTierDecision`：最近一次采样均值与纯函数给出的决定
+- `tierNoticeCount`：本次页面生命周期内「已切到流畅档」提示出现次数（最多 1）
+- `slowDevice`：`cap2000` 仍低于 20 fps 时是否已向原生报告
 
 ## 验证
 
@@ -152,16 +192,21 @@ node design/prototypes/anatomy-3d/verify.mjs
 脚本会：
 
 1. 若 8765 没有服务，自动从仓库根起 `python3 -m http.server`；
-2. 用 Edge/Chrome headless 打开 `?tier=cap3000&view=back`；
+2. 用 Edge/Chrome headless 打开默认档 `?view=back&autoTier=0`；
 3. 等 `__viewer.ready`，检查三角面、draw calls（≤ 5）、`WEBGL_multi_draw`；
-4. 切深层、选中腹横肌/多裂肌、隔离、真实鼠标点击拾取；
-5. 检查 390×844 与 430×932 顶栏/统计/底部控制条无横向溢出；
-6. 往返 `raw` / `cap3000`，自转 2 秒检查 `fps>0`、avg/min 有值、draw calls
-   不退化，关闭后恢复 `— fps`；
-7. 自转约 1 秒后关闭并 `setView('back')`，断言 `spinYaw≈0`、背面按钮生效，
+4. 检查产品控件：四视角、层级菜单开关/外部点击/Escape/选中态、首次提示、无档位/自转/统计；
+5. 检查 390×844 与 430×932 底部控件与提示无横向溢出；
+6. 自由旋转后断言视角高亮跟随相机方向，且相机距离/目标不变；
+7. 切深层、选中腹横肌/多裂肌、隔离并恢复，断言选择与切层不改相机；
+8. 真实鼠标点击拾取；
+9. 往返 `raw` / `cap3000`，自转 2 秒检查 `fps>0`、avg/min 有值、draw calls 不退化；
+   另用 `?tierTest=1&autoTier=0` 确定性检查 raw→cap3000→cap2000→slow、
+   切档不改变相机/选中/层级/视角、提示只出现一次、慢设备消息与后续可操作性；
+10. 自转约 1 秒后关闭并 `setView('back')`，断言 `spinYaw≈0`、背面按钮生效，
    截图到 `/tmp/anatomy-3d-back-after-spin.png`；
-8. 验证 `ui=0&site=multifidus&isolate=1&spin=1` URL 契约；
-9. 检查 console 无 error，并输出截图（默认 `/tmp/anatomy-3d-verify.png`）。
+11. 验证 `ui=0&site=multifidus&isolate=1&spin=1` URL 契约；
+12. 重载后断言首次提示不再出现；检查 console 无 error，并输出截图
+    （默认 `/tmp/anatomy-3d-product.png` 与 `/tmp/anatomy-3d-verify.png`）。
 
 自定义浏览器或地址：
 
@@ -179,6 +224,7 @@ EDGE_BIN="/path/to/edge" VIEWER_URL="http://127.0.0.1:8765/design/prototypes/ana
 |---|---:|---:|---:|
 | `raw` | 1,525,071 | 3 | 约 520 ms |
 | `cap3000` | 743,912 | 3 | 约 494 ms |
+| `cap2000` | 541,822 | 未单独测 | 未单独测 |
 
 - 深层预设：2 draw calls（深层 + 浅层 ghost）
 - 隔离单 site：1 draw call
@@ -204,7 +250,9 @@ headless 的 `requestAnimationFrame` 被 60 Hz 上限截住，所以两档都显
 - 仓库文档/handoff 写 raw 档为 1,502,535 面，但 GLB 节点引用的 accessor 实际
   合计 **1,525,071** 面；`cap3000` 的 743,912 与文档一致。本 viewer 与
   verify 脚本使用实测值。
-- 只有两档资产（raw / cap3000）；2,000 面低端档未入库，所以没有第三档可切。
+- `cap2000` 由现有 `cap3000` 再简化得到，不是从 Z-Anatomy `Startup.blend`
+  直接导出的官方 2,000 档逐字节复刻；生成脚本与限制见
+  `scripts/anatomy/README.md` 与 `docs/research/assets/README.md`。
 - GLB 没有材质、UV、法线贴图或 site 顶点属性；颜色、光照与映射都在运行时生成。
 - 9 个骨性定位点不在 GLB 内，本原型不画定位点。
 - `GLTFLoader` 会清洗节点名（空格/点号），映射通过 `gltf.parser.associations`
