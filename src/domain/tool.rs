@@ -113,7 +113,6 @@ impl EvidenceQuery {
             },
         })
     }
-
 }
 
 /// `record_finding` 的参数。
@@ -192,14 +191,11 @@ impl ProposeArgs {
         conversation: Option<super::ConversationId>,
         at: Timestamp,
     ) -> Result<ProposeArgs, ToolError> {
-        let items = args
-            .get("items")
-            .and_then(Value::as_array)
-            .ok_or_else(|| {
-                ToolError::invalid_arguments(
-                    "缺少 items（要改的那几条，1–8 项，每项和 record_finding 一样）。".to_owned(),
-                )
-            })?;
+        let items = args.get("items").and_then(Value::as_array).ok_or_else(|| {
+            ToolError::invalid_arguments(
+                "缺少 items（要改的那几条，1–8 项，每项和 record_finding 一样）。".to_owned(),
+            )
+        })?;
         if items.len() > super::proposal::MAX_ITEMS {
             return Err(ToolError::TooManyItems {
                 count: items.len(),
@@ -209,7 +205,17 @@ impl ProposeArgs {
         let mut parsed = Vec::with_capacity(items.len());
         for item in items {
             let args = RecordArgs::parse(item, conversation, at)?;
-            parsed.push(super::ProposalItem::new(args.draft, args.evidence));
+            let recommend = match item.get("recommend") {
+                None | Some(Value::Null) => None,
+                Some(value) => Some(value.as_bool().ok_or_else(|| {
+                    ToolError::invalid_arguments(
+                        "recommend 必须是 true / false（可选：建议默认勾选还是不勾）。".to_owned(),
+                    )
+                })?),
+            };
+            let mut proposal_item = super::ProposalItem::new(args.draft, args.evidence);
+            proposal_item.recommend = recommend;
+            parsed.push(proposal_item);
         }
         Ok(ProposeArgs { items: parsed })
     }
@@ -292,9 +298,12 @@ impl GenerateArgs {
                 )
             })?;
         let unit = required_string(frequency.get("unit"), "frequency.unit")?;
-        let count = frequency.get("count").and_then(Value::as_u64).ok_or_else(|| {
-            ToolError::invalid_arguments("缺少 frequency.count（1–7 的整数）。".to_owned())
-        })?;
+        let count = frequency
+            .get("count")
+            .and_then(Value::as_u64)
+            .ok_or_else(|| {
+                ToolError::invalid_arguments("缺少 frequency.count（1–7 的整数）。".to_owned())
+            })?;
         let frequency = super::Frequency::from_parts(&unit, count)
             .map_err(|error| ToolError::invalid_arguments(error.to_string()))?;
 
@@ -584,12 +593,12 @@ impl ToolError {
                 "没有叫 `{name}` 的工具；可用的是 {SEARCH_EVIDENCE} / {RECORD_FINDING} / {CORRECT_FINDING} / {PROPOSE_FINDINGS} / {GENERATE_PLAN}。"
             ),
             ToolError::UnknownFinding(id) => format!("找不到编号 {id} 的判定；先查档案再改。"),
-            ToolError::TooManyItems { count, max } => format!(
-                "一张卡最多 {max} 项，收到 {count} 项；分几轮提。"
-            ),
-            ToolError::PendingProposal { items } => format!(
-                "上一张卡还有 {items} 项等用户审；先等用户处理完，别再开新卡。"
-            ),
+            ToolError::TooManyItems { count, max } => {
+                format!("一张卡最多 {max} 项，收到 {count} 项；分几轮提。")
+            }
+            ToolError::PendingProposal { items } => {
+                format!("上一张卡还有 {items} 项等用户审；先等用户处理完，别再开新卡。")
+            }
             ToolError::Storage(message) => format!("本地库出错，这次没写成：{message}"),
             ToolError::Domain(error) => error.to_string(),
         }
@@ -788,6 +797,49 @@ mod tests {
         assert_eq!(args.evidence.kind, EvidenceKind::Record);
         assert_eq!(args.evidence.user_said, "蹲到一半膝盖前面紧");
         assert_eq!(args.evidence.finding, None);
+    }
+
+    #[test]
+    fn propose_arguments_carry_an_optional_recommendation() {
+        let base = json!({
+            "site": "gluteus-medius",
+            "side": "left",
+            "confidence": 70,
+            "values": draft_values(),
+            "evidence": evidence_json()
+        });
+        let mut low = base.clone();
+        low["confidence"] = json!(20);
+        low["recommend"] = json!(true);
+        let mut high = base;
+        high["recommend"] = json!(false);
+
+        let args = ProposeArgs::parse(
+            &json!({ "items": [low, high] }),
+            Some(super::super::ConversationId(3)),
+            1_000,
+        )
+        .expect("解析");
+        assert_eq!(args.items[0].recommend, Some(true));
+        assert!(args.items[0].default_selected(), "模型说勾就勾，不看阈值");
+        assert_eq!(args.items[1].recommend, Some(false));
+        assert!(!args.items[1].default_selected(), "模型说别勾就不勾");
+
+        let bad = ProposeArgs::parse(
+            &json!({ "items": [{
+                "site": "gluteus-medius",
+                "side": "left",
+                "confidence": 70,
+                "recommend": "yes",
+                "values": draft_values(),
+                "evidence": evidence_json()
+            }] }),
+            None,
+            1_000,
+        )
+        .unwrap_err();
+        assert_eq!(bad.code(), "invalid_arguments");
+        assert!(bad.message().contains("recommend"));
     }
 
     #[test]

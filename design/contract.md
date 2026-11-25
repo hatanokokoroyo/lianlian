@@ -100,7 +100,7 @@ v1 只有一种模式（深色）。全部值放在 `theme` 一节下，`light`/
 | 日详情 | 休息日 → "这天没有安排" | — | — | 全部完成带 ✓ | — | 动作很多时整页滚动 |
 | 档案 | 无任何 Finding → 引导去评估 | 投影计算中 | 部分轴未测（虚线） | 五轴齐全 + 多条历史 | 读库失败 | 根页只列区域索引；部位卡与长历史进区域页滚动 |
 | 会话列表 | 0 个会话 → "新开一个"主行动 | — | — | 归档折叠区 | — | 100+ 会话 → 虚拟列表 |
-| 对话 | — | 流式输出中（打字机） | 提议卡片待确认 | 已接受 → 可撤销摘要 | 三类错误（见 §8） | 长回复可滚、输入条固定 |
+| 对话 | — | 流式输出中（打字机） | 待审卡在时间线内（发送锁定） | 已处理收起（展开可回看） | 三类错误（见 §8） | 长回复可滚、输入条固定 |
 | 体重 | 无测量 → 空图 + 引导 | — | 1 个点 | 多点折线 | — | 200 条 → 列表折叠为按月 |
 | 引导 | 步骤 1 | — | 步骤 2 | 步骤 3 | key 未填 → 指向设置 | — |
 | 设置 | key 未填 | — | key 已填但验证中 | 已验证 | key 无效 / 无额度 | 三个分区滚动 |
@@ -119,17 +119,16 @@ v1 只有一种模式（深色）。全部值放在 `theme` 一节下，`light`/
 ### 6.2 提议卡片状态机
 
 ```
-待确认 ──接受选中──→ 已应用（可撤销）
-   │                    │
-   │                    └──撤销──→ 待确认（追加 Correction，不删除历史）
-   └──拒绝──→ 拒绝中（可填理由）──→ 已关闭
-                    └──只是拒绝──→ 已关闭
+待审 ──一次提交整张卡──→ 已处理
+                          ├── Accepted：写进 ≥1 项
+                          └── Dismissed：一项都不要
 ```
 
 - 默认勾选规则：置信度 ≥ 阈值 → 勾；低置信度 → 不勾并在标题旁标"低置信度"。
 - 一次最多 8 项；超过时 agent 必须分轮（服务端拒绝，见 spec 的工具约束）。
-- "接受选中 0 项"时按钮禁用。
-- 拒绝后 agent **必须同轮**给出下一步（换方案 / 追问 / 撤回并说明）；只回"好的"算失败。
+- 勾选=采纳，不勾=不要，一个按钮提交整张卡；0 勾选时按钮写"这 N 项都不要"，用描边但不置灰。
+- 提交即定案：界面不提供撤销入口，也没有"先接受一部分、回头再审剩余项"；要改就接着说，由对话追加「更正」。
+- 整张卡只触发一轮：提交后结果作为一条用户消息交给模型，跑一轮回复；不存在逐项拒绝各触发一轮。
 
 ### 6.3 日历格子编码（双编码，不只靠颜色）
 
@@ -166,8 +165,8 @@ v1 只有一种模式（深色）。全部值放在 `theme` 一节下，`light`/
 | 今日 | `tab-today` `open-calendar` `today-loading` `today-progress` `today-ring` `today-state` `today-state-label` `today-exercises` `today-exercises-scroll` `exercise-{site}-{n}`（`n` 是当天第几个动作，0 起）`checkin` `today-busy` `postpone` `postpone-target` `postpone-confirm` `postpone-cancel` `postpone-error` `skip-exercise` `skip-option-{n}` `skip-cancel` `skip-error` `view-evidence` `today-review-due` `today-rest` `today-rest-title` `today-ready` `today-ready-title` `today-start-assessment` `today-needs-training` `today-needs-training-title` `today-fill-training` `today-error` |
 | 日历 | `tab-calendar` `day-{1..31}` `prev-month` `next-month` `calendar-loading` `calendar-error` `calendar-legend` `day-detail` `day-detail-scroll` `day-detail-state` `day-detail-postponed` `day-detail-rest` `day-detail-exercise-{n}` `day-detail-error` `make-up` `makeup-exercise-{n}` `makeup-cancel` |
 | 档案 | `tab-profile` `profile-scroll` `archive-section-{id}`（根页区域索引，进入区域页）`profile-attention` `attention-{section}` `profile-data` `open-basics` `open-measurements` `open-training` `open-storage` `open-settings` `profile-body-metrics` `profile-training-missing` `section-scroll-{id}` `section-empty` `section-back` `section-focus-missing` `site-{site}-{left\|right}`（中线结构 `site-{site}`）`site-{slug}-resolved` `site-{slug}-evidence` `site-{slug}-axis-{axis}` `mark-resolved-{slug}` `retract-{slug}` `retract-reason-{slug}` `retract-confirm-{slug}` `retract-cancel-{slug}` `retract-form` `open-timeline-{slug}` `timeline-{slug}` `timeline-{slug}-entry` `timeline-{slug}-evidence-{n}` `retract-entry-{slug}-{n}`（`n` 是时间线里的第几条，0 起）`group-{group}-{left\|right}`（中线聚合是 `group-{group}`）`group-{slug}-axis-{axis}` `findings-empty` `findings-start-assessment` `findings-message` `findings-error` `basics-scroll` `save-basics` `training-scroll` `save-training` `storage-scroll` `storage-capacity` `storage-table-{id}` `profile-error` `profile-saved` |
-| 会话 | `tab-conversations` `conversation-list-scroll` `new-conversation` `conv-{slug}` `conv-menu` `archive-conv` `delete-conv` `message-input` `pick-photo` `photo-pending` `remove-photo` `photo-error` `message-photo-{id}` `photo-preview` `close-photo-preview` `send` `conv-actions` `undo` |
-| 提议 | `proposal-card` `proposal-item-{n}` `proposal-evidence-{n}` `reject-item-{n}` `reject-proposal` `reject-reason` `cancel-reject` `accept-proposal` `accepted-proposal-{id}` `undo` `undo-reason` `undo-confirm` `cancel-undo` `proposal-error` |
+| 会话 | `tab-conversations` `conversation-list-scroll` `new-conversation` `conv-{slug}` `conv-menu` `archive-conv` `delete-conv` `message-input` `pick-photo` `photo-pending` `remove-photo` `photo-error` `message-photo-{id}` `photo-preview` `close-photo-preview` `send` `conv-actions` `review-lock` |
+| 提议 | 待审：`proposal-card` `proposal-item-{n}` `proposal-evidence-{n}` `reject-reason-{n}` `accept-proposal`。已处理：`reviewed-proposal-{id}` `proposal-summary-{id}` `reviewed-item-{id}-{n}` `reviewed-evidence-{id}-{n}`。共用：`proposal-error` |
 | 计划 | `plan-card`（根页摘要）`plan-version` `open-plan` `plan-empty` `plan-start` `plan-scroll` `plan-page` `plan-page-version` `plan-page-empty` `plan-page-start` `plan-exercise-{n}`（计划页）`plan-versions` `plan-versions-list` `plan-review-due` `plan-error` `today-review-due` |
 | 体重 | `measurements-scroll` `weight-chart` `add-measurement` `delete-measurement` |
 | 引导 | `onboarding-next` `onboarding-prev` `onboarding-step-3` `onboarding-error` |

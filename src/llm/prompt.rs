@@ -99,10 +99,12 @@ pub fn session_length(items: &[Input]) -> Length {
 /// 系统提示。改它等于改模型的行为，别顺手改。
 pub const SYSTEM_PROMPT: &str = concat!(
     "你是「练练」里的训练教练。用中文说话。\n",
-    "工作顺序：先给用户 2–3 个在家能做的验证动作（做什么、看什么现象），拿到反馈之前不下结论；",
-    "有了依据才在档案上落判定。\n",
-    "写档案之前先调 search_evidence 查这个部位已有的记录，再调 record_finding 或 correct_finding；",
-    "没查就写会被拒。写入必须带齐四段依据：用户说法要点 / 验证方案与反馈 / 推理 / 不确定之处。\n",
+    "用户说症状时先不下结论：心里先有 2–3 个最可能的解释，一句话说明你在分辨什么，不列长清单。\n",
+    "每轮只问一个最能区分这些解释的问题，或给一个能区分它们的验证动作（做什么、看什么现象）。\n",
+    "拿到反馈先说清排除了哪个、还剩什么；只剩一个解释站得住、或能说清别的为什么不成立，才提议写档案。\n",
+    "反馈模糊或互相矛盾就继续问，不许用置信度糊过去；最多问 3 轮。3 轮仍分不清，就说「现在最可能是 X，但要看 Y 才能定」，进卡时标低置信度、默认不勾。\n",
+    "用户答过的不重复问；一轮一句，不要在聊天里做长问卷。\n",
+    "写档案之前先调 search_evidence 查这个部位已有的记录，再落判定；单条 record_finding 也守上面的门槛，不许绕过提问直接下结论。\n",
     "当前状态在最后一条消息之前给出：那是现在的事实。历史里的判断可能已经过期，不要当成现状。\n",
     "你只记得本会话的历史；别的会话只共享档案与依据日志，不共享对话原文。\n",
     "回答短、具体、可执行，不要一次给一整套通用课表。\n",
@@ -285,10 +287,10 @@ impl Input {
         }
     }
 
-    /// 库里的一条 → 请求里的一项。
-    pub fn from_stored(item: &StoredItem) -> Input {
+    /// 库里的一条 → 请求里的一项；卡片行只是时间线上的位置，不进上下文。
+    pub fn from_stored(item: &StoredItem) -> Option<Input> {
         match item {
-            StoredItem::Message { role, text, photos } => Input::Message(MessageItem {
+            StoredItem::Message { role, text, photos } => Some(Input::Message(MessageItem {
                 role: role.key().to_owned(),
                 // 历史里的照片不重发原图：一行占位，前缀仍然逐字节确定。
                 content: if photos.is_empty() {
@@ -298,25 +300,27 @@ impl Input {
                 } else {
                     Content::Text(format!("{text}\n{PHOTO_PLACEHOLDER}"))
                 },
-            }),
+            })),
             StoredItem::FunctionCall {
                 call_id,
                 name,
                 arguments,
-            } => Input::FunctionCall(FunctionCallItem {
+            } => Some(Input::FunctionCall(FunctionCallItem {
                 kind: "function_call",
                 call_id: call_id.clone(),
                 name: name.clone(),
                 arguments: arguments.clone(),
-            }),
+            })),
             StoredItem::FunctionCallOutput { call_id, output } => {
-                Input::FunctionCallOutput(FunctionCallOutputItem {
+                Some(Input::FunctionCallOutput(FunctionCallOutputItem {
                     kind: "function_call_output",
                     call_id: call_id.clone(),
                     output: output.clone(),
-                })
+                }))
             }
-            StoredItem::Raw { item } => Input::Raw(item.clone()),
+            StoredItem::ProposalCard { .. } => None,
+            StoredItem::ReviewDecision { text } => Some(Input::user(text.as_str())),
+            StoredItem::Raw { item } => Some(Input::Raw(item.clone())),
         }
     }
 }
@@ -379,9 +383,11 @@ pub fn assemble_with_turns(
 
     let mut items = Vec::with_capacity(history.len() - start + 4);
     items.push(Input::system(system_prompt()));
-    for entry in &history[start..] {
-        items.push(Input::from_stored(&entry.item));
-    }
+    items.extend(
+        history[start..]
+            .iter()
+            .filter_map(|entry| Input::from_stored(&entry.item)),
+    );
     items.push(Input::system(state_block(snapshot)));
     items.push(match photo {
         Some(data_url) => Input::user_with_photo(turn, data_url),
@@ -704,10 +710,48 @@ mod tests {
     }
 
     #[test]
+    fn the_prompt_differentiates_before_concluding() {
+        // #47：先说清在分辨什么、每轮只问一个；旧的「一轮测完就收尾」不能再出现。
+        assert!(SYSTEM_PROMPT.contains("用户说症状时先不下结论"));
+        assert!(SYSTEM_PROMPT.contains("每轮只问一个最能区分这些解释的问题"));
+        assert!(SYSTEM_PROMPT.contains("最多问 3 轮"));
+        assert!(SYSTEM_PROMPT.contains("进卡时标低置信度、默认不勾"));
+        assert!(SYSTEM_PROMPT.contains("单条 record_finding 也守上面的门槛"));
+        assert!(!SYSTEM_PROMPT.contains("2–3 个在家能做的验证动作"));
+    }
+
+    #[test]
+    fn a_proposal_card_row_stays_out_of_the_model_input() {
+        let history = vec![
+            message(1, Role::User, "蹲不下去"),
+            message(2, Role::Assistant, "先看看我这几条判断。"),
+            tool_entry(
+                3,
+                crate::domain::StoredItem::ProposalCard {
+                    proposal: crate::domain::ProposalId(9),
+                },
+            ),
+        ];
+        let assembly = assemble(&snapshot(), &history, "接着说", None);
+        let roles: Vec<&str> = assembly
+            .items
+            .iter()
+            .map(|item| item.role().unwrap_or("-"))
+            .collect();
+        assert_eq!(roles, vec!["system", "user", "assistant", "system", "user"]);
+        let sent = serde_json::to_string(&assembly.items).expect("序列化");
+        assert!(
+            !sent.contains("proposal-card"),
+            "卡片行不该发给模型：{sent}"
+        );
+    }
+
+    #[test]
     fn the_state_block_is_byte_identical_for_the_same_state() {
         let state = snapshot();
         let history = vec![message(1, Role::User, "在吗")];
-        let first = serde_json::to_string(&assemble(&state, &history, "嗯", None).items).expect("序列化");
+        let first =
+            serde_json::to_string(&assemble(&state, &history, "嗯", None).items).expect("序列化");
         let second =
             serde_json::to_string(&assemble(&state, &history, "嗯", None).items).expect("序列化");
         assert_eq!(first, second);
@@ -804,8 +848,11 @@ mod tests {
                 id: MessageId(1),
                 conversation: ConversationId(1),
                 at: 1,
-                item: crate::domain::StoredItem::user_with_photo("先看这张", crate::domain::PhotoId(5))
-                    .expect("带照片"),
+                item: crate::domain::StoredItem::user_with_photo(
+                    "先看这张",
+                    crate::domain::PhotoId(5),
+                )
+                .expect("带照片"),
             },
             message(2, Role::Assistant, "看到了"),
         ];
@@ -957,7 +1004,10 @@ mod tests {
         let state = assembly
             .items
             .iter()
-            .find_map(|item| item.content().filter(|text| text.starts_with("【当前状态】")))
+            .find_map(|item| {
+                item.content()
+                    .filter(|text| text.starts_with("【当前状态】"))
+            })
             .expect("状态块");
         assert!(state.contains("档案条目："));
         assert!(state.contains("臀中肌"));
@@ -1009,7 +1059,10 @@ mod tests {
         // 工具参数里的 YYYY-MM-DD 与状态块里的日期必须互逆。
         let day = crate::domain::tool::parse_date("2025-11-24").expect("解析");
         assert_eq!(date(day), "2025-11-24");
-        assert_eq!(date(crate::domain::tool::parse_date("2026-11-15").expect("解析")), "2026-11-15");
+        assert_eq!(
+            date(crate::domain::tool::parse_date("2026-11-15").expect("解析")),
+            "2026-11-15"
+        );
     }
 
     #[test]

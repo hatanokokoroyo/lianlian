@@ -146,12 +146,12 @@ export function Onboarding(props: {
                     >
                       第一次评估大概这样
                     </Text>
-                    <Note text="agent 会给你 2–3 个在家能做的验证动作，你照着做并告诉它感受。它不会凭一句话就下结论。" />
+                    <Note text="agent 会一次问一个能分辨原因的问题，最多几轮；分清之后开一张卡，你一次审完。" />
                     <View style={{ gap: 6 }}>
                       <SectionLabel text="接下来" />
                       <Note text="1 · 说说你最想改善的问题" />
                       <Note text="2 · 做完验证动作，反馈感受" />
-                      <Note text="3 · 它在档案上写下判定，你逐条接受或拒绝" />
+                      <Note text="3 · 它开一张卡，你一次采纳或不要，提交即定案" />
                     </View>
                     <Note
                       tone="accent"

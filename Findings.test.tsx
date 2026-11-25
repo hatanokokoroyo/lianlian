@@ -53,7 +53,11 @@ function threeItemTurn(text: string) {
 // #11：档案页按区域分组、左右分开，展开看四段依据，时间线倒序，
 // 「已解决 / 撤回」都落库且历史不丢；肌群聚合看到成员最差值。
 test("档案页：分组、依据、时间线、已解决与撤回", async () => {
-  const responses: unknown[] = [threeItemTurn("先看看我这几条判断。"), replyWith("先看看我这几条判断。")];
+  const responses: unknown[] = [
+    threeItemTurn("先看看我这几条判断。"),
+    replyWith("先看看我这几条判断。"),
+    replyWith("照这个先记下。"),
+  ];
   const app = await open("./App.tsx", {
     network: {
       "POST https://api.deepseek.com/responses": () => responses.shift() as never,
@@ -73,7 +77,9 @@ test("档案页：分组、依据、时间线、已解决与撤回", async () =>
   await app.press("id:send");
   await app.waitFor("id:proposal-card");
   await app.press("id:accept-proposal");
-  await app.waitUntil(() => app.texts().some((text) => text.includes("已写进档案 3 项")));
+  await app.waitUntil(() => app.texts().some((text) => text.includes("已写进 3 项，不要 0 项")));
+  // 审核后的那一轮回复跑完再离开，别让它在切屏时还在路上。
+  await app.waitUntil(() => app.texts().some((text) => text.includes("照这个先记下")));
 
   // 聊天是整屏详情页：先回列表，底部 Tab 才出现。
   await app.press("id:back");
@@ -228,6 +234,7 @@ test("需要先处理的肌群只列肌肉，骨骼异常仍在全部区域", as
       },
     },
     replyWith("先看这两条。"),
+    replyWith("照这个先记下。"),
   ];
   const app = await open("./App.tsx", {
     network: {
@@ -247,7 +254,8 @@ test("需要先处理的肌群只列肌肉，骨骼异常仍在全部区域", as
   await app.press("id:send");
   await app.waitFor("id:proposal-card");
   await app.press("id:accept-proposal");
-  await app.waitUntil(() => app.texts().some((text) => text.includes("已写进档案 2 项")));
+  await app.waitUntil(() => app.texts().some((text) => text.includes("已写进 2 项，不要 0 项")));
+  await app.waitUntil(() => app.texts().some((text) => text.includes("照这个先记下")));
   await app.press("id:back");
   await app.waitFor("id:new-conversation");
 

@@ -75,16 +75,19 @@ impl Store {
         self.write_conversation(&conversation)
     }
 
-    /// 删除一个会话与它的全部消息、提议。
+    /// 删除一个会话与它 `messages` 表里的全部条目、提议。
+    ///
+    /// 条目不只可见消息：工具往返、卡片行与审核决定（`ReviewDecision`）都在这张表里，
+    /// 会话没了它们也没有意义；留着只会在下次开库时变成孤儿。
     ///
     /// 依据日志不在这张表里，所以不会被带走（ADR-0005）；照片行由 `api` 侧先删
     /// （连文件一起），这里不再管它。
     pub fn delete_conversation(&self, id: ConversationId) -> Result<(), StoreError> {
         self.require_conversation(id)?;
         let doomed: Vec<u64> = self
-            .messages(id)?
+            .items(id)?
             .into_iter()
-            .map(|message| message.id.0)
+            .map(|entry| entry.id.0)
             .collect();
 
         let proposals: Vec<u64> = self
@@ -100,7 +103,9 @@ impl Store {
                 messages.remove(message).map_err(db_error)?;
             }
             drop(messages);
-            let mut cards = write.open_table(super::proposals::PROPOSALS).map_err(db_error)?;
+            let mut cards = write
+                .open_table(super::proposals::PROPOSALS)
+                .map_err(db_error)?;
             for proposal in proposals {
                 cards.remove(proposal).map_err(db_error)?;
             }
@@ -467,10 +472,40 @@ mod tests {
         store
             .append_message(keep.id, Role::User, "留着我", 220)
             .expect("消息");
+        // 时间线里还有工具往返、卡片行与审核决定：删除会话要把它们一起带走。
+        store
+            .append_turn(
+                doomed.id,
+                vec![
+                    StoredItem::FunctionCall {
+                        call_id: "call_1".to_owned(),
+                        name: "search_evidence".to_owned(),
+                        arguments: r#"{"site":"soleus"}"#.to_owned(),
+                    },
+                    StoredItem::FunctionCallOutput {
+                        call_id: "call_1".to_owned(),
+                        output: r#"{"found":0,"items":[]}"#.to_owned(),
+                    },
+                    StoredItem::ProposalCard {
+                        proposal: crate::domain::ProposalId(1),
+                    },
+                    StoredItem::ReviewDecision {
+                        text: "我审完了第 1 号卡：不要第 1 项（左比目鱼肌，理由：不是小腿）"
+                            .to_owned(),
+                    },
+                ],
+                230,
+            )
+            .expect("条目");
+        assert_eq!(store.items(doomed.id).expect("条目").len(), 5);
 
         store.delete_conversation(doomed.id).expect("删除");
         assert_eq!(store.conversation(doomed.id).expect("读"), None);
         assert!(store.messages(doomed.id).expect("读").is_empty());
+        assert!(
+            store.items(doomed.id).expect("读").is_empty(),
+            "工具往返、卡片行与审核决定都跟着会话走"
+        );
         assert_eq!(store.messages(keep.id).expect("读").len(), 1);
 
         assert_eq!(

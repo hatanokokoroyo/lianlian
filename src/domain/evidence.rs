@@ -61,7 +61,7 @@ impl EvidenceKind {
 pub const SECTIONS: [&str; 4] = ["用户说法要点", "验证方案与反馈", "推理", "不确定之处"];
 
 /// 用户拒绝又没说理由时写进「用户说法要点」的那句。
-pub const NO_REASON: &str = "用户拒绝，未说明理由";
+pub const NO_REASON: &str = "用户未采纳，未说明理由";
 
 /// 一条待写入的依据日志。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

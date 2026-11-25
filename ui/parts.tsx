@@ -99,8 +99,11 @@ export function PrimaryButton(props: {
   label: string;
   onPress: () => void;
   disabled?: boolean;
+  /** 次要 / 可逆动作：描边而不是实心，避免「全部不要」被读成不可点。 */
+  outline?: boolean;
   testID?: string;
 }) {
+  const outline = props.outline === true && !props.disabled;
   return (
     <View
       testID={props.testID}
@@ -113,7 +116,13 @@ export function PrimaryButton(props: {
         paddingHorizontal: 20,
         paddingVertical: 14,
         alignItems: "center",
-        backgroundColor: props.disabled ? token("muted") : token("primary"),
+        backgroundColor: props.disabled
+          ? token("muted")
+          : outline
+            ? token("card")
+            : token("primary"),
+        borderWidth: outline ? 1 : 0,
+        borderColor: token("primary"),
       }}
     >
       <Text
@@ -122,7 +131,9 @@ export function PrimaryButton(props: {
           fontWeight: "bold",
           color: props.disabled
             ? token("muted-foreground")
-            : token("primary-foreground"),
+            : outline
+              ? token("primary")
+              : token("primary-foreground"),
         }}
       >
         {props.label}
@@ -135,6 +146,7 @@ export function PrimaryButton(props: {
 export function TextButton(props: {
   label: string;
   onPress: () => void;
+  disabled?: boolean;
   testID?: string;
   hint?: string;
 }) {
@@ -143,11 +155,13 @@ export function TextButton(props: {
       testID={props.testID}
       role="button"
       accessibilityLabel={props.hint ?? props.label}
+      disabled={props.disabled}
       onPress={props.onPress}
       style={{
         minWidth: 44,
         minHeight: 44,
         justifyContent: "center",
+        opacity: props.disabled ? 0.4 : 1,
       }}
     >
       <Text style={{ fontSize: typeScale.label, color: token("accent") }}>{props.label}</Text>

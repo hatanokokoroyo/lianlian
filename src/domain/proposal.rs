@@ -1,9 +1,9 @@
 //! 档案更新提议（`GLOSSARY.md`「档案更新提议」，#10）：一次想改多条时先交给用户审。
 //!
 //! 一张卡最多 8 项（再多就分轮），每项都带着自己的四段依据——展开就能看，不用
-//! 相信一句「我觉得」。接受之后才落判定；拒绝只落一条 `rejection` 证据，不产生判定。
-//!
-//! 状态机跟着 `design/contract.md` §6.2：待确认 → 已应用（可撤销）；撤销回到待确认。
+//! 相信一句「我觉得」。用户一次处理整张卡：勾选=采纳，落判定与依据；不勾=不要，
+//! 只落一条 `rejection` 证据。状态机是待审 → 已处理（Accepted / Dismissed），
+//! 没有部分接受，也没有撤销：提交即定案，要改就接着说，由对话追加「更正」。
 
 use serde::{Deserialize, Serialize};
 
@@ -25,9 +25,9 @@ pub struct ProposalId(pub u64);
 pub enum ProposalStatus {
     /// 等用户审。
     Pending,
-    /// 已应用：选中的项已经落成判定，可以撤销。
+    /// 已处理：至少一项落成判定。
     Accepted,
-    /// 已关闭：全部拒绝（或用户放弃），不会再被接受。
+    /// 已处理：一项都没采纳，不会再被接受。
     Dismissed,
 }
 
@@ -60,9 +60,15 @@ pub struct ProposalItem {
     pub draft: FindingDraft,
     pub evidence: EvidenceDraft,
     pub state: ItemState,
-    /// 接受之后落成的那条判定（撤销时要撤回它）。
+    /// 模型给的建议：勾选 / 不勾；没给就按置信度阈值。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recommend: Option<bool>,
+    /// 接受之后落成的那条判定（回看时指向档案里的那条记录）。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub accepted: Option<super::FindingId>,
+    /// 不要这一项时用户写的理由；空表示没写（旧数据也没有这个字段）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rejection_reason: Option<String>,
 }
 
 impl ProposalItem {
@@ -74,13 +80,16 @@ impl ProposalItem {
             draft: finding,
             evidence,
             state: ItemState::Pending,
+            recommend: None,
             accepted: None,
+            rejection_reason: None,
         }
     }
 
-    /// 默认勾选吗：置信度 ≥ 60 才勾（低置信度要用户自己点）。
+    /// 默认勾选吗：模型给了建议就照它；没给才看置信度 ≥ 60。
     pub fn default_selected(&self) -> bool {
-        self.draft.confidence >= LOW_CONFIDENCE
+        self.recommend
+            .unwrap_or(self.draft.confidence >= LOW_CONFIDENCE)
     }
 
     /// 校验：判定与依据各自合法（四段齐、部位在词表、侧别对得上）。
@@ -89,6 +98,16 @@ impl ProposalItem {
         self.evidence.validate()?;
         Ok(())
     }
+}
+
+/// 用户对一项的决定：采纳（可选写理由吗？采纳不需要）或不要（可选理由）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProposalDecision {
+    /// 第几项（0 起，与卡片编号一致）。
+    pub index: usize,
+    pub accept: bool,
+    /// 不要时的理由；空串表示没写。
+    pub reason: String,
 }
 
 /// 一张提议卡。
@@ -136,41 +155,12 @@ impl Proposal {
         self.status == ProposalStatus::Pending
     }
 
-    /// 还有没审的项吗——**界面据此决定要不要把卡摆出来**。
-    ///
-    /// 接受了一部分之后，剩下的项仍然要能勾，所以「有卡可审」看的是项，不是整张
-    /// 卡的状态；被关闭的卡（全部拒绝）不再出现在这一列里。
-    pub fn has_pending_items(&self) -> bool {
-        self.status != ProposalStatus::Dismissed
-            && self
-                .items
-                .iter()
-                .any(|item| item.state == ItemState::Pending)
-    }
-
     /// 已经落成判定的项数。
     pub fn accepted_count(&self) -> usize {
         self.items
             .iter()
             .filter(|item| item.state == ItemState::Accepted)
             .count()
-    }
-
-    /// 校验一次勾选：排序去重，每一项都必须是待定的（已接受/已拒绝的不能再勾）。
-    pub fn selection(&self, selected: &[usize]) -> Result<Vec<usize>, DomainError> {
-        if selected.is_empty() {
-            return Err(DomainError::EmptyProposal);
-        }
-        let mut indices = selected.to_vec();
-        indices.sort_unstable();
-        indices.dedup();
-        for index in &indices {
-            match self.items.get(*index) {
-                Some(item) if item.state == ItemState::Pending => {}
-                _ => return Err(DomainError::UnknownProposalItem(*index)),
-            }
-        }
-        Ok(indices)
     }
 
     /// 记下一项落成的那条判定。
@@ -181,43 +171,80 @@ impl Proposal {
         }
     }
 
-    /// 收尾：这张卡已经应用（还有没审的项时也照样是「已应用」，界面按项渲染）。
-    pub fn mark_applied(&mut self, at: Timestamp) {
-        self.status = ProposalStatus::Accepted;
+    /// 记下一项被用户划掉（不采纳），理由留着给已处理的卡回看。
+    pub fn mark_rejected(&mut self, index: usize, reason: &str) {
+        if let Some(item) = self.items.get_mut(index) {
+            item.state = ItemState::Rejected;
+            let reason = reason.trim();
+            item.rejection_reason = (!reason.is_empty()).then(|| reason.to_owned());
+        }
+    }
+
+    /// 收尾：至少采纳一项是 Accepted，一项都没采纳是 Dismissed。
+    pub fn mark_reviewed(&mut self, at: Timestamp) {
+        self.status = if self.accepted_count() > 0 {
+            ProposalStatus::Accepted
+        } else {
+            ProposalStatus::Dismissed
+        };
         self.decided_at = Some(at);
     }
 
-    /// 拒绝一项；全部拒完之后卡关闭。
-    pub fn reject(&mut self, index: usize, at: Timestamp) -> Result<(), DomainError> {
-        match self.items.get_mut(index) {
-            Some(item) if item.state == ItemState::Pending => item.state = ItemState::Rejected,
-            _ => return Err(DomainError::UnknownProposalItem(index)),
-        }
-        if self
-            .items
-            .iter()
-            .all(|item| item.state == ItemState::Rejected)
-        {
-            self.status = ProposalStatus::Dismissed;
-            self.decided_at = Some(at);
-        }
-        Ok(())
-    }
+    /// 提交给模型的那条决策消息。
+    ///
+    /// 例子：「我审完了第 12 号卡：采纳第 1、3、5 项（左臀中肌、左比目鱼肌、右比目鱼肌）；
+    /// 不要第 2 项（右臀中肌，理由：…）；不要第 4 项（左腓肠肌，没写理由）。」
+    pub fn review_text(&self, decisions: &[ProposalDecision]) -> String {
+        let mut sorted = decisions.to_vec();
+        sorted.sort_by_key(|decision| decision.index);
+        let accepted: Vec<&ProposalDecision> =
+            sorted.iter().filter(|decision| decision.accept).collect();
+        let rejected: Vec<&ProposalDecision> =
+            sorted.iter().filter(|decision| !decision.accept).collect();
 
-    /// 撤销：已接受的项清回待定，卡回到待确认（至少得有一项被接受过）。
-    pub fn undo(&mut self) -> Result<(), DomainError> {
-        if self.accepted_count() == 0 {
-            return Err(DomainError::NothingAccepted(self.id));
+        let mut parts = Vec::new();
+        if !accepted.is_empty() {
+            let indices = accepted
+                .iter()
+                .map(|decision| (decision.index + 1).to_string())
+                .collect::<Vec<_>>()
+                .join("、");
+            let labels = accepted
+                .iter()
+                .filter_map(|decision| self.items.get(decision.index))
+                .map(item_label)
+                .collect::<Vec<_>>()
+                .join("、");
+            parts.push(format!("采纳第 {indices} 项（{labels}）"));
         }
-        for item in &mut self.items {
-            if item.state == ItemState::Accepted {
-                item.state = ItemState::Pending;
-                item.accepted = None;
-            }
+        for decision in rejected {
+            let label = self
+                .items
+                .get(decision.index)
+                .map(item_label)
+                .unwrap_or_else(|| format!("第 {} 项", decision.index + 1));
+            let reason = decision.reason.trim();
+            parts.push(if reason.is_empty() {
+                format!("不要第 {} 项（{label}，没写理由）", decision.index + 1)
+            } else {
+                format!(
+                    "不要第 {} 项（{label}，理由：{reason}）",
+                    decision.index + 1
+                )
+            });
         }
-        self.status = ProposalStatus::Pending;
-        self.decided_at = None;
-        Ok(())
+
+        format!("我审完了第 {} 号卡：{}。", self.id.0, parts.join("；"))
+    }
+}
+
+fn item_label(item: &ProposalItem) -> String {
+    let site = crate::anatomy::site(&item.draft.site)
+        .map(|site| site.zh.to_owned())
+        .unwrap_or_else(|| item.draft.site.clone());
+    match item.draft.side {
+        Some(side) => format!("{}{}", side.zh(), site),
+        None => site,
     }
 }
 
@@ -254,7 +281,12 @@ mod tests {
 
     #[test]
     fn a_card_holds_one_to_eight_items() {
-        let one = Proposal::new(ProposalId(1), ConversationId(1), 100, vec![item("soleus", Some(Side::Left), 70, 100)]);
+        let one = Proposal::new(
+            ProposalId(1),
+            ConversationId(1),
+            100,
+            vec![item("soleus", Some(Side::Left), 70, 100)],
+        );
         assert!(one.is_ok());
 
         let empty = Proposal::new(ProposalId(1), ConversationId(1), 100, Vec::new());
@@ -277,6 +309,17 @@ mod tests {
     }
 
     #[test]
+    fn a_models_recommendation_overrides_the_confidence_default() {
+        let mut low = item("soleus", Some(Side::Left), 20, 100);
+        low.recommend = Some(true);
+        assert!(low.default_selected(), "低置信度也可以被建议勾上");
+
+        let mut high = item("soleus", Some(Side::Left), 90, 100);
+        high.recommend = Some(false);
+        assert!(!high.default_selected(), "高置信度也可以被建议不勾");
+    }
+
+    #[test]
     fn an_item_carries_its_own_four_sections_and_points_at_its_site() {
         let mut broken = item("soleus", Some(Side::Left), 70, 100);
         broken.evidence.reasoning = " ".to_owned();
@@ -293,7 +336,7 @@ mod tests {
     }
 
     #[test]
-    fn accepting_part_of_a_card_leaves_the_rest_auditable() {
+    fn a_reviewed_card_is_accepted_when_something_was_accepted() {
         let mut proposal = Proposal::new(
             ProposalId(1),
             ConversationId(1),
@@ -306,27 +349,20 @@ mod tests {
         )
         .expect("合法");
 
-        let chosen = proposal.selection(&[2, 0, 0]).expect("排序去重");
-        assert_eq!(chosen, vec![0, 2]);
-        for index in &chosen {
-            proposal.mark_accepted(*index, crate::domain::FindingId(*index as u64 + 1));
-        }
-        proposal.mark_applied(200);
+        proposal.mark_accepted(0, crate::domain::FindingId(1));
+        proposal.mark_rejected(1, "");
+        proposal.mark_accepted(2, crate::domain::FindingId(2));
+        proposal.mark_reviewed(200);
 
         assert_eq!(proposal.status, ProposalStatus::Accepted);
         assert_eq!(proposal.accepted_count(), 2);
-        assert!(proposal.has_pending_items(), "第 2 项还等用户审");
-        // 已接受的项不能再勾，越界也不行。
-        assert_eq!(
-            proposal.selection(&[0]),
-            Err(DomainError::UnknownProposalItem(0))
-        );
-        assert_eq!(proposal.selection(&[9]), Err(DomainError::UnknownProposalItem(9)));
-        assert_eq!(proposal.selection(&[]), Err(DomainError::EmptyProposal));
+        assert_eq!(proposal.items[1].state, ItemState::Rejected);
+        assert_eq!(proposal.decided_at, Some(200));
+        assert!(!proposal.is_pending());
     }
 
     #[test]
-    fn rejecting_every_item_closes_the_card_and_undo_needs_something_accepted() {
+    fn rejecting_every_item_dismisses_the_card() {
         let mut proposal = Proposal::new(
             ProposalId(1),
             ConversationId(1),
@@ -338,39 +374,73 @@ mod tests {
         )
         .expect("合法");
 
-        proposal.reject(0, 200).expect("拒绝第一项");
-        assert!(proposal.has_pending_items());
-        proposal.reject(1, 210).expect("拒绝第二项");
+        proposal.mark_rejected(0, "不是这里");
+        proposal.mark_rejected(1, "");
+        proposal.mark_reviewed(200);
         assert_eq!(proposal.status, ProposalStatus::Dismissed);
-        assert!(!proposal.has_pending_items(), "关闭的卡不再摆出来");
+        assert_eq!(proposal.accepted_count(), 0);
         assert_eq!(
-            proposal.reject(0, 220),
-            Err(DomainError::UnknownProposalItem(0))
+            proposal.items[0].rejection_reason.as_deref(),
+            Some("不是这里")
         );
+        assert_eq!(proposal.items[1].rejection_reason, None);
+    }
 
+    #[test]
+    fn the_review_message_spells_out_every_item_and_its_reason() {
+        let proposal = Proposal::new(
+            ProposalId(12),
+            ConversationId(1),
+            100,
+            vec![
+                item("gluteus-medius", Some(Side::Left), 70, 100),
+                item("soleus", Some(Side::Right), 70, 100),
+                item("soleus", Some(Side::Left), 70, 100),
+            ],
+        )
+        .expect("合法");
+        let decisions = vec![
+            ProposalDecision {
+                index: 0,
+                accept: true,
+                reason: String::new(),
+            },
+            ProposalDecision {
+                index: 1,
+                accept: false,
+                reason: "不是小腿，是膝盖".to_owned(),
+            },
+            ProposalDecision {
+                index: 2,
+                accept: true,
+                reason: String::new(),
+            },
+        ];
         assert_eq!(
-            proposal.undo(),
-            Err(DomainError::NothingAccepted(ProposalId(1)))
+            proposal.review_text(&decisions),
+            "我审完了第 12 号卡：采纳第 1、3 项（左臀中肌、左比目鱼肌）；\
+             不要第 2 项（右比目鱼肌，理由：不是小腿，是膝盖）。"
         );
     }
 
     #[test]
-    fn undo_puts_accepted_items_back_to_pending() {
-        let mut proposal = Proposal::new(
-            ProposalId(1),
+    fn an_all_rejected_review_message_says_so() {
+        let proposal = Proposal::new(
+            ProposalId(3),
             ConversationId(1),
             100,
             vec![item("soleus", Some(Side::Left), 70, 100)],
         )
         .expect("合法");
-        proposal.mark_accepted(0, crate::domain::FindingId(3));
-        proposal.mark_applied(200);
-
-        proposal.undo().expect("撤销");
-        assert_eq!(proposal.status, ProposalStatus::Pending);
-        assert_eq!(proposal.items[0].state, ItemState::Pending);
-        assert_eq!(proposal.items[0].accepted, None);
-        assert_eq!(proposal.decided_at, None);
+        let decisions = vec![ProposalDecision {
+            index: 0,
+            accept: false,
+            reason: String::new(),
+        }];
+        assert_eq!(
+            proposal.review_text(&decisions),
+            "我审完了第 3 号卡：不要第 1 项（左比目鱼肌，没写理由）。"
+        );
     }
 
     #[test]

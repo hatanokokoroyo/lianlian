@@ -10,6 +10,52 @@ import {
 // 一个文件一个干净的库：`nsh test` 的多个文件共用一个进程。
 beforeAll(freshDatabase);
 
+const reviewEvidence = {
+  user_said: "蹲到一半膝盖前面紧",
+  test_and_feedback: "靠墙踝背屈：右脚离墙 4 cm",
+  reasoning: "踝背屈受限让膝盖代偿",
+  uncertainty: "没排除髋",
+};
+
+function proposeTurn() {
+  return {
+    status: 200,
+    body: {
+      status: "completed",
+      output: [
+        {
+          type: "function_call",
+          call_id: "call_propose",
+          name: "propose_findings",
+          arguments: JSON.stringify({
+            items: [
+              {
+                site: "gluteus-medius",
+                side: "left",
+                confidence: 78,
+                values: { tension: "weak" },
+                evidence: reviewEvidence,
+              },
+              {
+                site: "soleus",
+                side: "right",
+                confidence: 64,
+                values: { mobility: "limited" },
+                evidence: reviewEvidence,
+              },
+            ],
+          }),
+        },
+        {
+          type: "message",
+          role: "assistant",
+          content: [{ type: "output_text", text: "先看看我这几条判断。" }],
+        },
+      ],
+    },
+  };
+}
+
 // #7：三类错误态各有明确出路；用户消息不丢；超长自动裁剪重发一次并提示。
 // 全部离线：网络由 `open` 的 `network` 桩替代，真实响应语料在 Rust 测试里回放。
 
@@ -200,4 +246,49 @@ test("请求超长自动裁剪最旧的历史重发一次，并提示开新会�
   await app.press(`text:${longTitle}`);
   await app.waitFor("id:conv-send-notice");
   expect(app.texts().some((text) => text.includes("这次没带历史"))).toBe(true);
+});
+
+// #45：待审时这一条会话不能发；提交后立刻恢复。
+test("待审时输入条锁定，提交整张卡后恢复", async () => {
+  const responses: unknown[] = [
+    proposeTurn(),
+    replyWith("先看看我这几条判断。"),
+    replyWith("那就都记上。"),
+    replyWith("接着说就好。"),
+  ];
+  const app = await open("./App.tsx", {
+    network: {
+      "POST https://api.deepseek.com/responses": () => responses.shift() as never,
+    },
+  });
+  await app.waitUntil(() => app.shows("id:onboarding-next") || app.shows("id:tab-today"));
+  await ensureOnboarded(app);
+  await app.waitFor("id:tab-today");
+  await setApiKey(app);
+
+  await app.press("id:tab-conversations");
+  await app.waitFor("id:new-conversation");
+  await app.press("id:new-conversation");
+  await app.waitFor("id:message-input");
+  await app.type("id:message-input", "蹲不下去");
+  await app.press("id:send");
+  await app.waitFor("id:proposal-card");
+
+  expect(app.shows("id:review-lock")).toBe(true);
+  expect(app.enabled("id:message-input")).toBe(false);
+  expect(app.enabled("id:pick-photo")).toBe(false);
+  expect(app.enabled("id:send")).toBe(false);
+
+  await app.press("id:accept-proposal");
+  await app.waitUntil(() => app.texts().some((text) => text.includes("已写进 2 项")));
+  expect(app.shows("id:review-lock")).toBe(false);
+  expect(app.enabled("id:message-input")).toBe(true);
+  expect(app.enabled("id:pick-photo")).toBe(true);
+  // 审核那一轮回复跑完再接着说，免得两个请求抢同一串假响应。
+  await app.waitUntil(() => app.texts().some((text) => text.includes("那就都记上")));
+
+  await app.type("id:message-input", "接着说");
+  expect(app.enabled("id:send")).toBe(true);
+  await app.press("id:send");
+  await app.waitUntil(() => app.texts().some((text) => text.includes("接着说就好")));
 });

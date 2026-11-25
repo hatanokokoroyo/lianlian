@@ -12,9 +12,7 @@ use crate::domain::tool::{
     CORRECT_FINDING, CorrectArgs, EvidenceQuery, GENERATE_PLAN, GenerateArgs, PROPOSE_FINDINGS,
     ProposeArgs, RECORD_FINDING, RecordArgs, SEARCH_EVIDENCE, ToolError, TurnSearches,
 };
-use crate::domain::{
-    EvidenceKind, FindingDraft, FindingId, Proposal, ProposalId, StoredItem,
-};
+use crate::domain::{EvidenceKind, FindingDraft, FindingId, Proposal, ProposalId, StoredItem};
 use crate::store::{Store, StoreError};
 
 use super::deepseek::{self, GatewayError, OutputItem};
@@ -89,7 +87,7 @@ pub async fn run_turn<M: Model, H: ToolHost>(
                     }
                     let message = StoredItem::assistant(&text)
                         .map_err(|error| GatewayError::Request(error.to_string()))?;
-                    items.push(Input::from_stored(&message));
+                    items.push(Input::from_stored(&message).expect("消息总有输入"));
                     stored.push(message);
                     visible.push_str(&text);
                 }
@@ -104,12 +102,12 @@ pub async fn run_turn<M: Model, H: ToolHost>(
                         name: name.clone(),
                         arguments: arguments.clone(),
                     };
-                    items.push(Input::from_stored(&call));
+                    items.push(Input::from_stored(&call).expect("工具调用总有输入"));
                     stored.push(call);
 
                     let output = host.call(&name, &arguments);
                     let result = StoredItem::FunctionCallOutput { call_id, output };
-                    items.push(Input::from_stored(&result));
+                    items.push(Input::from_stored(&result).expect("工具结果总有输入"));
                     stored.push(result);
                 }
                 OutputItem::Raw(value) => {
@@ -152,6 +150,8 @@ pub struct StoreHost<'a> {
     searches: TurnSearches,
     /// 这一轮里真的往档案写过几次（超长重发前的判断依据）。
     writes: usize,
+    /// 这一轮开出的卡；`api::reply` 在批次末尾把它们写成时间线上的卡片行。
+    cards: Vec<ProposalId>,
 }
 
 impl<'a> StoreHost<'a> {
@@ -162,12 +162,18 @@ impl<'a> StoreHost<'a> {
             at,
             searches: TurnSearches::default(),
             writes: 0,
+            cards: Vec::new(),
         }
     }
 
     /// 这一轮写过档案吗？写过就不能整轮重发了（会把判定写两遍）。
     pub fn wrote(&self) -> bool {
         self.writes > 0
+    }
+
+    /// 这一轮开出的卡，按开出顺序。
+    pub fn cards(&self) -> &[ProposalId] {
+        &self.cards
     }
 
     fn arguments(&self, raw: &str) -> Result<serde_json::Value, ToolError> {
@@ -252,6 +258,16 @@ impl<'a> StoreHost<'a> {
 
     /// 一次想改多条：先攒成一张卡，等用户勾。已有待审的卡就拒绝（一次一张）。
     fn propose(&mut self, args: &serde_json::Value) -> Result<String, ToolError> {
+        // 卡片行要等这一轮结束才落库；同一次回复里开第二张时库里还看不到第一张。
+        if let Some(opened) = self.cards.first() {
+            let items = self
+                .store
+                .proposal(*opened)
+                .map_err(Self::storage)?
+                .map(|proposal| proposal.items.len())
+                .unwrap_or(0);
+            return Err(ToolError::PendingProposal { items });
+        }
         if let Some(pending) = self
             .store
             .pending_proposal(self.conversation)
@@ -271,6 +287,7 @@ impl<'a> StoreHost<'a> {
                 parsed.items,
             )?)
             .map_err(Self::storage)?;
+        self.cards.push(proposal.id);
         let items: Vec<serde_json::Value> = proposal
             .items
             .iter()
@@ -541,6 +558,8 @@ mod tests {
                 StoredItem::Message { .. } => "message",
                 StoredItem::FunctionCall { .. } => "call",
                 StoredItem::FunctionCallOutput { .. } => "output",
+                StoredItem::ProposalCard { .. } => "card",
+                StoredItem::ReviewDecision { .. } => "review",
                 StoredItem::Raw { .. } => "raw",
             })
             .collect();
@@ -692,7 +711,8 @@ mod tests {
             vec![OutputItem::Message("查过了。".to_owned())],
         ]);
         let mut host = StoreHost::new(store, conversation.id, 100);
-        futures_join(|| run_turn(&first, &mut host, vec![Input::user("先看看")], 6)).expect("上一轮");
+        futures_join(|| run_turn(&first, &mut host, vec![Input::user("先看看")], 6))
+            .expect("上一轮");
 
         // 这一轮直接写：不认上一轮的账，必须被拒。
         let second = Scripted::new(vec![
@@ -700,8 +720,8 @@ mod tests {
             vec![OutputItem::Message("记下了。".to_owned())],
         ]);
         let mut host = StoreHost::new(store, conversation.id, 200);
-        let outcome =
-            futures_join(|| run_turn(&second, &mut host, vec![Input::user("现在写")], 6)).expect("这一轮");
+        let outcome = futures_join(|| run_turn(&second, &mut host, vec![Input::user("现在写")], 6))
+            .expect("这一轮");
         let refused = match &outcome.items[1] {
             StoredItem::FunctionCallOutput { output, .. } => output.clone(),
             other => panic!("应该是工具结果，收到 {other:?}"),
@@ -781,7 +801,8 @@ mod tests {
         let conversation = store.create_conversation(1).expect("会话");
         let mut host = StoreHost::new(store, conversation.id, 100);
         let outcome =
-            futures_join(|| run_turn(&model, &mut host, vec![Input::user("蹲不下去")], 6)).expect("跑完");
+            futures_join(|| run_turn(&model, &mut host, vec![Input::user("蹲不下去")], 6))
+                .expect("跑完");
 
         // 结果里告诉模型：卡生成了，等用户勾。
         let output = match &outcome.items[1] {
@@ -789,13 +810,34 @@ mod tests {
             other => panic!("应该是工具结果，收到 {other:?}"),
         };
         assert!(output.contains("\"proposal\":1"), "{output}");
-        assert!(output.contains("\"default_selected\":false"), "低置信度默认不勾：{output}");
+        assert!(
+            output.contains("\"default_selected\":false"),
+            "低置信度默认不勾：{output}"
+        );
 
-        // 一张卡、三项、一条判定都没写。
+        // 一张卡、三项、一条判定都没写；卡片行由 api 在本轮末尾追加。
+        assert_eq!(host.cards().len(), 1, "这一轮只开一张卡");
+        let opened = host.cards()[0];
+        assert_eq!(store.proposals(conversation.id).expect("列表").len(), 1);
+        assert!(
+            store
+                .pending_proposal(conversation.id)
+                .expect("读")
+                .is_none(),
+            "卡片行还没落库，旧规则会把它当成已关闭"
+        );
+        store
+            .append_turn(
+                conversation.id,
+                vec![StoredItem::ProposalCard { proposal: opened }],
+                100,
+            )
+            .expect("卡片行");
         let pending = store
             .pending_proposal(conversation.id)
             .expect("读")
             .expect("有一张");
+        assert_eq!(pending.id, opened);
         assert_eq!(pending.items.len(), 3);
         assert!(store.findings().expect("判定").is_empty());
         assert!(store.evidence_log().expect("依据").is_empty());
@@ -871,7 +913,9 @@ mod tests {
                 side: Some(crate::domain::Side::Left),
                 values: {
                     let mut values = crate::domain::AxisValues::new();
-                    values.set(crate::domain::AxisValue::Tension(crate::domain::Tension::Weak));
+                    values.set(crate::domain::AxisValue::Tension(
+                        crate::domain::Tension::Weak,
+                    ));
                     values
                 },
                 confidence: 70,

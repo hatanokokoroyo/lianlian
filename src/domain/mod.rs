@@ -3,7 +3,6 @@
 //! 规则都在这层：五轴取值、部位与侧别的约束、档案条目只追加、聚合与投影。
 //! 存储（`store`）只负责把这层的数据搬进搬出，界面只负责显示。
 
-pub mod profile_page;
 pub mod axis;
 pub mod basics;
 pub mod conversation;
@@ -14,15 +13,12 @@ pub mod item;
 pub mod measurement;
 pub mod photo;
 pub mod plan;
+pub mod profile_page;
 pub mod projection;
 pub mod proposal;
 pub mod tool;
 pub mod training;
 
-#[allow(unused_imports)]
-pub use profile_page::{
-    Correction, GroupWorst, HistoryEntry, ProfilePage, SiteCard, SiteSection, WorstSource,
-};
 #[allow(unused_imports)]
 pub use axis::{Axis, AxisValue, AxisValues, Mobility, Pain, Stability, Symmetry, Tension};
 #[allow(unused_imports)]
@@ -37,13 +33,15 @@ pub use measurement::{
 };
 #[allow(unused_imports)]
 pub use photo::{Photo, PhotoId};
-pub use plan::{
-    Exercise, Frequency, Plan, PlanDraft, PlanId, RepsUnit, ready_to_plan,
-};
-pub use proposal::{
-    ItemState, Proposal, ProposalId, ProposalItem, ProposalStatus,
+pub use plan::{Exercise, Frequency, Plan, PlanDraft, PlanId, RepsUnit, ready_to_plan};
+#[allow(unused_imports)]
+pub use profile_page::{
+    Correction, GroupWorst, HistoryEntry, ProfilePage, SiteCard, SiteSection, WorstSource,
 };
 pub use projection::{Aggregate, Projection, SiteState};
+pub use proposal::{
+    ItemState, Proposal, ProposalDecision, ProposalId, ProposalItem, ProposalStatus,
+};
 #[allow(unused_imports)]
 pub use training::{Place, Readiness, TrainingContext, TrainingField};
 
@@ -90,14 +88,22 @@ pub enum DomainError {
     EmptyProposal,
     /// 一张提议卡超过 8 项（要分轮）。
     TooManyProposalItems(usize),
-    /// 这张提议已经处理过了。
-    ProposalNotPending(ProposalId),
+    /// 这张卡已经审过了（一次提交就是定案）。
+    ProposalAlreadyReviewed(ProposalId),
+    /// 找不到这张提议卡。
+    UnknownProposal(ProposalId),
+    /// 卡存在，但不属于这个会话。
+    ProposalNotInConversation(ProposalId),
     /// 这个会话已经有一张待审的卡（一次一张）。
     PendingProposalExists(ProposalId),
-    /// 这张卡没有已接受的项，没得撤销。
-    NothingAccepted(ProposalId),
     /// 勾选的项里没有这个编号。
     UnknownProposalItem(usize),
+    /// 同一次提交里同一项出现了两次。
+    DuplicateProposalItem(usize),
+    /// 一次提交一项决定都没带。
+    EmptyProposalDecisions,
+    /// 提交没有覆盖整张卡（每一项都要决定）。
+    IncompleteProposalDecisions(Vec<usize>),
     /// 找不到这个会话。
     UnknownConversation(u64),
     /// 同一条目被撤回了两次。
@@ -195,10 +201,9 @@ impl fmt::Display for DomainError {
             DomainError::EmptyPhotoFile => {
                 write!(f, "照片缺了文件或尺寸；没有字节的东西不能当照片存。")
             }
-            DomainError::TooManyPhotos(count) => write!(
-                f,
-                "一条消息只能带一张照片，收到 {count} 张；分两条发。"
-            ),
+            DomainError::TooManyPhotos(count) => {
+                write!(f, "一条消息只能带一张照片，收到 {count} 张；分两条发。")
+            }
             DomainError::PhotoOnlyFromUser => {
                 write!(f, "只有用户消息能带照片；agent 的回复是文字。")
             }
@@ -210,29 +215,45 @@ impl fmt::Display for DomainError {
                 f,
                 "一张卡最多 8 项，收到 {count} 项；分成几轮提，别让用户面对一张审不完的清单。"
             ),
-            DomainError::NothingAccepted(id) => write!(
-                f,
-                "编号 {} 的提议还没有被接受的项，没有可撤销的东西。",
-                id.0
-            ),
             DomainError::PendingProposalExists(id) => write!(
                 f,
                 "这个会话还有一张待审的卡（编号 {}）；先等用户把那张处理完。",
                 id.0
             ),
-            DomainError::ProposalNotPending(id) => write!(
+            DomainError::ProposalAlreadyReviewed(id) => write!(
                 f,
-                "编号 {} 的提议已经处理过了，不能再改；等用户把它们看完。",
+                "编号 {} 的提议已经审过了；提交即定案，要改就接着说。",
                 id.0
             ),
-            DomainError::UnknownProposalItem(index) => write!(
+            DomainError::UnknownProposal(id) => {
+                write!(f, "找不到编号 {} 的提议卡。", id.0)
+            }
+            DomainError::ProposalNotInConversation(id) => {
+                write!(f, "编号 {} 的提议卡不属于这个会话。", id.0)
+            }
+            DomainError::UnknownProposalItem(index) => {
+                write!(f, "这张卡没有第 {} 项；看一遍卡的项数再勾。", index + 1)
+            }
+            DomainError::DuplicateProposalItem(index) => write!(
                 f,
-                "这张卡没有第 {index} 项；看一遍卡的项数再勾。"
+                "第 {} 项在同一次提交里出现了两次；每项只能决定一次。",
+                index + 1
             ),
-            DomainError::NotAnImage(mime) => write!(
+            DomainError::EmptyProposalDecisions => {
+                write!(f, "这次提交没有带任何决定；每一项都要选采纳或不要。")
+            }
+            DomainError::IncompleteProposalDecisions(missing) => write!(
                 f,
-                "`{mime}` 不是图片；照片只收选择器给的 image/* 文件。"
+                "这张卡还有第 {} 项没有决定；整张卡要一次审完。",
+                missing
+                    .iter()
+                    .map(|index| (index + 1).to_string())
+                    .collect::<Vec<_>>()
+                    .join("、")
             ),
+            DomainError::NotAnImage(mime) => {
+                write!(f, "`{mime}` 不是图片；照片只收选择器给的 image/* 文件。")
+            }
             DomainError::EmptyEvidenceSection(section) => write!(
                 f,
                 "依据日志的「{section}」是空的；四段都要写，用户没提到的段写「未涉及」。"

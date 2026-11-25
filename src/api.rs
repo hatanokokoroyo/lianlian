@@ -13,17 +13,15 @@ use crate::domain::basics::{AGE_RANGE, Basics, Sex};
 use crate::domain::measurement::{
     HEIGHT_CM_RANGE, MeasurementDraft, MeasurementKind, WEIGHT_KG_RANGE,
 };
+use crate::domain::photo::{MAX_DIMENSION, PER_MESSAGE};
 use crate::domain::training::{
     DAYS_PER_WEEK_RANGE, MINUTES_RANGE, Place, Readiness, TrainingContext,
 };
-use crate::domain::photo::{MAX_DIMENSION, PER_MESSAGE};
 use crate::domain::{Photo, PhotoId};
 use crate::llm::agent::{self, DeepSeekModel, StoreHost};
-use crate::photos;
 use crate::llm::deepseek::GatewayError;
-use crate::llm::prompt::{
-    Length, Snapshot, assemble, assemble_with_turns, session_length, turns,
-};
+use crate::llm::prompt::{Length, Snapshot, assemble, assemble_with_turns, session_length, turns};
+use crate::photos;
 use crate::store::Store;
 use crate::store::settings::{API_KEY, SKIPPED_UPDATE, TOOL_ROUNDS};
 
@@ -268,8 +266,11 @@ pub struct ConversationDetailView {
     pub notice: Option<String>,
     /// 等用户审的那张提议卡；没有就是 `null`。
     pub pending_proposal: Option<ProposalView>,
-    /// 已应用的提议（可撤销）。
-    pub accepted_proposals: Vec<ProposalView>,
+    /// 时间线里的卡片行：编号是这一行的 `MessageId`，跟消息一起排序渲染。
+    pub proposal_cards: Vec<ProposalCardRowView>,
+    /// 最后一条能驱动对话的条目编号（可能是不渲染的决策消息；卡片行不算）；
+    /// 重试时用它对齐。
+    pub last_entry_id: Option<f64>,
     pub error: Option<String>,
 }
 
@@ -303,6 +304,8 @@ pub struct ProposalItemView {
     pub selected_by_default: bool,
     /// `pending` / `accepted` / `rejected`。
     pub state: String,
+    /// 不要这一项时写的理由；没写或是旧数据就是 `null`。
+    pub rejection_reason: Option<String>,
     /// 四段依据（可展开）。
     pub evidence: Vec<EvidenceSectionView>,
 }
@@ -315,6 +318,25 @@ pub struct ProposalView {
     /// `pending` / `accepted` / `dismissed`。
     pub status: String,
     pub items: Vec<ProposalItemView>,
+}
+
+/// 会话时间线里的卡片行。
+#[derive(Debug, Clone, PartialEq, JsObject)]
+pub struct ProposalCardRowView {
+    /// 这一行的编号（与消息同一个序列）。
+    pub id: f64,
+    pub proposal: ProposalView,
+}
+
+/// 提交审核时的一项决定（界面 → Rust）。
+#[derive(Debug, Clone, PartialEq, JsObject)]
+pub struct ProposalDecisionInput {
+    /// 第几项（0 起，与卡上的编号一致）。
+    pub index: f64,
+    /// 勾选=采纳，不勾=不要。
+    pub accept: bool,
+    /// 不要的可选理由；空或不给表示没写。
+    pub reason: Option<String>,
 }
 
 /// 一轮对话的失败，按「出路」分类（ADR-0001：错误处理自己来）。
@@ -332,6 +354,8 @@ pub struct ChatErrorView {
 #[derive(Debug, Clone, PartialEq, JsObject)]
 pub struct SendResultView {
     pub messages: Vec<MessageView>,
+    /// 这一轮新落库的卡片行编号；没有新卡就是 `null`。界面据此把卡头滚进视野。
+    pub proposal_card: Option<f64>,
     /// 有值时这一轮没有跑完；用户消息可能已经落库（`messages` 里看得到）。
     pub error: Option<ChatErrorView>,
 }
@@ -394,9 +418,7 @@ impl Conversations {
 
         // 会话必须存在；消息不能是空白（同一条规则在领域层再校验一次）。
         if store.conversation(conversation).ok().flatten().is_none() {
-            return begin_failure(GatewayError::Request(format!(
-                "找不到编号 {id} 的会话。"
-            )));
+            return begin_failure(GatewayError::Request(format!("找不到编号 {id} 的会话。")));
         }
         // 这一轮要发出去的照片：必须存在、且属于这个会话。
         let attached = match photo {
@@ -439,9 +461,7 @@ impl Conversations {
                 message: entries.first().and_then(entry_message_view),
                 error: None,
             },
-            Err(error) => begin_failure(GatewayError::Config(format!(
-                "消息落库失败：{error}"
-            ))),
+            Err(error) => begin_failure(GatewayError::Config(format!("消息落库失败：{error}"))),
         }
     }
 
@@ -467,8 +487,7 @@ impl Conversations {
                 &store,
                 conversation,
                 GatewayError::Config(
-                    "还没填 DeepSeek 的 API key。去设置里填一把，它只存在这台设备上。"
-                        .to_owned(),
+                    "还没填 DeepSeek 的 API key。去设置里填一把，它只存在这台设备上。".to_owned(),
                 ),
             );
         }
@@ -483,6 +502,14 @@ impl Conversations {
                 );
             }
         };
+        // 末尾的卡片行只是界面记录，不驱动下一轮：本轮开卡后失败时会补上它，
+        // 重试要回到卡片行前面那条用户消息。
+        let history = &history[..history
+            .iter()
+            .rposition(|entry| {
+                !matches!(&entry.item, crate::domain::StoredItem::ProposalCard { .. })
+            })
+            .map_or(0, |index| index + 1)];
         let Some(last) = history.last() else {
             return failure_with_messages(
                 &store,
@@ -506,6 +533,8 @@ impl Conversations {
                 text,
                 photos,
             } => (text.clone(), photos.clone()),
+            // 审核提交落下的决策条目：不渲染，但就是这一轮的用户消息。
+            crate::domain::StoredItem::ReviewDecision { text } => (text.clone(), Vec::new()),
             _ => {
                 return failure_with_messages(
                     &store,
@@ -516,12 +545,7 @@ impl Conversations {
         };
         let photo_data_url = match photos.first() {
             Some(photo) => {
-                match attached_photo(
-                    &store,
-                    &photos::photos_dir(),
-                    conversation,
-                    photo.0 as f64,
-                ) {
+                match attached_photo(&store, &photos::photos_dir(), conversation, photo.0 as f64) {
                     Ok((_, url)) => Some(url),
                     Err(message) => {
                         return failure_with_messages(
@@ -556,13 +580,21 @@ impl Conversations {
         let mut host = StoreHost::new(&store, conversation, at);
         // 这一轮要挂在会话上的说明（裁剪过历史 / 撞上工具轮次上限）。
         let mut notice: Option<String> = None;
-        let outcome = match agent::run_turn(&model, &mut host, assembly.items.clone(), rounds).await
+        // 这一轮开出的卡写成时间线行，跟回复同一个事务、排在批次最后。
+        let (outcome, cards) = match agent::run_turn(
+            &model,
+            &mut host,
+            assembly.items.clone(),
+            rounds,
+        )
+        .await
         {
-            Ok(outcome) => outcome,
-            // 超长：丢掉最旧的几轮重发一次。只有在这一轮还没往档案里写过东西时
-            // 才重发——写过了再重发会把同一条判定写两遍。
-            Err(GatewayError::TooLong(_)) if !host.wrote() => {
-                let total = turns(&history);
+            Ok(outcome) => (outcome, host.cards().to_vec()),
+            // 超长：丢掉最旧的几轮重发一次。只有在这一轮还没往档案里写过东西、
+            // 也还没开过卡时才重发——写过了会把同一条判定写两遍，开过卡则会撞上
+            // PendingProposalExists 或开出第二张卡。
+            Err(GatewayError::TooLong(_)) if !host.wrote() && host.cards().is_empty() => {
+                let total = turns(history);
                 if total == 0 {
                     return failure_with_messages(
                         &store,
@@ -574,7 +606,7 @@ impl Conversations {
                 }
                 let keep = total / 2;
                 let trimmed =
-                    assemble_with_turns(&snapshot, &history, &text, keep, photo_data_url.as_deref());
+                    assemble_with_turns(&snapshot, history, &text, keep, photo_data_url.as_deref());
                 let mut retry_host = StoreHost::new(&store, conversation, at);
                 match agent::run_turn(&model, &mut retry_host, trimmed.items, rounds).await {
                     Ok(outcome) => {
@@ -583,24 +615,34 @@ impl Conversations {
                         } else {
                             format!("会话太长了，这次只带了最近 {keep} 轮对话；建议新开一个会话。")
                         });
-                        outcome
+                        (outcome, retry_host.cards().to_vec())
                     }
                     Err(error) => {
-                        return failure_with_messages(&store, conversation, error);
+                        return failure_with_open_cards(
+                            &store,
+                            conversation,
+                            retry_host.cards(),
+                            at,
+                            error,
+                        );
                     }
                 }
             }
             Err(GatewayError::TooLong(_)) => {
-                return failure_with_messages(
+                return failure_with_open_cards(
                     &store,
                     conversation,
+                    host.cards(),
+                    at,
                     GatewayError::Request(
-                        "这一轮太长，跑到一半就超了上下文；已经写进档案的判定保留，建议新开会话接着说。"
+                        "这一轮太长，跑到一半就超了上下文；已经写下的判定与卡片都保留，建议新开会话接着说。"
                             .to_owned(),
                     ),
                 );
             }
-            Err(error) => return failure_with_messages(&store, conversation, error),
+            Err(error) => {
+                return failure_with_open_cards(&store, conversation, host.cards(), at, error);
+            }
         };
 
         // 撞上工具轮次上限也要说清楚，别让用户以为对话正常收尾了；正常收尾就把
@@ -608,15 +650,25 @@ impl Conversations {
         let notice = pick_notice(outcome.notice.clone(), notice, length_notice);
         let _ = store.set_conversation_notice(conversation, notice.as_deref());
 
-        // 用户消息已经在 begin_send 落库；这里只追加工具往返与回复。
-        match store.append_turn(conversation, outcome.items, at) {
-            Ok(_) => SendResultView {
+        // 用户消息已经在 begin_send 落库；这里只追加工具往返、回复与卡片行。
+        let mut items = outcome.items;
+        items.extend(
+            cards
+                .into_iter()
+                .map(|proposal| crate::domain::StoredItem::ProposalCard { proposal }),
+        );
+        match store.append_turn(conversation, items, at) {
+            Ok(entries) => SendResultView {
                 messages: store
                     .messages(conversation)
                     .unwrap_or_default()
                     .iter()
                     .map(message_view)
                     .collect(),
+                proposal_card: entries.iter().rev().find_map(|entry| match entry.item {
+                    crate::domain::StoredItem::ProposalCard { .. } => Some(entry.id.0 as f64),
+                    _ => None,
+                }),
                 error: None,
             },
             // 回复已经到了但落库失败：别装作成功；用户那句仍在时间线上。
@@ -828,6 +880,7 @@ impl Photos {
 fn failure(error: GatewayError) -> SendResultView {
     SendResultView {
         messages: Vec::new(),
+        proposal_card: None,
         error: Some(chat_error(error)),
     }
 }
@@ -845,8 +898,48 @@ fn failure_with_messages(
             .iter()
             .map(message_view)
             .collect(),
+        proposal_card: None,
         error: Some(chat_error(error)),
     }
+}
+
+/// 本轮开过卡、回复却没落地：best-effort 把卡片行补进时间线，卡还能被审。
+///
+/// 单独一个事务；写失败就放弃——不能拿它盖住这一轮真正的错误。
+fn keep_open_cards(
+    store: &Store,
+    conversation: crate::domain::ConversationId,
+    cards: &[crate::domain::ProposalId],
+    at: i64,
+) -> Option<f64> {
+    if cards.is_empty() {
+        return None;
+    }
+    let items = cards
+        .iter()
+        .map(|proposal| crate::domain::StoredItem::ProposalCard {
+            proposal: *proposal,
+        })
+        .collect();
+    let entries = store.append_turn(conversation, items, at).ok()?;
+    entries.iter().rev().find_map(|entry| match &entry.item {
+        crate::domain::StoredItem::ProposalCard { .. } => Some(entry.id.0 as f64),
+        _ => None,
+    })
+}
+
+/// 失败，但先保住这一轮开出的卡（卡片行可见、仍是待审），再回传已落库的消息。
+fn failure_with_open_cards(
+    store: &Store,
+    conversation: crate::domain::ConversationId,
+    cards: &[crate::domain::ProposalId],
+    at: i64,
+    error: GatewayError,
+) -> SendResultView {
+    let proposal_card = keep_open_cards(store, conversation, cards, at);
+    let mut view = failure_with_messages(store, conversation, error);
+    view.proposal_card = proposal_card;
+    view
 }
 
 fn begin_failure(error: GatewayError) -> BeginSendView {
@@ -1028,12 +1121,10 @@ impl Today {
             match store.next_open(date, crate::domain::day::HORIZON_DAYS) {
                 Ok(Some(target)) => target,
                 Ok(None) => {
-                    let mut view = today_view(&store, date).unwrap_or_else(|error| {
-                        empty_today_view(&today, Some(error.to_string()))
-                    });
-                    view.error = Some(
-                        "这段计划里没有空档日可顺延；手动填一个更远的日期。".to_owned(),
-                    );
+                    let mut view = today_view(&store, date)
+                        .unwrap_or_else(|error| empty_today_view(&today, Some(error.to_string())));
+                    view.error =
+                        Some("这段计划里没有空档日可顺延；手动填一个更远的日期。".to_owned());
                     return view;
                 }
                 Err(error) => return empty_today_view(&today, Some(error.to_string())),
@@ -1042,9 +1133,8 @@ impl Today {
             match crate::domain::Date::from_iso(&to) {
                 Some(target) => target,
                 None => {
-                    let mut view = today_view(&store, date).unwrap_or_else(|error| {
-                        empty_today_view(&today, Some(error.to_string()))
-                    });
+                    let mut view = today_view(&store, date)
+                        .unwrap_or_else(|error| empty_today_view(&today, Some(error.to_string())));
                     view.error = Some("目标日期要用 YYYY-MM-DD。".to_owned());
                     return view;
                 }
@@ -1064,7 +1154,10 @@ impl Today {
     }
 }
 
-fn today_view(store: &Store, date: crate::domain::Date) -> Result<TodayView, crate::store::StoreError> {
+fn today_view(
+    store: &Store,
+    date: crate::domain::Date,
+) -> Result<TodayView, crate::store::StoreError> {
     let today_end = date.end_ms();
     let training = store.training()?;
     Ok(TodayView {
@@ -1085,7 +1178,10 @@ fn today_view(store: &Store, date: crate::domain::Date) -> Result<TodayView, cra
 
 /// 结算失败时留给视图的错误；读库出问题不能假装还停在「计划中」。
 fn settle_error(store: &Store, date: crate::domain::Date) -> Option<String> {
-    store.settle_before(date).err().map(|error| error.to_string())
+    store
+        .settle_before(date)
+        .err()
+        .map(|error| error.to_string())
 }
 
 fn empty_today_view(today: &str, error: Option<String>) -> TodayView {
@@ -1649,11 +1745,9 @@ fn resolve_at(
     id: crate::domain::FindingId,
     at: i64,
 ) -> Result<(), crate::store::StoreError> {
-    let target = store
-        .finding(id)?
-        .ok_or(crate::store::StoreError::Domain(
-            crate::domain::DomainError::UnknownFinding(id),
-        ))?;
+    let target = store.finding(id)?.ok_or(crate::store::StoreError::Domain(
+        crate::domain::DomainError::UnknownFinding(id),
+    ))?;
     if store.retraction(id)?.is_some() {
         return Err(crate::store::StoreError::Domain(
             crate::domain::DomainError::AlreadyRetracted(id),
@@ -1686,11 +1780,9 @@ fn retract_at(
     reason: &str,
     at: i64,
 ) -> Result<(), crate::store::StoreError> {
-    let target = store
-        .finding(id)?
-        .ok_or(crate::store::StoreError::Domain(
-            crate::domain::DomainError::UnknownFinding(id),
-        ))?;
+    let target = store.finding(id)?.ok_or(crate::store::StoreError::Domain(
+        crate::domain::DomainError::UnknownFinding(id),
+    ))?;
     let evidence = crate::domain::EvidenceDraft {
         kind: crate::domain::EvidenceKind::Retract,
         site: target.site.clone(),
@@ -1945,27 +2037,49 @@ fn conversation_detail_view(
                     Vec::new()
                 }
             };
-            let (pending_proposal, accepted_proposals) = match store.proposals(conversation.id) {
-                Ok(proposals) => (
-                    // 有没审的项就摆在卡里（接受过一部分的也一样）。
-                    proposals
-                        .iter()
-                        .find(|proposal| proposal.has_pending_items())
-                        .map(proposal_view),
-                    // 「已关闭」不渲染成已应用；还有待审项的卡留在卡里（能继续勾），
-                    // 只有审完了的才进摘要。
-                    proposals
-                        .iter()
-                        .filter(|proposal| {
-                            proposal.status == crate::domain::ProposalStatus::Accepted
-                                && !proposal.has_pending_items()
-                        })
-                        .map(proposal_view)
-                        .collect(),
-                ),
+            // 待审只看「有卡片行且还有待定项」的卡（`Store::pending_proposal`）。
+            let pending_proposal = match store.pending_proposal(conversation.id) {
+                Ok(proposal) => proposal.as_ref().map(proposal_view),
                 Err(error) => {
                     errors.push(error.to_string());
-                    (None, Vec::new())
+                    None
+                }
+            };
+            let proposals = match store.proposals(conversation.id) {
+                Ok(proposals) => proposals,
+                Err(error) => {
+                    errors.push(error.to_string());
+                    Vec::new()
+                }
+            };
+            let (proposal_cards, last_entry_id) = match store.items(conversation.id) {
+                Ok(entries) => {
+                    // 卡片行只是界面记录：它挡在末尾时，重试仍要回到那句用户消息。
+                    let last = entries
+                        .iter()
+                        .rev()
+                        .find(|entry| {
+                            !matches!(&entry.item, crate::domain::StoredItem::ProposalCard { .. })
+                        })
+                        .map(|entry| entry.id.0 as f64);
+                    let cards = entries
+                        .into_iter()
+                        .filter_map(|entry| match entry.item {
+                            crate::domain::StoredItem::ProposalCard { proposal } => proposals
+                                .iter()
+                                .find(|candidate| candidate.id == proposal)
+                                .map(|proposal| ProposalCardRowView {
+                                    id: entry.id.0 as f64,
+                                    proposal: proposal_view(proposal),
+                                }),
+                            _ => None,
+                        })
+                        .collect();
+                    (cards, last)
+                }
+                Err(error) => {
+                    errors.push(error.to_string());
+                    (Vec::new(), None)
                 }
             };
             ConversationDetailView {
@@ -1974,7 +2088,8 @@ fn conversation_detail_view(
                 messages: messages.iter().map(message_view).collect(),
                 notice: conversation.notice.clone(),
                 pending_proposal,
-                accepted_proposals,
+                proposal_cards,
+                last_entry_id,
                 error: join_errors(errors),
             }
         }
@@ -1989,7 +2104,8 @@ fn empty_detail_view(id: f64, error: Option<String>) -> ConversationDetailView {
         messages: Vec::new(),
         notice: None,
         pending_proposal: None,
-        accepted_proposals: Vec::new(),
+        proposal_cards: Vec::new(),
+        last_entry_id: None,
         error,
     }
 }
@@ -2009,9 +2125,9 @@ fn proposal_view(proposal: &crate::domain::Proposal) -> ProposalView {
                 ProposalItemView {
                     index: index as f64,
                     site: item.draft.site.clone(),
-                    site_zh: site.map(|site| site.zh.to_owned()).unwrap_or_else(|| {
-                        item.draft.site.clone()
-                    }),
+                    site_zh: site
+                        .map(|site| site.zh.to_owned())
+                        .unwrap_or_else(|| item.draft.site.clone()),
                     side: item.draft.side.map(|side| side.key().to_owned()),
                     side_zh: item.draft.side.map(|side| side.zh().to_owned()),
                     values: axis_values_text(&item.draft.values),
@@ -2024,6 +2140,7 @@ fn proposal_view(proposal: &crate::domain::Proposal) -> ProposalView {
                         crate::domain::ItemState::Rejected => "rejected",
                     }
                     .to_owned(),
+                    rejection_reason: item.rejection_reason.clone(),
                     evidence: item
                         .evidence
                         .sections()
@@ -2074,127 +2191,62 @@ fn axis_values_text(values: &crate::domain::AxisValues) -> String {
         .join("；")
 }
 
-/// 提议卡的三个动作：接受选中、拒绝一项、撤销一次接受。
+/// 提议卡：一次审完整张卡（#45）；提交即定案，没有撤销。
 ///
-/// 拒绝会**自动发起一轮**（`#10` 的决策）：把「我拒绝了第 N 项（理由：…）」作为
-/// 真实用户消息落库，模型必须在下一轮给出下一步。
+/// 提交是一个事务：判定、依据、卡的状态与那条不渲染的决策消息一起落库。
+/// 这里不等模型——界面拿到「卡已定案」就解锁，再单独跑一轮回复；模型失败不影响
+/// 已经写进档案的结果，重试也只重发那一轮。
 #[module]
 pub struct Proposals;
 
 #[module]
 impl Proposals {
-    /// 接受选中的项：落判定 + 依据，卡变已应用。
-    pub async fn accept(conversation: f64, proposal: f64, selected: Vec<f64>) -> Option<String> {
-        let store = match Store::open_app() {
-            Ok(store) => store,
-            Err(error) => return Some(error.to_string()),
-        };
-        let id = match whole(proposal, "提议编号") {
-            Ok(id) => crate::domain::ProposalId(id),
-            Err(message) => return Some(message),
-        };
-        match store.proposal(id) {
-            Ok(Some(card)) if card.conversation != crate::domain::ConversationId(conversation as u64) => {
-                return Some("这张卡不属于这个会话。".to_owned());
-            }
-            Ok(None) => return Some("找不到这张提议卡。".to_owned()),
-            Ok(Some(_)) => {}
-            Err(error) => return Some(error.to_string()),
-        }
-        let mut indices: Vec<usize> = Vec::with_capacity(selected.len());
-        for index in selected {
-            match whole(index, "第几项") {
-                Ok(index) => indices.push(index as usize),
-                Err(message) => return Some(message),
-            }
-        }
-        if indices.is_empty() {
-            return Some("至少勾一项再接受；一项都不要就「拒绝」。".to_owned());
-        }
-        match store.accept_proposal(id, &indices, now_ms()) {
-            // 接受改的是档案，不是会话正文：列表顺序不动。
-            Ok(_) => None,
-            Err(error) => Some(error.to_string()),
-        }
-    }
-
-    /// 拒绝一项并说明理由：落 `rejection` 证据，然后把这句话作为用户消息发出去。
-    pub async fn reject(
+    /// 一次提交整张卡：采纳项落判定与依据，不要项落拒绝证据，卡置已处理；
+    /// 决策消息也在同一个事务里追加。**不跑模型**：回复由界面随后用
+    /// `Conversations.reply` 发起，提交成功就已经解锁输入。
+    pub async fn review(
         conversation: f64,
         proposal: f64,
-        index: f64,
-        reason: String,
+        decisions: Vec<ProposalDecisionInput>,
     ) -> SendResultView {
-        let index = match whole(index, "第几项") {
-            Ok(index) => index as usize,
+        let conversation_id = match whole(conversation, "会话编号") {
+            Ok(id) => crate::domain::ConversationId(id),
             Err(message) => return failure(GatewayError::Request(message)),
         };
-        // 写完就关库：redb 一个文件同时只容一个写句柄，紧接着的 `send` 还要开。
-        let rejected = {
-            let store = match Store::open_app() {
-                Ok(store) => store,
-                Err(error) => return failure(GatewayError::Config(error.to_string())),
-            };
-            store.reject_item(
-                match whole(proposal, "提议编号") {
-                    Ok(id) => crate::domain::ProposalId(id),
-                    Err(message) => return failure(GatewayError::Request(message)),
-                },
-                index,
-                &reason,
-                now_ms(),
-            )
-        };
-        if let Err(error) = rejected {
-            return failure(GatewayError::Request(error.to_string()));
-        }
-        let reason = reason.trim();
-        let text = if reason.is_empty() {
-            format!("我拒绝了第 {} 项。", index + 1)
-        } else {
-            format!("我拒绝了第 {} 项，理由：{reason}", index + 1)
-        };
-        let started = Conversations::begin_send(conversation, text.clone(), None).await;
-        if let Some(error) = started.error {
-            // 预检失败（没 key、消息本身超长等）时 begin 不会落库；这句拒绝理由
-            // 不能丢，和旧行为一样补一条用户消息，下一轮装配仍能带上它。
-            if let Ok(store) = Store::open_app() {
-                let _ = store.append_message(
-                    crate::domain::ConversationId(conversation as u64),
-                    crate::domain::Role::User,
-                    &text,
-                    now_ms(),
-                );
-                return SendResultView {
-                    messages: store
-                        .messages(crate::domain::ConversationId(conversation as u64))
-                        .unwrap_or_default()
-                        .iter()
-                        .map(message_view)
-                        .collect(),
-                    error: Some(error),
-                };
-            }
-            return SendResultView {
-                messages: Vec::new(),
-                error: Some(error),
-            };
-        }
-        Conversations::reply(conversation, started.message.map(|message| message.id)).await
-    }
-
-    /// 撤销一次接受：逐项撤回，卡回到待确认（可以重新勾）。
-    pub async fn undo(proposal: f64, reason: String) -> Option<String> {
-        if reason.trim().is_empty() {
-            return Some("撤销要写一句错在哪：历史条目不会删，理由会留在依据日志里。".to_owned());
-        }
         let id = match whole(proposal, "提议编号") {
             Ok(id) => crate::domain::ProposalId(id),
-            Err(message) => return Some(message),
+            Err(message) => return failure(GatewayError::Request(message)),
         };
-        save(&Store::open_app(), |store| {
-            store.undo_proposal(id, &reason, now_ms()).map(|_| ())
-        })
+        let mut parsed = Vec::with_capacity(decisions.len());
+        for decision in decisions {
+            let index = match whole(decision.index, "第几项") {
+                Ok(index) => index as usize,
+                Err(message) => return failure(GatewayError::Request(message)),
+            };
+            parsed.push(crate::domain::ProposalDecision {
+                index,
+                accept: decision.accept,
+                reason: decision.reason.unwrap_or_default(),
+            });
+        }
+
+        let store = match Store::open_app() {
+            Ok(store) => store,
+            Err(error) => return failure(GatewayError::Config(error.to_string())),
+        };
+        match store.review_proposal(conversation_id, id, &parsed, now_ms()) {
+            Ok(_) => SendResultView {
+                messages: store
+                    .messages(conversation_id)
+                    .unwrap_or_default()
+                    .iter()
+                    .map(message_view)
+                    .collect(),
+                proposal_card: None,
+                error: None,
+            },
+            Err(error) => failure(GatewayError::Request(error.to_string())),
+        }
     }
 }
 
@@ -2845,7 +2897,7 @@ mod tests {
 #[cfg(test)]
 mod chat_length_tests {
     use super::*;
-    use crate::llm::prompt::{FORCE_TOKENS, WARN_TOKENS, Input};
+    use crate::llm::prompt::{FORCE_TOKENS, Input, WARN_TOKENS};
 
     #[test]
     fn the_gate_warns_at_two_hundred_thousand_tokens_and_refuses_at_five_hundred_thousand() {
@@ -2858,7 +2910,11 @@ mod chat_length_tests {
         let error = length_gate(&[huge]).expect_err("要拒绝继续");
         assert_eq!(error.kind(), "request", "不是可重试错误");
         assert!(!error.can_retry());
-        assert!(error.message().contains("开个新会话"), "{}", error.message());
+        assert!(
+            error.message().contains("开个新会话"),
+            "{}",
+            error.message()
+        );
         assert!(
             error.message().contains("完整档案"),
             "要说清新会话不用重新解释：{}",
@@ -2872,7 +2928,11 @@ mod chat_length_tests {
     fn a_more_specific_notice_is_never_swallowed_by_the_length_warning() {
         // 这一轮真的裁剪过历史：那句话最要紧，不能被「建议开新会话」顶掉。
         assert_eq!(
-            pick_notice(None, Some("只带了最近 2 轮".to_owned()), Some("建议开新会话".to_owned())),
+            pick_notice(
+                None,
+                Some("只带了最近 2 轮".to_owned()),
+                Some("建议开新会话".to_owned())
+            ),
             Some("只带了最近 2 轮".to_owned())
         );
         // 撞上工具轮次上限比裁剪更具体（它就是这一轮的结果）。
@@ -2897,7 +2957,7 @@ mod chat_length_tests {
 mod day_tests {
     use super::*;
     use crate::domain::{
-        AxisValue, Exercise, ExerciseSnapshot, FindingDraft, Frequency, PlanDraft, Place, RepsUnit,
+        AxisValue, Exercise, ExerciseSnapshot, FindingDraft, Frequency, Place, PlanDraft, RepsUnit,
         Side, Tension, TrainingContext,
     };
     use crate::store::tests::TempStore;
@@ -2948,9 +3008,7 @@ mod day_tests {
                 },
             )
             .expect("排计划");
-        store
-            .ensure_days(date("2026-11-16"), 3, 0)
-            .expect("展开");
+        store.ensure_days(date("2026-11-16"), 3, 0).expect("展开");
 
         let day = store.day(date("2026-11-16")).expect("读").expect("有");
         let view = day_view(&day);
@@ -2965,9 +3023,7 @@ mod day_tests {
         assert_eq!(view.exercises[0].finding, finding.id.0 as f64);
         assert!(!view.exercises[0].done);
 
-        let checked = store
-            .toggle_exercise(date("2026-11-16"), 0)
-            .expect("勾上");
+        let checked = store.toggle_exercise(date("2026-11-16"), 0).expect("勾上");
         let view = day_view(&checked);
         assert_eq!(view.state, "completed");
         assert_eq!(view.state_zh, "已完成");
@@ -3030,9 +3086,7 @@ mod day_tests {
                 },
             )
             .expect("排计划");
-        store
-            .ensure_days(date("2026-11-16"), 5, 0)
-            .expect("展开");
+        store.ensure_days(date("2026-11-16"), 5, 0).expect("展开");
         store
             .toggle_exercise(date("2026-11-16"), 0)
             .expect("打卡 16");
@@ -3054,7 +3108,10 @@ mod day_tests {
         assert_eq!(by_date["2026-11-16"].status, "completed");
         assert_eq!(by_date["2026-11-17"].status, "missed");
         assert_eq!(by_date["2026-11-18"].status, "postponed");
-        assert_eq!(by_date["2026-11-18"].moved_to.as_deref(), Some("2026-11-21"));
+        assert_eq!(
+            by_date["2026-11-18"].moved_to.as_deref(),
+            Some("2026-11-21")
+        );
         assert_eq!(by_date["2026-11-21"].status, "planned");
         assert_eq!(
             by_date["2026-11-21"].moved_from.as_deref(),
@@ -3159,8 +3216,7 @@ mod photo_tests {
             })
             .expect("插");
 
-        let (photo, url) =
-            attached_photo(store, &dir, mine.id, id.0 as f64).expect("自己的照片");
+        let (photo, url) = attached_photo(store, &dir, mine.id, id.0 as f64).expect("自己的照片");
         assert_eq!(photo.id, id);
         assert_eq!(url, "data:image/jpeg;base64,anBlZw==");
 
@@ -3194,8 +3250,14 @@ mod photo_tests {
             })
             .expect("插");
 
-        assert_eq!(delete_conversation(store, &dir, conversation.id.0 as f64), None);
-        assert!(crate::photos::load(&dir, &file).is_err(), "文件跟着会话走了");
+        assert_eq!(
+            delete_conversation(store, &dir, conversation.id.0 as f64),
+            None
+        );
+        assert!(
+            crate::photos::load(&dir, &file).is_err(),
+            "文件跟着会话走了"
+        );
         assert!(store.photos_of(conversation.id).expect("列表").is_empty());
         assert_eq!(store.conversation(conversation.id).expect("读"), None);
 
@@ -3205,8 +3267,8 @@ mod photo_tests {
     #[test]
     fn the_snapshot_carries_the_pending_proposal_so_the_model_knows_which_item_is_which() {
         use crate::domain::{
-            AxisValue, AxisValues, EvidenceDraft, EvidenceKind, FindingDraft, Proposal,
-            ProposalItem, ProposalId, Side, Tension,
+            AxisValue, AxisValues, EvidenceDraft, EvidenceKind, FindingDraft, Proposal, ProposalId,
+            ProposalItem, Side, Tension,
         };
         let temp = TempStore::new("api-snapshot-proposal");
         let store = temp.store();
@@ -3234,11 +3296,26 @@ mod photo_tests {
                 uncertainty: "没排除髋".to_owned(),
             },
         );
-        store
+        let saved = store
             .create_proposal(
                 Proposal::new(ProposalId(0), conversation.id, 110, vec![item]).expect("卡"),
             )
             .expect("开卡");
+        // 没有卡片行的旧卡：详情里既不显示为待审，也没有可渲染的卡片行。
+        let before = conversation_detail_view(store, conversation.id.0 as f64, None);
+        assert!(before.pending_proposal.is_none());
+        assert!(before.proposal_cards.is_empty());
+        store
+            .append_turn(
+                conversation.id,
+                vec![crate::domain::StoredItem::ProposalCard { proposal: saved.id }],
+                120,
+            )
+            .expect("卡片行");
+        let after = conversation_detail_view(store, conversation.id.0 as f64, None);
+        assert_eq!(after.pending_proposal.expect("待审").id, saved.id.0 as f64);
+        assert_eq!(after.proposal_cards.len(), 1);
+        assert_eq!(after.proposal_cards[0].proposal.id, saved.id.0 as f64);
 
         let snapshot = snapshot(store, conversation.id);
         assert_eq!(snapshot.proposals.len(), 1);
@@ -3246,6 +3323,43 @@ mod photo_tests {
         assert!(line.contains("第 1 项"), "{line}");
         assert!(line.contains("臀中肌"), "{line}");
         assert!(line.contains("置信度 78"), "{line}");
+
+        // #45：审完整张卡后详情不再标待审，卡片行仍在，只读回看状态已处理。
+        // 卡片行不驱动对话，所以 `lastEntryId` 指向它前面那条用户消息（这里是 None）；
+        // 审核之后指针落到同事务写入的决策消息上。
+        assert_eq!(after.last_entry_id, None);
+        let row_id = store
+            .items(conversation.id)
+            .expect("条目")
+            .last()
+            .expect("卡片行")
+            .id;
+        store
+            .review_proposal(
+                conversation.id,
+                saved.id,
+                &[crate::domain::ProposalDecision {
+                    index: 0,
+                    accept: true,
+                    reason: String::new(),
+                }],
+                140,
+            )
+            .expect("审完");
+        let reviewed = conversation_detail_view(store, conversation.id.0 as f64, None);
+        assert!(reviewed.pending_proposal.is_none());
+        assert_eq!(reviewed.proposal_cards.len(), 1);
+        assert_eq!(reviewed.proposal_cards[0].proposal.status, "accepted");
+        assert!(reviewed.last_entry_id.expect("决策消息") > row_id.0 as f64);
+        assert_eq!(
+            reviewed.last_entry_id,
+            store
+                .items(conversation.id)
+                .expect("条目")
+                .last()
+                .map(|entry| entry.id.0 as f64)
+        );
+        assert_eq!(reviewed.messages.len(), 0, "卡片行与决策都不算可见消息");
     }
 }
 
@@ -3317,6 +3431,93 @@ mod conversation_tests {
     fn previews_are_one_line_and_bounded() {
         assert_eq!(preview("  一\n二  三 "), "一 二 三");
         assert_eq!(preview(&"字".repeat(50)).chars().count(), 41);
+    }
+    #[test]
+    fn a_card_opened_before_a_failed_turn_stays_pending_and_refuses_a_second_card() {
+        use crate::domain::{
+            AxisValue, AxisValues, EvidenceDraft, EvidenceKind, FindingDraft, Proposal, ProposalId,
+            Side, Tension,
+        };
+        use crate::llm::agent::{StoreHost, ToolHost};
+
+        let temp = TempStore::new("api-keep-open-cards");
+        let store = temp.store();
+        let conversation = store.create_conversation(100).expect("会话");
+        let mut values = AxisValues::new();
+        values.set(AxisValue::Tension(Tension::Weak));
+        let saved = store
+            .create_proposal(
+                Proposal::new(
+                    ProposalId(0),
+                    conversation.id,
+                    110,
+                    vec![crate::domain::ProposalItem::new(
+                        FindingDraft {
+                            site: "soleus".to_owned(),
+                            side: Some(Side::Left),
+                            values,
+                            confidence: 70,
+                            at: 110,
+                        },
+                        EvidenceDraft {
+                            kind: EvidenceKind::Record,
+                            site: "soleus".to_owned(),
+                            side: Some(Side::Left),
+                            finding: None,
+                            conversation: Some(conversation.id),
+                            at: 110,
+                            user_said: "蹲不下去".to_owned(),
+                            test_and_feedback: "靠墙踝背屈差 4 cm".to_owned(),
+                            reasoning: "背屈受限".to_owned(),
+                            uncertainty: "没排除髋".to_owned(),
+                        },
+                    )],
+                )
+                .expect("卡"),
+            )
+            .expect("开卡");
+
+        // 模型开完卡、这一轮随后失败：api::reply 走这条把卡片行补进时间线的路。
+        let row = keep_open_cards(store, conversation.id, &[saved.id], 120).expect("卡片行");
+        assert_eq!(
+            store
+                .pending_proposal(conversation.id)
+                .expect("读")
+                .expect("有")
+                .id,
+            saved.id
+        );
+        assert_eq!(
+            store
+                .items(conversation.id)
+                .expect("条目")
+                .last()
+                .expect("行")
+                .id
+                .0 as f64,
+            row
+        );
+
+        // 重试时模型若再提议：待审的卡还在，仓库层直接拒绝，不会开出第二张。
+        let items = serde_json::json!([{
+            "site": "soleus",
+            "side": "left",
+            "confidence": 70,
+            "values": { "tension": "weak" },
+            "evidence": {
+                "user_said": "蹲不下去",
+                "test_and_feedback": "靠墙踝背屈差 4 cm",
+                "reasoning": "背屈受限",
+                "uncertainty": "没排除髋"
+            }
+        }]);
+        let mut host = StoreHost::new(store, conversation.id, 130);
+        let refused = host.call(
+            crate::domain::tool::PROPOSE_FINDINGS,
+            &serde_json::json!({ "items": items }).to_string(),
+        );
+        assert!(refused.contains("pending_proposal"), "{refused}");
+        assert_eq!(store.proposals(conversation.id).expect("提议").len(), 1);
     }
 }
 

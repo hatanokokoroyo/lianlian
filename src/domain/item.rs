@@ -10,7 +10,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use super::{ConversationId, DomainError, MessageId, PhotoId, Role, Timestamp};
+use super::{ConversationId, DomainError, MessageId, PhotoId, ProposalId, Role, Timestamp};
 
 /// 一条落库的条目：可见消息或工具往返。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -32,6 +32,10 @@ pub enum StoredItem {
     },
     /// 工具的结果（成功是结果 JSON，失败是错误 JSON）。
     FunctionCallOutput { call_id: String, output: String },
+    /// 本轮开出的提议卡在时间线里的位置；编号就是这一行的 `MessageId`。
+    ProposalCard { proposal: ProposalId },
+    /// 用户审完一张卡的记录：装配时是一条 user 消息，界面上不渲染。
+    ReviewDecision { text: String },
     /// 认不出来的输出 item（如思考模式下的 reasoning）：原样留着，重放时照发。
     Raw { item: Value },
 }
@@ -90,6 +94,13 @@ impl StoredItem {
             StoredItem::FunctionCallOutput { call_id, output } => {
                 if call_id.trim().is_empty() || output.trim().is_empty() {
                     return Err(DomainError::EmptyToolItem);
+                }
+                Ok(())
+            }
+            StoredItem::ProposalCard { .. } => Ok(()),
+            StoredItem::ReviewDecision { text } => {
+                if text.trim().is_empty() {
+                    return Err(DomainError::EmptyMessage);
                 }
                 Ok(())
             }
@@ -190,6 +201,22 @@ mod tests {
     }
 
     #[test]
+    fn a_proposal_card_is_a_stored_row_without_being_a_message() {
+        let card = StoredItem::ProposalCard {
+            proposal: crate::domain::ProposalId(7),
+        };
+        assert_eq!(card.validate(), Ok(()));
+        assert_eq!(card.as_message(), None);
+        assert!(!card.is_user_message());
+        assert!(card.photos().is_empty());
+
+        let json = serde_json::to_string(&card).expect("序列化");
+        assert!(json.contains("\"kind\":\"proposal-card\""), "{json}");
+        let back: StoredItem = serde_json::from_str(&json).expect("反序列化");
+        assert_eq!(back, card);
+    }
+
+    #[test]
     fn only_user_messages_start_a_turn() {
         assert!(StoredItem::user("嗯").expect("合法").is_user_message());
         assert!(!StoredItem::assistant("嗯").expect("合法").is_user_message());
@@ -204,5 +231,26 @@ mod tests {
         let back: StoredItem = serde_json::from_str(&json).expect("反序列化");
         assert_eq!(back, raw);
         assert_eq!(back.validate(), Ok(()));
+    }
+
+    #[test]
+    fn a_review_decision_is_a_stored_user_turn_but_not_a_visible_message() {
+        let review = StoredItem::ReviewDecision {
+            text: "我审完了第 1 号卡：全部采纳。".to_owned(),
+        };
+        assert_eq!(review.validate(), Ok(()));
+        assert_eq!(review.as_message(), None);
+        assert!(!review.is_user_message());
+        assert!(review.photos().is_empty());
+
+        let json = serde_json::to_string(&review).expect("序列化");
+        assert!(json.contains("\"kind\":\"review-decision\""), "{json}");
+        let back: StoredItem = serde_json::from_str(&json).expect("反序列化");
+        assert_eq!(back, review);
+
+        let blank = StoredItem::ReviewDecision {
+            text: "  ".to_owned(),
+        };
+        assert_eq!(blank.validate(), Err(DomainError::EmptyMessage));
     }
 }

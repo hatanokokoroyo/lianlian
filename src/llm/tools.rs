@@ -116,6 +116,7 @@ fn propose_spec() -> Value {
                             "site": { "type": "string", "description": "部位 id，必须在词表里" },
                             "side": { "type": "string", "enum": ["left", "right"] },
                             "confidence": { "type": "integer", "minimum": 0, "maximum": 100, "description": "低于 60 的项默认不勾" },
+                            "recommend": { "type": "boolean", "description": "可选：建议默认勾选（true）或不勾（false）；不给就看置信度" },
                             "values": {
                                 "type": "object",
                                 "properties": {
@@ -246,17 +247,17 @@ mod tests {
             .find(|spec| spec["name"] == "generate_plan")
             .expect("有 generate_plan");
         let properties = &plan["parameters"]["properties"];
-        assert_eq!(properties["frequency"]["required"], json!(["unit", "count"]));
+        assert_eq!(
+            properties["frequency"]["required"],
+            json!(["unit", "count"])
+        );
         let exercise = &properties["exercises"]["items"];
         assert_eq!(
             exercise["required"],
             json!(["name", "sets", "reps", "finding"])
         );
         assert_eq!(properties["exercises"]["maxItems"], MAX_EXERCISES);
-        assert_eq!(
-            properties["review_in_weeks"]["maximum"],
-            MAX_REVIEW_WEEKS
-        );
+        assert_eq!(properties["review_in_weeks"]["maximum"], MAX_REVIEW_WEEKS);
     }
 
     #[test]

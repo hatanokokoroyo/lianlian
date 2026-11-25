@@ -1,0 +1,551 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>提议卡审核 · 状态原型</title>
+<!--
+  THROWAWAY 原型 —— 对应 #44 / #45 / #46。只用来确认位置、按钮文案与锁定行为，
+  不是实现稿：NSH 里按 spec 重写，不复用这里的 HTML 结构。
+
+  单帧截图：?f=1 … ?f=5
+-->
+<style>
+  :root{
+    --bg:#14171c; --fg:#e8edf2; --card:#1e232b; --muted:#272d36;
+    --muted-fg:#aab2bd; --primary:#c8f04a; --primary-fg:#10120c;
+    --accent:#6ee7f0; --destructive:#ff6b6b; --border:#353c47;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:#000;color:var(--fg);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Noto Sans CJK SC",system-ui,sans-serif}
+  .page-head{padding:28px 20px 8px;max-width:760px;margin:0 auto}
+  .page-head h1{margin:0;font-size:18px;font-weight:600}
+  .page-head p{margin:8px 0 0;font-size:13px;line-height:20px;color:var(--muted-fg)}
+  .page-head code{color:var(--accent)}
+  .frames{display:flex;flex-direction:column;align-items:center;gap:28px;padding:20px 0 48px}
+  .frame{display:none;width:390px}
+  body[data-frame="all"] .frame{display:block}
+  body.shot .frames{display:block;padding:0;gap:0;align-items:initial}
+  body[data-frame="1"] #s1,body[data-frame="2"] #s2,body[data-frame="3"] #s3,
+  body[data-frame="4"] #s4,body[data-frame="5"] #s5{display:block}
+  .strip{height:32px;display:flex;align-items:center;gap:8px;padding:0 4px;
+    font-size:11px;letter-spacing:.3px;color:var(--muted-fg)}
+  .strip b{color:var(--accent);font-weight:600}
+  .phone{width:390px;height:844px;background:var(--bg);color:var(--fg);
+    display:flex;flex-direction:column;overflow:hidden;border-radius:18px;
+    border:1px solid #232830}
+  .appbar{display:flex;align-items:center;gap:10px;padding:12px 16px;
+    border-bottom:1px solid var(--border);flex:none}
+  .appbar .back{font-size:14px;color:var(--muted-fg);flex:none}
+  .appbar .ttl{flex:1;min-width:0;font-size:16px;font-weight:600;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .appbar .count{font-size:12px;color:var(--muted-fg);flex:none}
+  .list{flex:1;min-height:0;overflow:hidden;padding:12px 16px;
+    display:flex;flex-direction:column;gap:12px}
+  .list.end{justify-content:flex-end}
+  .row{display:flex;gap:8px}
+  .row.me{justify-content:flex-end}
+  .avatar{width:24px;height:24px;border-radius:999px;background:var(--card);flex:none;margin-top:2px}
+  .bubble{background:var(--card);border-radius:14px;border-bottom-left-radius:5px;
+    padding:10px 13px;font-size:14px;line-height:22px;max-width:308px}
+  .bubble.me{background:rgba(200,240,74,.15);border-radius:14px;
+    border-bottom-right-radius:5px;max-width:272px}
+  .card{background:var(--card);border:1px solid rgba(110,231,240,.32);
+    border-radius:20px;padding:14px 14px 12px}
+  .card-head{display:flex;align-items:flex-start;gap:8px}
+  .card-head .txt{flex:1;min-width:0}
+  .card-head .t{font-size:16px;line-height:24px;font-weight:600}
+  .card-head .s{font-size:12px;line-height:18px;color:var(--muted-fg);margin-top:2px}
+  .card-head .s b{color:var(--accent);font-weight:600}
+  .tag{font-size:12px;line-height:18px;color:var(--muted-fg);flex:none}
+  .item{display:flex;gap:9px;padding:9px 0;border-top:1px solid rgba(53,60,71,.7)}
+  .item:first-of-type{border-top:0}
+  .num{width:16px;flex:none;font-size:12px;line-height:20px;color:var(--muted-fg);
+    font-variant-numeric:tabular-nums;text-align:right}
+  .check{width:20px;height:20px;border-radius:999px;flex:none;margin-top:1px;
+    border:1px solid var(--muted-fg);display:flex;align-items:center;justify-content:center;
+    font-size:12px;color:var(--primary-fg)}
+  .check.on{background:var(--primary);border-color:var(--primary)}
+  .body{flex:1;min-width:0}
+  .site{font-size:14px;line-height:20px;font-weight:600}
+  .site span{font-weight:400;color:var(--muted-fg)}
+  .chips{display:flex;flex-wrap:wrap;gap:5px;margin-top:3px}
+  .chip{font-size:12px;line-height:17px;padding:1px 8px;border-radius:999px;
+    background:rgba(255,107,107,.14);color:var(--destructive)}
+  .chip.n{background:rgba(170,178,189,.12);color:var(--muted-fg)}
+  .meta{font-size:12px;line-height:18px;color:var(--muted-fg);margin-top:3px}
+  .meta .low{color:var(--accent)}
+  .acts{display:flex;gap:14px;margin-top:3px}
+  .link{font-size:12px;line-height:18px;color:var(--accent);text-decoration:underline;
+    text-underline-offset:3px}
+  .why-box{margin-top:6px}
+  .why-input{background:var(--muted);border-radius:12px;padding:8px 11px;
+    font-size:13px;line-height:19px;color:var(--fg)}
+  .btn{height:44px;border-radius:999px;background:var(--primary);color:var(--primary-fg);
+    display:flex;align-items:center;justify-content:center;
+    font-size:14px;font-weight:600;margin-top:12px;flex:none}
+  .btn.mute{background:var(--muted);color:var(--muted-fg)}
+  .btn.ghost{background:transparent;border:1px solid var(--border);color:var(--fg)}
+  .hint{font-size:12px;line-height:18px;color:var(--muted-fg);text-align:center;margin-top:8px}
+  .hint b{color:var(--fg);font-weight:500}
+  .lock{display:flex;align-items:center;gap:7px;padding:9px 16px;flex:none;
+    border-top:1px solid var(--border);font-size:12px;color:var(--accent)}
+  .lock .dot{width:5px;height:5px;border-radius:999px;background:var(--accent)}
+  .composer{display:flex;align-items:center;gap:8px;padding:10px 16px 14px;flex:none;
+    border-top:1px solid var(--border)}
+  .input{flex:1;height:38px;border-radius:12px;background:var(--muted);
+    display:flex;align-items:center;padding:0 12px;font-size:14px;color:var(--muted-fg)}
+  .send{height:38px;padding:0 16px;border-radius:999px;background:var(--muted);
+    color:var(--muted-fg);display:flex;align-items:center;font-size:14px}
+  .send.on{background:var(--primary);color:var(--primary-fg);font-weight:600}
+  .summary{display:flex;align-items:center;gap:10px}
+  .summary .txt{flex:1;min-width:0;font-size:14px;line-height:20px}
+  .summary .txt b{font-weight:600}
+  .summary .txt em{font-style:normal;color:var(--muted-fg);font-size:12px;display:block;margin-top:2px}
+  .summary .more{font-size:12px;color:var(--accent);flex:none}
+  .ro{display:flex;gap:9px;padding:9px 0;border-top:1px solid rgba(53,60,71,.7)}
+  .ro .mark{width:16px;flex:none;font-size:13px;line-height:20px;text-align:center}
+  .mark.ok{color:var(--primary)}
+  .mark.no{color:var(--destructive)}
+  .reason{font-size:12px;line-height:18px;color:var(--muted-fg);margin-top:2px}
+  .ro-flag{font-size:11px;letter-spacing:.3px;color:var(--muted-fg);border:1px solid var(--border);
+    border-radius:999px;padding:1px 7px;flex:none;align-self:flex-start;margin-top:2px}
+  .spacer{flex:1}
+</style>
+</head>
+<body data-frame="all">
+
+<header class="page-head">
+  <h1>提议卡审核 · 状态原型</h1>
+  <p>深色「节拍」token，360–390 视口。五张状态依次是：待审顶部 / 待审底部与锁定 / 全部取消与理由 /
+     已处理收起 / 已处理展开。对应 <code>#44</code> 位置、<code>#45</code> 提交与锁定、<code>#46</code> 收起与删撤销。<br>
+     直接打开看全图；单帧截图走 <code>?f=1</code> 到 <code>?f=5</code>。</p>
+</header>
+
+<div class="frames">
+
+<!-- ① 待审 · 顶部 ------------------------------------------------------- -->
+<section class="frame" id="s1">
+  <div class="strip"><b>①</b> 待审 · 卡片就在这一段判断之后，随列表滚动</div>
+  <div class="phone">
+    <div class="appbar">
+      <span class="back">← 对话</span>
+      <span class="ttl">蹲不下去，左胯会掉</span>
+      <span class="count">8 条</span>
+    </div>
+    <div class="list">
+      <div class="row me">
+        <div class="bubble me">蹲下去的时候膝盖前面紧，单腿站左边胯会往下掉。</div>
+      </div>
+      <div class="row">
+        <div class="avatar"></div>
+        <div class="bubble">先说我在分辨什么：一种是踝背屈不够，膝盖被迫往前顶；另一种是臀中肌外展耐力不足，单腿站时骨盆撑不住。</div>
+      </div>
+      <div class="row">
+        <div class="avatar"></div>
+        <div class="bubble">靠墙测了右脚离墙 4cm，踝背屈不算受限，这条排除。单腿站左边掉 3cm、蛤蟆式第 7 个就抬不动，剩下都指向外展耐力。</div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <div class="txt">
+            <div class="t">它想改这 8 处</div>
+            <div class="s"><b>建议采纳 5 项</b> · 低置信度的 3 项没有勾</div>
+          </div>
+          <span class="tag">逐项审</span>
+        </div>
+        <div class="item">
+          <span class="num">1</span><span class="check on">✓</span>
+          <div class="body">
+            <div class="site">臀中肌 <span>· 左</span></div>
+            <div class="chips"><span class="chip">张力 弱</span><span class="chip">对称 左弱</span></div>
+            <div class="meta">置信度 82</div>
+            <div class="acts"><span class="link">看依据</span></div>
+          </div>
+        </div>
+        <div class="item">
+          <span class="num">2</span><span class="check on">✓</span>
+          <div class="body">
+            <div class="site">臀小肌 <span>· 左</span></div>
+            <div class="chips"><span class="chip">张力 弱</span></div>
+            <div class="meta">置信度 78</div>
+            <div class="acts"><span class="link">看依据</span></div>
+          </div>
+        </div>
+        <div class="item">
+          <span class="num">3</span><span class="check on">✓</span>
+          <div class="body">
+            <div class="site">阔筋膜张肌 <span>· 左</span></div>
+            <div class="chips"><span class="chip">张力 紧</span></div>
+            <div class="meta">置信度 74</div>
+            <div class="acts"><span class="link">看依据</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="lock"><span class="dot"></span>先把这张卡审完，再继续聊</div>
+    <div class="composer">
+      <div class="input">先把这张卡审完</div>
+      <div class="send">发送</div>
+    </div>
+  </div>
+</section>
+
+<!-- ② 待审 · 底部 ------------------------------------------------------- -->
+<section class="frame" id="s2">
+  <div class="strip"><b>②</b> 待审 · 滚到底：8 项之后就是按钮，不被裁掉</div>
+  <div class="phone">
+    <div class="appbar">
+      <span class="back">← 对话</span>
+      <span class="ttl">蹲不下去，左胯会掉</span>
+      <span class="count">8 条</span>
+    </div>
+    <div class="list end">
+      <div class="card">
+        <div class="card-head">
+          <div class="txt">
+            <div class="t">它想改这 8 处</div>
+            <div class="s"><b>建议采纳 5 项</b> · 低置信度的 3 项没有勾</div>
+          </div>
+          <span class="tag">逐项审</span>
+        </div>
+        <div class="item">
+          <span class="num">1</span><span class="check on">✓</span>
+          <div class="body">
+            <div class="site">臀中肌 <span>· 左</span></div>
+            <div class="chips"><span class="chip">张力 弱</span><span class="chip">对称 左弱</span></div>
+            <div class="meta">置信度 82</div>
+            <div class="acts"><span class="link">看依据</span></div>
+          </div>
+        </div>
+        <div class="item">
+          <span class="num">2</span><span class="check on">✓</span>
+          <div class="body">
+            <div class="site">臀小肌 <span>· 左</span></div>
+            <div class="chips"><span class="chip">张力 弱</span></div>
+            <div class="meta">置信度 78</div>
+            <div class="acts"><span class="link">看依据</span></div>
+          </div>
+        </div>
+        <div class="item">
+          <span class="num">3</span><span class="check on">✓</span>
+          <div class="body">
+            <div class="site">阔筋膜张肌 <span>· 左</span></div>
+            <div class="chips"><span class="chip">张力 紧</span></div>
+            <div class="meta">置信度 74</div>
+            <div class="acts"><span class="link">看依据</span></div>
+          </div>
+        </div>
+        <div class="item">
+          <span class="num">4</span><span class="check on">✓</span>
+          <div class="body">
+            <div class="site">腰大肌 <span>· 右</span></div>
+            <div class="chips"><span class="chip">张力 紧</span></div>
+            <div class="meta">置信度 66</div>
+            <div class="acts"><span class="link">看依据</span></div>
+          </div>
+        </div>
+        <div class="item">
+          <span class="num">5</span><span class="check on">✓</span>
+          <div class="body">
+            <div class="site">比目鱼肌 <span>· 左</span></div>
+            <div class="chips"><span class="chip">活动度 受限</span></div>
+            <div class="meta">置信度 63</div>
+            <div class="acts"><span class="link">看依据</span></div>
+          </div>
+        </div>
+        <div class="item">
+          <span class="num">6</span><span class="check"></span>
+          <div class="body">
+            <div class="site">腓肠肌 <span>· 左</span></div>
+            <div class="chips"><span class="chip">张力 紧</span></div>
+            <div class="meta">置信度 58 · <span class="low">低置信度</span></div>
+            <div class="acts"><span class="link">看依据</span><span class="link">为什么</span></div>
+          </div>
+        </div>
+        <div class="item">
+          <span class="num">7</span><span class="check"></span>
+          <div class="body">
+            <div class="site">臀中肌 <span>· 右</span></div>
+            <div class="chips"><span class="chip">对称 右弱</span></div>
+            <div class="meta">置信度 52 · <span class="low">低置信度</span></div>
+            <div class="acts"><span class="link">看依据</span><span class="link">为什么</span></div>
+          </div>
+        </div>
+        <div class="item">
+          <span class="num">8</span><span class="check"></span>
+          <div class="body">
+            <div class="site">腹横肌 </div>
+            <div class="chips"><span class="chip">稳定性 差</span></div>
+            <div class="meta">置信度 47 · <span class="low">低置信度</span></div>
+            <div class="acts"><span class="link">看依据</span><span class="link">为什么</span></div>
+          </div>
+        </div>
+        <div class="btn">采纳勾选的 5 项</div>
+      </div>
+    </div>
+    <div class="lock"><span class="dot"></span>先把这张卡审完，再继续聊</div>
+    <div class="composer">
+      <div class="input">先把这张卡审完</div>
+      <div class="send">发送</div>
+    </div>
+  </div>
+</section>
+
+<!-- ③ 全部取消 + 理由 -------------------------------------------------- -->
+<section class="frame" id="s3">
+  <div class="strip"><b>③</b> 全部取消：按钮变成「都不要」，理由逐项可选</div>
+  <div class="phone">
+    <div class="appbar">
+      <span class="back">← 对话</span>
+      <span class="ttl">蹲不下去，左胯会掉</span>
+      <span class="count">8 条</span>
+    </div>
+    <div class="list end">
+      <div class="card" style="padding-bottom:45px">
+        <div class="card-head">
+          <div class="txt">
+            <div class="t">它想改这 8 处</div>
+            <div class="s">现在一项都没勾</div>
+          </div>
+          <span class="tag">逐项审</span>
+        </div>
+        <div class="item">
+          <span class="num">1</span><span class="check"></span>
+          <div class="body">
+            <div class="site">臀中肌 <span>· 左</span></div>
+            <div class="chips"><span class="chip">张力 弱</span><span class="chip">对称 左弱</span></div>
+            <div class="meta">置信度 82</div>
+            <div class="acts"><span class="link">看依据</span><span class="link">为什么</span></div>
+          </div>
+        </div>
+        <div class="item">
+          <span class="num">2</span><span class="check"></span>
+          <div class="body">
+            <div class="site">臀小肌 <span>· 左</span></div>
+            <div class="chips"><span class="chip">张力 弱</span></div>
+            <div class="meta">置信度 78</div>
+            <div class="acts"><span class="link">看依据</span><span class="link">为什么</span></div>
+          </div>
+        </div>
+        <div class="item">
+          <span class="num">3</span><span class="check"></span>
+          <div class="body">
+            <div class="site">阔筋膜张肌 <span>· 左</span></div>
+            <div class="chips"><span class="chip">张力 紧</span></div>
+            <div class="meta">置信度 74</div>
+            <div class="acts"><span class="link">看依据</span><span class="link">为什么</span></div>
+          </div>
+        </div>
+        <div class="item">
+          <span class="num">4</span><span class="check"></span>
+          <div class="body">
+            <div class="site">腰大肌 <span>· 右</span></div>
+            <div class="chips"><span class="chip">张力 紧</span></div>
+            <div class="meta">置信度 66</div>
+            <div class="acts"><span class="link">看依据</span><span class="link">为什么</span></div>
+          </div>
+        </div>
+        <div class="item">
+          <span class="num">5</span><span class="check"></span>
+          <div class="body">
+            <div class="site">比目鱼肌 <span>· 左</span></div>
+            <div class="chips"><span class="chip">活动度 受限</span></div>
+            <div class="meta">置信度 63</div>
+            <div class="acts"><span class="link">看依据</span><span class="link">为什么</span></div>
+          </div>
+        </div>
+        <div class="item">
+          <span class="num">6</span><span class="check"></span>
+          <div class="body">
+            <div class="site">腓肠肌 <span>· 左</span></div>
+            <div class="chips"><span class="chip">张力 紧</span></div>
+            <div class="meta">置信度 58 · <span class="low">低置信度</span></div>
+            <div class="acts"><span class="link">看依据</span><span class="link">为什么</span></div>
+          </div>
+        </div>
+        <div class="item">
+          <span class="num">7</span><span class="check"></span>
+          <div class="body">
+            <div class="site">臀中肌 <span>· 右</span></div>
+            <div class="chips"><span class="chip">对称 右弱</span></div>
+            <div class="meta">置信度 52 · <span class="low">低置信度</span></div>
+            <div class="acts"><span class="link">看依据</span><span class="link">为什么</span></div><div class="why-box"><div class="why-input">按压时更痛，不太像张力的问题</div></div>
+          </div>
+        </div>
+        <div class="item">
+          <span class="num">8</span><span class="check"></span>
+          <div class="body">
+            <div class="site">腹横肌 </div>
+            <div class="chips"><span class="chip">稳定性 差</span></div>
+            <div class="meta">置信度 47 · <span class="low">低置信度</span></div>
+            <div class="acts"><span class="link">看依据</span><span class="link">为什么</span></div>
+          </div>
+        </div>
+        <div class="btn ghost">这 8 项都不要</div>
+        <div class="hint">都不是？<b>全部不要</b>，然后跟我说哪里不对</div>
+      </div>
+    </div>
+    <div class="lock"><span class="dot"></span>先把这张卡审完，再继续聊</div>
+    <div class="composer">
+      <div class="input">先把这张卡审完</div>
+      <div class="send">发送</div>
+    </div>
+  </div>
+</section>
+
+<!-- ④ 已处理 · 收起 ---------------------------------------------------- -->
+<section class="frame" id="s4">
+  <div class="strip"><b>④</b> 提交后：卡收成一行，输入条立刻恢复</div>
+  <div class="phone">
+    <div class="appbar">
+      <span class="back">← 对话</span>
+      <span class="ttl">蹲不下去，左胯会掉</span>
+      <span class="count">9 条</span>
+    </div>
+    <div class="list">
+      <div class="row me">
+        <div class="bubble me">蹲下去的时候膝盖前面紧，单腿站左边胯会往下掉。</div>
+      </div>
+      <div class="row">
+        <div class="avatar"></div>
+        <div class="bubble">靠墙测了右脚离墙 4cm，踝背屈不算受限，这条排除。单腿站左边掉 3cm、蛤蟆式第 7 个就抬不动，剩下都指向外展耐力。</div>
+      </div>
+      <div class="card">
+        <div class="summary">
+          <div class="txt">
+            <b>已写进 5 项，不要 3 项</b>
+            <em>2 项写了理由 · 提交后不能改</em>
+          </div>
+          <span class="more">展开查看</span>
+        </div>
+      </div>
+      <div class="row">
+        <div class="avatar"></div>
+        <div class="bubble">那三项先不写。按外展耐力不足给你排一周：蚌式、单腿桥、侧向走，隔天做；腓肠肌和腹横肌等下次有现象再看。</div>
+      </div>
+      <div class="row">
+        <div class="avatar"></div>
+        <div class="bubble">今天先各做一组试试，做完告诉我哪边更酸。</div>
+      </div>
+    </div>
+    <div class="composer">
+      <div class="input">说点什么…</div>
+      <div class="send on">发送</div>
+    </div>
+  </div>
+</section>
+
+<!-- ⑤ 已处理 · 展开 ---------------------------------------------------- -->
+<section class="frame" id="s5">
+  <div class="strip"><b>⑤</b> 回看：展开只读，看得到当时勾了什么、为什么没勾</div>
+  <div class="phone">
+    <div class="appbar">
+      <span class="back">← 对话</span>
+      <span class="ttl">蹲不下去，左胯会掉</span>
+      <span class="count">9 条</span>
+    </div>
+    <div class="list">
+      <div class="card">
+        <div class="summary">
+          <div class="txt">
+            <b>已写进 5 项，不要 3 项</b>
+            <em>2026-11-25 22:14 · 2 项写了理由</em>
+          </div>
+          <span class="more">收起</span>
+        </div>
+        <div class="ro">
+          <span class="mark ok">✓</span>
+          <div class="body">
+            <div class="site">臀中肌 <span>· 左</span></div>
+            <div class="chips"><span class="chip">张力 弱</span><span class="chip">对称 左弱</span></div>
+            
+            <div class="acts"><span class="link">看依据</span></div>
+          </div>
+        </div>
+        <div class="ro">
+          <span class="mark ok">✓</span>
+          <div class="body">
+            <div class="site">臀小肌 <span>· 左</span></div>
+            <div class="chips"><span class="chip">张力 弱</span></div>
+            
+            <div class="acts"><span class="link">看依据</span></div>
+          </div>
+        </div>
+        <div class="ro">
+          <span class="mark ok">✓</span>
+          <div class="body">
+            <div class="site">阔筋膜张肌 <span>· 左</span></div>
+            <div class="chips"><span class="chip">张力 紧</span></div>
+            
+            <div class="acts"><span class="link">看依据</span></div>
+          </div>
+        </div>
+        <div class="ro">
+          <span class="mark ok">✓</span>
+          <div class="body">
+            <div class="site">腰大肌 <span>· 右</span></div>
+            <div class="chips"><span class="chip">张力 紧</span></div>
+            
+            <div class="acts"><span class="link">看依据</span></div>
+          </div>
+        </div>
+        <div class="ro">
+          <span class="mark ok">✓</span>
+          <div class="body">
+            <div class="site">比目鱼肌 <span>· 左</span></div>
+            <div class="chips"><span class="chip">活动度 受限</span></div>
+            
+            <div class="acts"><span class="link">看依据</span></div>
+          </div>
+        </div>
+        <div class="ro">
+          <span class="mark no">✗</span>
+          <div class="body">
+            <div class="site">腓肠肌 <span>· 左</span></div>
+            <div class="chips"><span class="chip n">张力 紧</span></div>
+            <div class="reason">理由是：按压时更痛，不太像张力的问题</div>
+            <div class="acts"><span class="link">看依据</span></div>
+          </div>
+        </div>
+        <div class="ro">
+          <span class="mark no">✗</span>
+          <div class="body">
+            <div class="site">臀中肌 <span>· 右</span></div>
+            <div class="chips"><span class="chip n">对称 右弱</span></div>
+            <div class="reason">理由是：右边没有明显症状，先不写</div>
+            <div class="acts"><span class="link">看依据</span></div>
+          </div>
+        </div>
+        <div class="ro">
+          <span class="mark no">✗</span>
+          <div class="body">
+            <div class="site">腹横肌 </div>
+            <div class="chips"><span class="chip n">稳定性 差</span></div>
+            <div class="reason">没写理由</div>
+            <div class="acts"><span class="link">看依据</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="composer">
+      <div class="input">说点什么…</div>
+      <div class="send on">发送</div>
+    </div>
+  </div>
+</section>
+
+</div>
+
+<script>
+  const f = new URLSearchParams(location.search).get('f');
+  if (f) {
+    document.body.dataset.frame = f;
+    document.body.classList.add('shot');
+    document.querySelector('.page-head').style.display = 'none';
+  }
+
+</script>
+</body>
+</html>
