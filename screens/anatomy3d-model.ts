@@ -29,6 +29,8 @@ export interface ViewerCard {
   groupZh: string;
   axes: ViewerAxis[];
   at: number;
+  /** The judged confidence, 0-100; null when the card has none. */
+  confidence: number | null;
   resolved: boolean;
   worst: string;
 }
@@ -115,7 +117,7 @@ export function cardWorstText(card: SiteCardView): string {
   if (!axis) {
     return "状态平稳";
   }
-  return `${card.siteZh}${card.sideZh ?? ""} · ${axis.label} ${axis.value}`;
+  return axis.label + " " + axis.value;
 }
 
 /**
@@ -185,6 +187,7 @@ export function deriveCards(
           abnormal: axis.abnormal,
         })),
         at: card.at,
+        confidence: Number.isFinite(card.confidence) ? card.confidence : null,
         resolved: card.resolved,
         worst: cardWorstText(card),
       });

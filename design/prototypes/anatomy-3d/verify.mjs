@@ -18,6 +18,9 @@ const BASE_URL = process.env.VIEWER_URL
   || 'http://127.0.0.1:8765/design/prototypes/anatomy-3d/';
 const SCREENSHOT = process.env.SHOT || '/tmp/anatomy-3d-verify.png';
 const PRODUCT_SCREENSHOT = process.env.PRODUCT_SHOT || '/tmp/anatomy-3d-product.png';
+const ACCEPTANCE_FRONT = process.env.ACCEPTANCE_FRONT || '/tmp/anatomy-3d-acceptance-front.png';
+const ACCEPTANCE_BACK = process.env.ACCEPTANCE_BACK || '/tmp/anatomy-3d-acceptance-back.png';
+const ACCEPTANCE_SHEET = process.env.ACCEPTANCE_SHEET || '/tmp/anatomy-3d-acceptance-sheet.png';
 
 const BROWSER_CANDIDATES = [
   process.env.EDGE_BIN,
@@ -191,11 +194,19 @@ async function main() {
     });
 
     const evaluate = async (expression, awaitPromise = false) => {
-      const response = await cdp.send('Runtime.evaluate', {
-        expression,
-        awaitPromise,
-        returnByValue: true,
-      });
+      const response = await Promise.race([
+        cdp.send('Runtime.evaluate', {
+          expression,
+          awaitPromise,
+          returnByValue: true,
+        }),
+        new Promise((_, reject) => {
+          setTimeout(
+            () => reject(new Error('Runtime.evaluate timed out: ' + expression.slice(0, 80))),
+            15000,
+          );
+        }),
+      ]);
       const exception = response.result?.exceptionDetails;
       if (exception) {
         throw new Error(`${exception.text} ${exception.exception?.description ?? ''}`.trim());
@@ -215,9 +226,16 @@ async function main() {
       return false;
     };
 
+    // Headless Edge can stop delivering frames when nothing invalidates the
+    // page. Wait for two frames when they come, but fall back to a timer so the
+    // contract checks can never hang.
     const settle = () => evaluate(
-      'new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame('
-      + '() => setTimeout(() => resolve(true), 30))))',
+      'new Promise((resolve) => {'
+      + 'let done = false;'
+      + 'const finish = () => { if (!done) { done = true; resolve(true); } };'
+      + 'setTimeout(finish, 400);'
+      + 'requestAnimationFrame(() => requestAnimationFrame(finish));'
+      + '})',
       true,
     );
 
@@ -288,14 +306,38 @@ async function main() {
       const sheet = document.querySelector('#detail-sheet');
       const canvas = document.querySelector('#scene');
       const head = document.querySelector('#sheet-head');
+      const sideToggle = document.querySelector('#sheet-sides');
+      const sideEl = document.querySelector('#sheet-side');
       const sheetRect = sheet.getBoundingClientRect();
       const canvasRect = canvas.getBoundingClientRect();
       const headRect = head.getBoundingClientRect();
+      const toggleVisible = Boolean(sideToggle) && !sideToggle.hidden;
+      const pressed = toggleVisible
+        ? sideToggle.querySelector('button[aria-pressed="true"]')
+        : null;
+      const sideLabel = (text) => text === '左' ? '左侧' : text === '右' ? '右侧' : text;
       return {
         hidden: sheet.hidden,
         open: sheet.classList.contains('is-open'),
         title: document.querySelector('#sheet-title').textContent.trim(),
-        side: document.querySelector('#sheet-side').textContent.trim(),
+        side: sideLabel(
+          toggleVisible
+            ? (pressed ? pressed.textContent.trim() : '')
+            : sideEl.textContent.trim(),
+        ),
+        sideToggle: toggleVisible
+          ? [...sideToggle.querySelectorAll('button')].map((button) => ({
+            side: button.dataset.side,
+            label: button.textContent.trim(),
+            pressed: button.getAttribute('aria-pressed'),
+          }))
+          : [],
+        sideIdle: toggleVisible && !pressed,
+        meta: document.querySelector('#sheet-meta').textContent.trim(),
+        related: {
+          hidden: document.querySelector('#sheet-related').hidden,
+          text: document.querySelector('#sheet-related').textContent.trim(),
+        },
         worst: document.querySelector('#sheet-worst').textContent.trim(),
         axes: [...document.querySelectorAll('#sheet-axes .axis-chip')].map((chip) => ({
           axis: chip.dataset.axis,
@@ -348,6 +390,27 @@ async function main() {
         missing: list.querySelectorAll('.attention-missing').length,
         sheetTop: sheetRect.top,
         canvas: { width: canvasRect.width, height: canvasRect.height },
+      };
+    })())`));
+
+    const readOverview = async () => JSON.parse(await evaluate(`JSON.stringify((() => {
+      const overview = document.querySelector('#overview');
+      const text = (node) => node.textContent.trim().replace(/\\s+/g, ' ');
+      return {
+        hidden: overview.hidden,
+        count: text(document.querySelector('#overview-count')),
+        sub: text(document.querySelector('#overview-sub')),
+        chips: [...document.querySelectorAll('#overview-chips .chip')].map(text),
+        markers: [...document.querySelectorAll('.marker')].map((marker) => ({
+          text: text(marker),
+          site: marker.dataset.siteId,
+          side: marker.dataset.side,
+          deep: marker.classList.contains('is-deep'),
+          focused: marker.classList.contains('is-focused'),
+          left: marker.style.left,
+          top: marker.style.top,
+        })),
+        markerCount: window.__viewer?.stats?.markerCount ?? null,
       };
     })())`));
 
@@ -674,8 +737,10 @@ async function main() {
       }));
     check('empty highlight restores the default palette',
       result.stats.palette.left === '#6ee7f0'
-      && result.stats.palette.abnormal === '#ff6b6b'
-      && result.stats.palette.selected === '#c8f04a',
+      && result.stats.palette.abnormal === '#e15e3f'
+      && result.stats.palette.selected === '#d8e567'
+      && result.stats.palette.muscle === '#cbbeb0'
+      && result.stats.palette.bone === '#b3a798',
       JSON.stringify(result.stats.palette));
 
     await evaluate(`window.__viewer.selectSite('gluteus-maximus', 'left')`);
@@ -733,8 +798,13 @@ async function main() {
     result = await readStats();
     let sheet = await readSheet();
     check('selecting one side opens the sheet with the picked side',
-      sheet.hidden === false && sheet.title === '臀大肌' && sheet.side === '左侧',
+      sheet.hidden === false && sheet.title === '① 臀大肌' && sheet.side === '左侧',
       `${sheet.hidden}/${sheet.title}/${sheet.side}`);
+    check('the sheet offers the available sides as a toggle',
+      sheet.sideToggle.length === 1
+      && sheet.sideToggle[0].side === 'left'
+      && sheet.sideToggle[0].pressed === 'true',
+      JSON.stringify(sheet.sideToggle));
     check('sheet shows all five axes with measured/abnormal states',
       sheet.axes.length === 5
       && sheet.axes.find((axis) => axis.axis === 'pain')?.state === 'unmeasured'
@@ -742,8 +812,16 @@ async function main() {
       && sheet.axes.find((axis) => axis.axis === 'mobility')?.state === 'normal',
       JSON.stringify(sheet.axes));
     check('sheet shows the native worst sentence verbatim',
-      sheet.worst === '臀大肌左 · 张力 紧',
+      sheet.worst === '最差：臀大肌左 · 张力 紧',
       sheet.worst);
+    check('opening the sheet reserves the card height below the model',
+      result.stats.layoutBottom >= sheet.rect.height
+      && result.stats.layoutOffsetY > 0,
+      JSON.stringify({
+        bottom: result.stats.layoutBottom,
+        sheet: sheet.rect.height,
+        offset: result.stats.layoutOffsetY,
+      }));
     check('sheet offers the isolate and archive actions',
       sheet.primary === '只看这块'
       && sheet.secondary === '在档案里看依据 ›'
@@ -1064,7 +1142,9 @@ async function main() {
     result = await readStats();
     check('TVA selected', result.stats.selectedSite === 'transversus-abdominis');
     check('TVA has both sides', result.stats.selectedObjectCount === 2);
-    check('highlight color', result.stats.highlightColor === '#c8f04a');
+    check('highlight color follows the selected palette',
+      result.stats.highlightColor === result.stats.palette.selected,
+      result.stats.highlightColor + '/' + result.stats.palette.selected);
     check('selecting does not change the view', result.stats.view === 'front');
     check('selecting keeps camera target and distance',
       sameCamera(beforeSelect, await readCamera()));
@@ -1250,6 +1330,14 @@ async function main() {
     await sleep(1800);
     result = await readStats();
     check('URL ui=0 hides overlay', result.dataset.ui === '0' && result.ui === 'none');
+    check('ui=0 reserves no bottom chrome and lets the model fill the height',
+      result.stats.layoutBottom === 0
+      && result.stats.layoutUsableH > result.stats.layoutTop * 20,
+      JSON.stringify({
+        top: result.stats.layoutTop,
+        bottom: result.stats.layoutBottom,
+        usable: result.stats.layoutUsableH,
+      }));
     check('URL spin active', result.stats.spin === true);
     check('URL spin avg/min populated', result.stats.fpsAvg > 0 && result.stats.fpsMin > 0,
       `${result.stats.fpsAvg}/${result.stats.fpsMin}`);
@@ -1371,6 +1459,30 @@ async function main() {
     };
     await evaluate(`window.__viewer.setHighlight(${JSON.stringify(attentionPayload)})`);
     await settle();
+    let overview = await readOverview();
+    check('the overview counts groups, sides and deep rows',
+      overview.hidden === false
+      && overview.count === '3'
+      && overview.sub === '2 个肌群 · 左 2 · 右 1'
+      && overview.chips.includes('深层 1'),
+      JSON.stringify(overview));
+    check('the overview offers the side that faces the visible abnormalities',
+      overview.chips.includes('背面 1 ›'),
+      JSON.stringify(overview.chips));
+    check('the front view marks nothing that faces away',
+      overview.markers.length === 0 && overview.markerCount === 0,
+      JSON.stringify(overview.markers));
+    await evaluate(
+      `[...document.querySelectorAll('#overview-chips .chip')].find((chip) => chip.textContent.startsWith('背面'))?.click()`,
+    );
+    await settle();
+    overview = await readOverview();
+    check('the back toggle turns the model and marks the visible rows',
+      overview.markers.length === 2
+      && overview.markers.some((marker) => marker.text === '1' && !marker.deep)
+      && overview.markers.some((marker) => marker.text === '2' && marker.deep)
+      && overview.markers.every((marker) => Number(marker.left.replace('px', '')) > 0),
+      JSON.stringify(overview.markers));
     let attention = await readAttention();
     check('attention pill shows the row count including missing meshes',
       attention.triggerHidden === false
@@ -1391,8 +1503,8 @@ async function main() {
       && attention.open === true
       && attention.expanded === 'true'
       && attention.title === '需要注意 · 3 处'
-      && attention.legend === '红＝需要注意 · 青/橙＝左/右'
-      && attention.groups.join(',') === '臀肌群,脊柱深层'
+      && attention.legend === '按严重度排序 · 深层部位需要切到深层查看'
+      && attention.groups.join(',') === '臀肌群 · 1 处,脊柱深层 · 2 处'
       && attention.rows.length === 3,
       JSON.stringify({
         hidden: attention.hidden,
@@ -1446,7 +1558,7 @@ async function main() {
     check('clicking a row closes the list, opens the card and switches to deep',
       attention.hidden === true
       && sheet.hidden === false
-      && sheet.title === '多裂肌'
+      && sheet.title === '② 多裂肌'
       && sheet.side === '左侧'
       && result.stats.selectedSite === 'multifidus'
       && result.stats.selectedSide === 'left'
@@ -1464,8 +1576,10 @@ async function main() {
 
     await click('#sheet-close');
     await settle();
-    await click('#attention-trigger');
-    await settle();
+    attention = await readAttention();
+    check('closing the detail card returns to the attention list',
+      attention.hidden === false && attention.open === true,
+      `${attention.hidden}/${attention.open}`);
     await click('.attention-row[data-site-id="missing-in-model"]');
     await settle();
     sheet = await readSheet();
@@ -1473,9 +1587,9 @@ async function main() {
     attention = await readAttention();
     check('clicking a missing-mesh row opens a card that explains the missing model',
       sheet.hidden === false
-      && sheet.title === '腰方肌'
-      && sheet.side === '右'
-      && sheet.worst === '腰方肌右 · 张力 紧'
+      && sheet.title === '③ 腰方肌'
+      && sheet.side === '右侧'
+      && sheet.worst === '最差：腰方肌右 · 张力 紧'
       && sheet.primary === '模型里暂缺'
       && sheet.primaryDisabled === true
       && result.stats.selectedSite === 'missing-in-model',
@@ -1715,6 +1829,296 @@ async function main() {
       && result.stats.selectedSide === 'right'
       && result.stats.selectedObjectCount > 0,
       `${pickAfterSlow}/${result.stats.selectedSite}/${result.stats.selectedSide}/${result.stats.selectedObjectCount}`);
+
+    // --- Visual acceptance: the 8 judgements from the handoff -------------
+    const axisChip = (axis, label, value, abnormal) => ({
+      axis,
+      label,
+      value,
+      measured: value !== null,
+      abnormal,
+    });
+    const acceptancePayload = {
+      palette: {
+        left: '#6ee7f0ff',
+        right: '#f0a26eff',
+        abnormal: '#ff6b6bff',
+        selected: '#c8f04aff',
+      },
+      sites: [
+        { siteId: 'gluteus-medius', side: 'left' },
+        { siteId: 'gluteus-maximus', side: 'right' },
+        { siteId: 'multifidus', side: 'left' },
+        { siteId: 'transversus-abdominis', side: 'right' },
+        { siteId: 'trapezius', side: 'left' },
+        { siteId: 'infraspinatus', side: 'right' },
+        { siteId: 'soleus', side: 'left' },
+        { siteId: 'rectus-femoris', side: 'left' },
+      ],
+      cards: [
+        {
+          siteId: 'trapezius',
+          siteZh: '斜方肌',
+          side: 'left',
+          sideZh: '左',
+          groupId: 'shoulder',
+          groupZh: '肩胛带',
+          axes: [
+            axisChip('tension', '张力', '紧', true),
+            axisChip('pain', '疼痛', '5 分', true),
+          ],
+          at: 1764000000000,
+          confidence: 70,
+          resolved: false,
+          worst: '疼痛 5 分',
+        },
+        {
+          siteId: 'infraspinatus',
+          siteZh: '冈下肌',
+          side: 'right',
+          sideZh: '右',
+          groupId: 'shoulder',
+          groupZh: '肩胛带',
+          axes: [axisChip('mobility', '活动度', '受限', true)],
+          at: 1764000000000,
+          confidence: 70,
+          resolved: false,
+          worst: '活动度 受限',
+        },
+        {
+          siteId: 'gluteus-maximus',
+          siteZh: '臀大肌',
+          side: 'right',
+          sideZh: '右',
+          groupId: 'gluteal',
+          groupZh: '臀肌群',
+          axes: [
+            axisChip('tension', '张力', '紧', true),
+            axisChip('pain', '疼痛', '4 分', true),
+          ],
+          at: 1764000000000,
+          confidence: 70,
+          resolved: false,
+          worst: '疼痛 4 分',
+        },
+        {
+          siteId: 'gluteus-maximus',
+          siteZh: '臀大肌',
+          side: 'left',
+          sideZh: '左',
+          groupId: 'gluteal',
+          groupZh: '臀肌群',
+          axes: [axisChip('tension', '张力', '正常', false)],
+          at: 1764000000000,
+          confidence: 70,
+          resolved: false,
+          worst: '状态平稳',
+        },
+        {
+          siteId: 'gluteus-medius',
+          siteZh: '臀中肌',
+          side: 'left',
+          sideZh: '左',
+          groupId: 'gluteal',
+          groupZh: '臀肌群',
+          axes: [
+            axisChip('tension', '张力', '弱', true),
+            axisChip('symmetry', '对称', '左弱', true),
+            axisChip('pain', '疼痛', '3 分', true),
+          ],
+          at: 1764000000000,
+          confidence: 70,
+          resolved: false,
+          worst: '疼痛 3 分',
+        },
+        {
+          siteId: 'transversus-abdominis',
+          siteZh: '腹横肌',
+          side: 'right',
+          sideZh: '右',
+          groupId: 'core',
+          groupZh: '腹壁与脊柱',
+          axes: [axisChip('stability', '稳定性', '差', true)],
+          at: 1764000000000,
+          confidence: 70,
+          resolved: false,
+          worst: '稳定性 差',
+        },
+        {
+          siteId: 'multifidus',
+          siteZh: '多裂肌',
+          side: 'left',
+          sideZh: '左',
+          groupId: 'core',
+          groupZh: '腹壁与脊柱',
+          axes: [axisChip('stability', '稳定性', '差', true)],
+          at: 1764000000000,
+          confidence: 70,
+          resolved: false,
+          worst: '稳定性 差',
+        },
+        {
+          siteId: 'soleus',
+          siteZh: '比目鱼肌',
+          side: 'left',
+          sideZh: '左',
+          groupId: 'calf',
+          groupZh: '小腿与大腿',
+          axes: [axisChip('mobility', '活动度', '受限', true)],
+          at: 1764000000000,
+          confidence: 70,
+          resolved: false,
+          worst: '活动度 受限',
+        },
+        {
+          siteId: 'rectus-femoris',
+          siteZh: '股直肌',
+          side: 'left',
+          sideZh: '左',
+          groupId: 'calf',
+          groupZh: '小腿与大腿',
+          axes: [axisChip('tension', '张力', '弱', true)],
+          at: 1764000000000,
+          confidence: 70,
+          resolved: false,
+          worst: '张力 弱',
+        },
+      ],
+    };
+
+    await cdp.send('Page.navigate', { url: `${BASE_URL}?view=front&autoTier=0` });
+    await sleep(400);
+    check('acceptance page ready', await waitReady());
+    await evaluate(
+      'window.__viewer.setHighlight(' + JSON.stringify(acceptancePayload) + ')',
+    );
+    await settle();
+    result = await readStats();
+    check('8-digit tokens color all 12 abnormal objects',
+      result.stats.abnormalObjectCount === 12
+      && result.stats.abnormalColors.length === 1
+      && result.stats.abnormalColors[0] === 'ff6b6b'
+      && !result.stats.abnormalColors.includes('ffffff'),
+      JSON.stringify({
+        abnormal: result.stats.abnormalObjectCount,
+        colors: result.stats.abnormalColors,
+      }));
+    overview = await readOverview();
+    check('acceptance summary counts 8 rows, 4 groups, 5 left, 3 right and 2 deep',
+      overview.hidden === false
+      && overview.count === '8'
+      && overview.sub === '4 个肌群 · 左 5 · 右 3'
+      && overview.chips.includes('深层 2'),
+      JSON.stringify(overview));
+    let acceptanceShot = await cdp.send('Page.captureScreenshot', {
+      format: 'png',
+      fromSurface: true,
+    });
+    await writeFile(ACCEPTANCE_FRONT, Buffer.from(acceptanceShot.result.data, 'base64'));
+
+    await evaluate(`window.__viewer.setView('back')`);
+    await settle();
+    await sleep(300);
+    overview = await readOverview();
+    check('the back view keeps at most four numbered markers',
+      overview.markers.length > 0
+      && overview.markers.length <= 4
+      && overview.markers.every((marker) => Number(marker.text) >= 1),
+      JSON.stringify(overview.markers));
+    acceptanceShot = await cdp.send('Page.captureScreenshot', {
+      format: 'png',
+      fromSurface: true,
+    });
+    await writeFile(ACCEPTANCE_BACK, Buffer.from(acceptanceShot.result.data, 'base64'));
+
+    await click('.marker[data-site-id="trapezius"]');
+    await settle();
+    sheet = await readSheet();
+    const focus = JSON.parse(await evaluate(`JSON.stringify({
+      hidden: document.querySelector('#focus-pill').hidden,
+      text: document.querySelector('#focus-pill').textContent.trim().replace(/\\s+/g, ' '),
+    })`));
+    check('tapping a marker only focuses it and leaves the card closed',
+      sheet.hidden === true
+      && focus.hidden === false
+      && focus.text.includes('斜方肌'),
+      JSON.stringify({ sheet: sheet.hidden, focus }));
+    await click('#focus-open');
+    await settle();
+    sheet = await readSheet();
+    result = await readStats();
+    check('the focus pill opens the detail card for that marker',
+      sheet.hidden === false
+      && sheet.title === '① 斜方肌'
+      && sheet.side === '左侧'
+      && result.stats.selectedSite === 'trapezius',
+      JSON.stringify({
+        title: sheet.title,
+        side: sheet.side,
+        site: result.stats.selectedSite,
+      }));
+    await click('#sheet-close');
+    await settle();
+
+    await evaluate(`window.__viewer.selectSite('gluteus-medius', 'left')`);
+    await settle();
+    await sleep(300);
+    sheet = await readSheet();
+    result = await readStats();
+    check('the sheet keeps the picked hip above the card and on the left side',
+      sheet.hidden === false
+      && sheet.title === '④ 臀中肌'
+      && sheet.side === '左侧'
+      && sheet.worst === '最差：疼痛 3 分'
+      && !sheet.worst.includes('这一侧')
+      && sheet.rect.height <= sheet.canvas.height * 0.38 + 2
+      && result.stats.layoutBottom >= sheet.rect.height,
+      JSON.stringify({
+        title: sheet.title,
+        side: sheet.side,
+        worst: sheet.worst,
+        height: sheet.rect.height,
+        canvas: sheet.canvas.height,
+        bottom: result.stats.layoutBottom,
+      }));
+    check('the hip card names its group, date and confidence',
+      sheet.meta.includes('臀肌群')
+      && sheet.meta.includes('最近')
+      && sheet.meta.includes('置信度 70'),
+      sheet.meta);
+    check('the hip card points at the other card in the same group',
+      sheet.related.hidden === false
+      && sheet.related.text.includes('臀大肌'),
+      JSON.stringify(sheet.related));
+    acceptanceShot = await cdp.send('Page.captureScreenshot', {
+      format: 'png',
+      fromSurface: true,
+    });
+    await writeFile(ACCEPTANCE_SHEET, Buffer.from(acceptanceShot.result.data, 'base64'));
+
+    await evaluate(`window.__viewer.selectSite('gluteus-maximus')`);
+    await settle();
+    sheet = await readSheet();
+    check('a site with both sides asks for a side instead of guessing',
+      sheet.hidden === false
+      && sheet.title === '③ 臀大肌'
+      && sheet.sideToggle.length === 2
+      && sheet.sideIdle === true
+      && sheet.worst === '左右都有判定，先选一侧',
+      JSON.stringify({
+        title: sheet.title,
+        buttons: sheet.sideToggle,
+        idle: sheet.sideIdle,
+        worst: sheet.worst,
+      }));
+    await click('#sheet-sides button[data-side="left"]');
+    await settle();
+    sheet = await readSheet();
+    check('choosing a side shows that side without closing the card',
+      sheet.hidden === false
+      && sheet.side === '左侧'
+      && sheet.worst === '状态平稳',
+      JSON.stringify({ side: sheet.side, worst: sheet.worst }));
 
     check('console clean', cdp.consoleErrors.length === 0,
       cdp.consoleErrors.join(' | ') || 'no errors');

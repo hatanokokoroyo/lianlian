@@ -52,15 +52,41 @@ export function nextTierForFps(avgFps, currentTier) {
 /**
  * Fallback colors for the standalone viewer. The app passes the theme tokens in
  * through `setHighlight`; this copy only keeps the spike usable in a browser
- * without a native host. Values match the pre-highlight viewer.
+ * without a native host. Muscles and bones are surfaces, not sides: the warmth
+ * comes from the anatomy palette, and left/right live in text chips only.
  */
 export const DEFAULT_PALETTE = Object.freeze({
   left: '#6ee7f0',
   right: '#f0a26e',
-  mid: '#aab2bd',
-  abnormal: '#ff6b6b',
-  selected: '#c8f04a',
+  mid: '#b3a798',
+  muscle: '#cbbeb0',
+  bone: '#b3a798',
+  abnormal: '#e15e3f',
+  selected: '#d8e567',
 });
+
+/**
+ * Reduce a theme color to the six-digit form Three.js parses.
+ *
+ * App tokens are eight-digit hex (`#6ee7f0ff`); `THREE.Color` reads those as
+ * white. `#rgb`, `#rrggbb` and `#rrggbbaa` (any case) come back as `#rrggbb`;
+ * anything else returns `null` so callers can fall back explicitly instead of
+ * rendering a silent white.
+ */
+export function normalizeColor(value) {
+  if (typeof value !== 'string') return null;
+  const raw = value.trim();
+  if (!/^#(?:[0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(raw)) return null;
+  const hex = raw.slice(1).toLowerCase();
+  if (hex.length === 3) {
+    return `#${hex[0]}${hex[0]}${hex[1]}${hex[1]}${hex[2]}${hex[2]}`;
+  }
+  return `#${hex.slice(0, 6)}`;
+}
+
+function paletteColor(palette, key) {
+  return normalizeColor(palette?.[key]) ?? DEFAULT_PALETTE[key];
+}
 
 const VIEWS = new Set(VIEW_IDS);
 const PRESETS = new Set(PRESET_IDS);
@@ -69,6 +95,8 @@ const PALETTE_KEYS = Object.freeze([
   'left',
   'right',
   'mid',
+  'muscle',
+  'bone',
   'abnormal',
   'selected',
 ]);
@@ -149,6 +177,7 @@ export function createCards(cards = []) {
           }))
         : [],
       at: Number.isFinite(raw.at) ? raw.at : 0,
+      confidence: Number.isFinite(raw.confidence) ? raw.confidence : null,
       resolved: Boolean(raw.resolved),
       worst: typeof raw.worst === 'string' ? raw.worst : '',
     });
@@ -163,16 +192,39 @@ function sideZhOf(side) {
   return null;
 }
 
+function axisNumber(value) {
+  const match = String(value ?? '').match(/-?\d+(?:\.\d+)?/);
+  return match ? Number(match[0]) : null;
+}
+
+/**
+ * Severity of one archive card, on the same scale the native archive uses:
+ * a pain level outranks every other abnormal axis, and any other abnormal axis
+ * counts as one. Cards without an abnormal axis are 0.
+ */
+export function cardSeverity(card) {
+  const axes = Array.isArray(card?.axes) ? card.axes : [];
+  let pain = 0;
+  for (const axis of axes) {
+    if (axis?.axis !== 'pain' && !/疼痛/.test(axis?.label ?? '')) continue;
+    const level = axisNumber(axis.value);
+    if (level !== null) pain = Math.max(pain, level);
+  }
+  if (pain > 0) return pain;
+  return axes.some((axis) => axis?.abnormal) ? 1 : 0;
+}
+
 /**
  * Build the attention list the native archive and the non-visual path share.
  *
  * Rows come from the abnormal `{ siteId, side }` set, but their labels, groups
- * and worst axis come from the archive cards. Ordering follows the cards (the
- * archive region order), not the order the highlight happened to arrive in, so
- * the list says the same thing as the archive root. A row whose site has no
+ * and worst axis come from the archive cards. Groups are ordered by their worst
+ * card, rows inside a group by the same severity; equal severities keep the
+ * archive order. `index` is the 1-based position in that flattened order, so
+ * the model markers and the list share one numbering. A row whose site has no
  * meshes in the loaded tier is kept with `missing: true`; it is never dropped.
  */
-export function buildAttention(cards, sites, loadedSiteIds) {
+export function buildAttention(cards, sites, loadedSiteIds, deepSiteIds = null) {
   const cardList = Array.isArray(cards) ? cards : [];
   const cardIndex = new Map(
     cardList.map((card, index) => [card, index]),
@@ -181,6 +233,9 @@ export function buildAttention(cards, sites, loadedSiteIds) {
   const loaded = loadedSiteIds instanceof Set
     ? loadedSiteIds
     : new Set(loadedSiteIds ?? []);
+  const deep = deepSiteIds instanceof Set
+    ? deepSiteIds
+    : new Set(deepSiteIds ?? []);
 
   const seen = new Set();
   const entries = [];
@@ -199,22 +254,27 @@ export function buildAttention(cards, sites, loadedSiteIds) {
       order: card
         ? cardIndex.get(card) ?? Number.MAX_SAFE_INTEGER
         : Number.MAX_SAFE_INTEGER,
+      severity: card ? cardSeverity(card) : 0,
       row: {
         siteId,
         side,
         siteZh: card?.siteZh ?? siteId,
         sideZh: sideZhOf(side) ?? card?.sideZh ?? null,
         worst: card?.worst ?? '状态平稳',
+        deep: deep.has(siteId),
         missing: loadedKnown ? !loaded.has(siteId) : false,
       },
     });
   }
 
-  entries.sort((left, right) => left.order - right.order);
+  entries.sort(
+    (left, right) =>
+      right.severity - left.severity || left.order - right.order,
+  );
 
   const sections = [];
   const byGroup = new Map();
-  for (const { card, row } of entries) {
+  for (const { card, severity, row } of entries) {
     const groupId = card?.groupId ?? '';
     const groupKey = groupId || '\u0000';
     let section = byGroup.get(groupKey);
@@ -222,12 +282,23 @@ export function buildAttention(cards, sites, loadedSiteIds) {
       section = {
         groupId,
         groupZh: card?.groupZh || '其他',
+        severity: 0,
         rows: [],
       };
       byGroup.set(groupKey, section);
       sections.push(section);
     }
     section.rows.push(row);
+    section.severity = Math.max(section.severity, severity);
+  }
+
+  sections.sort((left, right) => right.severity - left.severity);
+  let index = 0;
+  for (const section of sections) {
+    for (const row of section.rows) {
+      index += 1;
+      row.index = index;
+    }
   }
 
   return { sections, count: entries.length };
@@ -249,35 +320,50 @@ export function attentionFocusView(centers) {
  * Resolve the card a selection should show.
  *
  * Exact `site + side` first, then the site's midline card for a one-sided
- * selection. `reason` tells the sheet whether the whole site has no card
- * (`site`) or only this side is missing (`side`).
+ * selection. With no side requested the sheet must never guess silently:
+ * a midline card wins; a site with cards on only one side returns that card and
+ * asks for confirmation; a site with both sides returns no card and lets the
+ * sheet offer the two choices. `reason` only describes a real absence.
  */
 export function resolveCard(cards, siteId, side = null) {
-  if (!siteId) return { card: null, reason: null };
+  const empty = { card: null, reason: null, availableSides: [], needsSideChoice: false };
+  if (!siteId) return empty;
 
   const wanted = normalizeSide(side);
   const list = Array.isArray(cards) ? cards : [];
-  const exact = list.find(
-    (card) => card.siteId === siteId && card.side === wanted,
-  );
-  if (exact) return { card: exact, reason: null };
+  const siteCards = list.filter((card) => card.siteId === siteId);
+  if (siteCards.length === 0) return { ...empty, reason: 'site' };
+
+  const availableSides = [...new Set(
+    siteCards.map((card) => card.side).filter((value) => value !== null),
+  )];
+  const midline = siteCards.find((card) => card.side === null) ?? null;
 
   if (wanted !== null) {
-    const midline = list.find(
-      (card) => card.siteId === siteId && card.side === null,
-    );
-    if (midline) return { card: midline, reason: null };
+    const exact = siteCards.find((card) => card.side === wanted);
+    if (exact) return { card: exact, reason: null, availableSides, needsSideChoice: false };
+    if (midline) return { card: midline, reason: null, availableSides, needsSideChoice: false };
+    return { card: null, reason: 'side', availableSides, needsSideChoice: false };
   }
 
-  const hasSite = list.some((card) => card.siteId === siteId);
-  return { card: null, reason: hasSite ? 'side' : 'site' };
+  if (midline) return { card: midline, reason: null, availableSides, needsSideChoice: false };
+
+  const sided = siteCards.filter((card) => card.side !== null);
+  if (sided.length === 1) {
+    return { card: sided[0], reason: null, availableSides, needsSideChoice: true };
+  }
+  return { card: null, reason: null, availableSides, needsSideChoice: true };
 }
 
-/** The side color, ignoring selection and abnormalities. */
-export function baseColor(side, palette) {
-  if (side === 'left') return palette.left;
-  if (side === 'right') return palette.right;
-  return palette.mid;
+/**
+ * The resting surface color, ignoring selection and abnormalities. Muscles use
+ * the warm ivory and bones the slightly darker sand; side never changes it.
+ */
+export function baseColor(item, palette = DEFAULT_PALETTE) {
+  if (item?.kind === 'bone' || item?.batch === 'bone') {
+    return paletteColor(palette, 'bone');
+  }
+  return paletteColor(palette, 'muscle');
 }
 
 /** Whether an instance belongs to an abnormal site + side. Bones never do. */
@@ -304,10 +390,10 @@ export function colorForInstance(
   const palette = highlight?.palette ?? DEFAULT_PALETTE;
   const sameSide = selectedSide === null || selectedSide === item.side;
   if (selectedSite && item.siteId === selectedSite && sameSide) {
-    return palette.selected;
+    return paletteColor(palette, 'selected');
   }
-  if (isAbnormalInstance(item, highlight)) return palette.abnormal;
-  return baseColor(item.side, palette);
+  if (isAbnormalInstance(item, highlight)) return paletteColor(palette, 'abnormal');
+  return baseColor(item, palette);
 }
 
 /** Highlighted site ids that have no mesh in the loaded model. */

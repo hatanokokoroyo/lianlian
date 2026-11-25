@@ -22,8 +22,32 @@
 
   <div id="ui" class="ui">
     <p class="tier-notice" id="tier-notice" role="status" aria-live="polite" hidden>已切到流畅档</p>
+    <section class="overview" id="overview" aria-label="需要注意摘要" hidden>
+      <div class="overview-lead">
+        <span class="overview-count" id="overview-count">0</span>
+        <span class="overview-copy">
+          <b>处需要注意</b>
+          <small id="overview-sub"></small>
+        </span>
+      </div>
+      <div class="overview-chips" id="overview-chips"></div>
+    </section>
+    <div class="markers" id="markers" role="group" aria-label="需要注意的部位"></div>
+    <div class="focus-pill" id="focus-pill" hidden>
+      <span class="focus-dot" id="focus-dot" aria-hidden="true"></span>
+      <span class="focus-text" id="focus-text"></span>
+      <button type="button" class="focus-open" id="focus-open">查看</button>
+    </div>
     <div class="bottom-stack">
       <p class="gesture-hint" id="gesture-hint">拖动旋转 · 双指缩放 · 点肌肉看详情</p>
+      <p class="palette-legend" id="palette-legend" aria-label="图例：需注意、肌肉、骨骼、深层；左右用文字">
+        <span class="legend-item"><span class="legend-swatch swatch-abnormal" aria-hidden="true"></span>需注意</span>
+        <span class="legend-item"><span class="legend-swatch swatch-muscle" aria-hidden="true"></span>肌肉</span>
+        <span class="legend-item"><span class="legend-swatch swatch-bone" aria-hidden="true"></span>骨骼</span>
+        <span class="legend-item"><span class="legend-swatch swatch-deep" aria-hidden="true"></span>深层</span>
+        <span class="legend-sep" aria-hidden="true">·</span>
+        <span class="legend-item">左右用文字</span>
+      </p>
       <div class="controls">
         <div class="segmented" role="group" aria-label="视角">
           <button type="button" data-view="front" aria-pressed="true" aria-label="正视">正</button>
@@ -61,7 +85,7 @@
             aria-controls="attention-sheet"
             hidden
           >
-            <span>需注意 <span id="attention-count">0</span> 处</span>
+            <span>需注意 <b id="attention-count">0</b> 处</span>
             <span class="attention-caret" aria-hidden="true">›</span>
           </button>
         </div>
@@ -79,14 +103,19 @@
       <div class="sheet-head" id="sheet-head">
         <span class="sheet-grip" aria-hidden="true"></span>
         <div class="sheet-heading">
-          <h2 id="sheet-title"></h2>
-          <span class="sheet-side" id="sheet-side"></span>
+          <div class="sheet-title-row">
+            <h2 id="sheet-title"></h2>
+            <span class="sheet-side" id="sheet-side"></span>
+            <div class="side-toggle" id="sheet-sides" role="group" aria-label="侧别" hidden></div>
+          </div>
+          <p class="sheet-meta" id="sheet-meta"></p>
         </div>
         <button type="button" class="sheet-close" id="sheet-close" aria-label="关闭详情">×</button>
       </div>
       <div class="sheet-body">
         <div class="sheet-axes" id="sheet-axes"></div>
         <p class="sheet-worst" id="sheet-worst"></p>
+        <button type="button" class="sheet-related" id="sheet-related" hidden></button>
       </div>
       <div class="sheet-actions">
         <button type="button" class="sheet-primary" id="sheet-isolate" aria-pressed="false">只看这块</button>
@@ -109,12 +138,7 @@
         </div>
         <button type="button" class="sheet-close" id="attention-close" aria-label="关闭需要注意列表">×</button>
       </div>
-      <p class="attention-legend" id="attention-legend" aria-label="红＝需要注意 · 青/橙＝左/右">
-        <span class="legend-dot legend-abnormal" aria-hidden="true"></span>红＝需要注意
-        <span class="legend-sep" aria-hidden="true">·</span>
-        <span class="legend-dot legend-left" aria-hidden="true"></span>
-        <span class="legend-dot legend-right" aria-hidden="true"></span>青/橙＝左/右
-      </p>
+      <p class="attention-legend" id="attention-legend" aria-label="按严重度排序 · 深层部位需要切到深层查看">按严重度排序 · 深层部位需要切到深层查看</p>
       <div class="attention-list" id="attention-list"></div>
     </section>
   </div>

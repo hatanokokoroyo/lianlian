@@ -6,6 +6,13 @@
 > 深度报告与逐条映射：`docs/research/z-anatomy-feasibility.md`、`docs/research/z-anatomy-site-map.csv`；
 > Human Atlas 对照：`docs/research/human-atlas-feasibility.md`、`docs/research/human-atlas-site-map.csv`。
 
+> 视觉刷新（2026-11-25）：首屏「全白」的根因是 8 位主题 token（`#6ee7f0ff`）
+> 被 `THREE.Color` 解析成白色；viewer 现在统一在着色入口把颜色收成 6 位。
+> 同一轮把正常肌肉改为暖象牙、异常改为珊瑚红，去掉左右半身色；顶部摘要、
+> 编号标记、按严重度排序的异常清单、详情卡避让与深层提示也一起落地。
+> 取舍与验收清单见 `docs/handoffs/2026-11-25-anatomy-3d-visual-refresh.md`，
+> 视觉原型见 `design/prototypes/anatomy-3d-refresh.html`。真机帧率/发热仍未测。
+
 ## 为什么转向 3D
 
 2D 身体图已经能回答「哪个区域需要先处理」，但原型没有达到预期：躯干与深层肌肉（腹横肌、多裂肌、腰方肌）在 2D 上只能靠色块和文字解释，遮挡关系与左右分层不直观。3D 值得做的理由不是「能转」，而是：

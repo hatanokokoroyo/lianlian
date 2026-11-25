@@ -3,6 +3,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 import {
+  DEFAULT_PALETTE,
   FRAME_COMMAND_TYPES,
   attentionFocusView,
   buildAttention,
@@ -15,6 +16,7 @@ import {
   isAbnormalInstance,
   missingHighlightSites,
   nextTierForFps,
+  normalizeColor,
   reduce,
   resolveCard,
   restoreViewerState,
@@ -40,10 +42,10 @@ const TIERS = {
 };
 
 const VIEWS = {
-  front: { label: '正视', dir: new THREE.Vector3(0, 0, 1), widthAxis: 'x' },
-  back: { label: '背视', dir: new THREE.Vector3(0, 0, -1), widthAxis: 'x' },
-  left: { label: '左视', dir: new THREE.Vector3(1, 0, 0), widthAxis: 'z' },
-  right: { label: '右视', dir: new THREE.Vector3(-1, 0, 0), widthAxis: 'z' },
+  front: { label: '正视', dir: new THREE.Vector3(0, 0, 1), widthAxis: 'x', depthAxis: 'z' },
+  back: { label: '背视', dir: new THREE.Vector3(0, 0, -1), widthAxis: 'x', depthAxis: 'z' },
+  left: { label: '左视', dir: new THREE.Vector3(1, 0, 0), widthAxis: 'z', depthAxis: 'x' },
+  right: { label: '右视', dir: new THREE.Vector3(-1, 0, 0), widthAxis: 'z', depthAxis: 'x' },
 };
 
 const PRESETS = new Set(['all', 'shallow', 'deep', 'bone']);
@@ -82,6 +84,20 @@ const DEEP_SITES = new Set([
   'brachialis',
   'supinator',
 ]);
+
+// The deep preset exposes every intrinsic muscle, including the rotator cuff
+// and arm muscles that are still visible from the outside. The "hidden in the
+// whole body" hint only covers sites that the superficial layer actually
+// covers, so those stay out of it.
+const HIDDEN_DEEP_SITES = new Set(
+  [...DEEP_SITES].filter((site) => ![
+    'supraspinatus',
+    'infraspinatus',
+    'teres-minor',
+    'brachialis',
+    'supinator',
+  ].includes(site)),
+);
 
 const PRESET_LABELS = {
   all: '全身',
@@ -143,6 +159,7 @@ const stats = {
   highlightSites: [],
   highlightedSiteIds: [],
   abnormalObjectCount: 0,
+  abnormalColors: [],
   missingSites: [],
   palette: { ...createHighlight().palette },
   visibleInstances: 0,
@@ -161,6 +178,18 @@ const stats = {
   attentionCount: 0,
   attentionGroups: 0,
   attentionMissing: 0,
+  attentionLeft: 0,
+  attentionRight: 0,
+  attentionDeep: 0,
+  markerCount: 0,
+  sheetCardIndex: null,
+  sheetNeedsSideChoice: false,
+  sheetAvailableSides: [],
+  sheetSideButtons: 0,
+  layoutTop: 0,
+  layoutBottom: 0,
+  layoutUsableH: 0,
+  layoutOffsetY: 0,
   frameCommands: 0,
   lastFrameCommand: null,
   autoTier: AUTO_TIER_ENABLED,
@@ -203,13 +232,24 @@ const loadingSlowEl = document.querySelector('#loading-slow');
 const loadingRetryEl = document.querySelector('#loading-retry');
 const bottomStackEl = document.querySelector('.bottom-stack');
 const gestureHintEl = document.querySelector('#gesture-hint');
+const overviewEl = document.querySelector('#overview');
+const overviewCountEl = document.querySelector('#overview-count');
+const overviewSubEl = document.querySelector('#overview-sub');
+const overviewChipsEl = document.querySelector('#overview-chips');
+const markersEl = document.querySelector('#markers');
+const focusPillEl = document.querySelector('#focus-pill');
+const focusTextEl = document.querySelector('#focus-text');
+const focusOpenEl = document.querySelector('#focus-open');
 const sheetEl = document.querySelector('#detail-sheet');
 const sheetHeadEl = document.querySelector('#sheet-head');
 const sheetCloseEl = document.querySelector('#sheet-close');
 const sheetTitleEl = document.querySelector('#sheet-title');
 const sheetSideEl = document.querySelector('#sheet-side');
+const sheetSidesEl = document.querySelector('#sheet-sides');
+const sheetMetaEl = document.querySelector('#sheet-meta');
 const sheetAxesEl = document.querySelector('#sheet-axes');
 const sheetWorstEl = document.querySelector('#sheet-worst');
+const sheetRelatedEl = document.querySelector('#sheet-related');
 const sheetIsolateEl = document.querySelector('#sheet-isolate');
 const sheetOpenEl = document.querySelector('#sheet-open');
 const attentionTriggerEl = document.querySelector('#attention-trigger');
@@ -233,6 +273,7 @@ let controls;
 let raycaster;
 let keyLight;
 let fillLight;
+let rimLight;
 let dracoLoader;
 let spinPivot;
 let manifestPromise = null;
@@ -250,6 +291,11 @@ let slowLoadTimer = 0;
 let menuOpen = false;
 let sheetOpen = false;
 let attentionOpen = false;
+let focusedSite = null;
+let focusedSide = null;
+let sheetCard = null;
+let reopenAttentionOnClose = false;
+let selectionOffsetBoost = 0;
 let attentionFacingApplied = false;
 let userMovedCamera = false;
 let cameraGestureActive = false;
@@ -278,10 +324,11 @@ const viewDirection = new THREE.Vector3();
 const colorCache = new Map();
 
 function toColor(value) {
-  let color = colorCache.get(value);
+  const hex = normalizeColor(value) ?? DEFAULT_PALETTE.mid;
+  let color = colorCache.get(hex);
   if (!color) {
-    color = new THREE.Color(value);
-    colorCache.set(value, color);
+    color = new THREE.Color(hex);
+    colorCache.set(hex, color);
   }
   return color;
 }
@@ -304,23 +351,28 @@ function init() {
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
   renderer.setClearColor(0x000000, 0);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
-  renderer.toneMapping = THREE.NoToneMapping;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.06;
   renderer.setSize(canvas.clientWidth || window.innerWidth, canvas.clientHeight || window.innerHeight, false);
 
   stats.multiDraw = Boolean(renderer.getContext().getExtension('WEBGL_multi_draw'));
 
   scene = new THREE.Scene();
 
-  const hemisphere = new THREE.HemisphereLight(0xdcebff, 0x182029, 2.7);
+  const hemisphere = new THREE.HemisphereLight(0xfff1e2, 0x1b1a18, 1.15);
   scene.add(hemisphere);
 
-  keyLight = new THREE.DirectionalLight(0xfff6e8, 2.15);
+  keyLight = new THREE.DirectionalLight(0xfff3e3, 1.5);
   keyLight.target.position.set(0, 0.9, 0);
   scene.add(keyLight, keyLight.target);
 
-  fillLight = new THREE.DirectionalLight(0x8fe9f2, 0.75);
+  fillLight = new THREE.DirectionalLight(0xcfe6ef, 0.42);
   fillLight.target.position.set(0, 0.9, 0);
   scene.add(fillLight, fillLight.target);
+
+  rimLight = new THREE.DirectionalLight(0x9fd8e8, 0.75);
+  rimLight.target.position.set(0, 0.9, 0);
+  scene.add(rimLight, rimLight.target);
 
   spinPivot = new THREE.Group();
   spinPivot.name = 'anatomy-spin';
@@ -406,6 +458,14 @@ function bindUi() {
   });
 
   loadingRetryEl.addEventListener('click', () => location.reload());
+  focusOpenEl.addEventListener('click', () => {
+    if (focusedSite === null) return;
+    const site = focusedSite;
+    const side = focusedSide;
+    focusedSite = null;
+    focusedSide = null;
+    selectSite(site, side);
+  });
   canvas.addEventListener('wheel', noteUserInteraction, { passive: true });
   bindSheet();
   bindAttention();
@@ -417,6 +477,8 @@ function applyPaletteVars(palette) {
   style.setProperty('--palette-left', palette.left);
   style.setProperty('--palette-right', palette.right);
   style.setProperty('--palette-mid', palette.mid);
+  style.setProperty('--palette-muscle', palette.muscle);
+  style.setProperty('--palette-bone', palette.bone);
   style.setProperty('--palette-abnormal', palette.abnormal);
   style.setProperty('--palette-selected', palette.selected);
 }
@@ -425,13 +487,12 @@ function bindSheet() {
   sheetCloseEl.addEventListener('click', () => selectSite(null));
   sheetIsolateEl.addEventListener('click', () => setIsolate(!isIsolated()));
   sheetOpenEl.addEventListener('click', () => {
-    if (!state.selectedSite) return;
-    if (!resolveCard(state.cards, state.selectedSite, state.selectedSide).card) return;
+    if (!sheetCard) return;
     try {
       window.nsh?.postMessage(JSON.stringify({
         type: 'anatomy3d:open-section',
-        siteId: state.selectedSite,
-        side: state.selectedSide,
+        siteId: sheetCard.siteId,
+        side: sheetCard.side,
       }));
     } catch {
       // Outside NSH (plain browser) there is nobody to notify.
@@ -581,23 +642,54 @@ function resize() {
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
   renderer.setSize(width, height, false);
   camera.aspect = width / height;
-  updateProjectionLayout(width, height);
+  applyOverlayLayout(width, height);
   if (state.ready) {
     updateLights();
   }
   requestRender();
 }
 
-function updateProjectionLayout(width, height) {
-  const stackTop = bottomStackEl ? bottomStackEl.getBoundingClientRect().top : height - 250;
+/** Room the in-viewer summary needs above the model. */
+const UI_TOP_RESERVE = 78;
 
-  const topInset = Math.min(Math.max(height * 0.02, 16), 48);
-  const bottomInset = Math.min(Math.max(height - stackTop + 8, 150), height * 0.6);
-  const usableH = Math.max(180, height - topInset - bottomInset);
+function elementVisible(el) {
+  return Boolean(el) && !el.hidden && el.offsetParent !== null;
+}
+
+/**
+ * Bottom pixels covered by chrome: the control stack or an open sheet. Sheets
+ * are measured by height because their slide-in transform would otherwise make
+ * `getBoundingClientRect().top` lie until the transition ends.
+ */
+function overlayBottomInset(height) {
+  let inset = 0;
+  if (elementVisible(bottomStackEl)) {
+    const rect = bottomStackEl.getBoundingClientRect();
+    if (rect.height > 0) inset = Math.max(inset, height - rect.top + 8);
+  }
+  for (const el of [sheetEl, attentionSheetEl]) {
+    if (!elementVisible(el) || el.offsetHeight <= 0) continue;
+    inset = Math.max(inset, el.offsetHeight + 8);
+  }
+  return inset;
+}
+
+function updateProjectionLayout(width, height) {
+  const uiVisible = body.dataset.ui !== '0';
+  const baseTop = Math.min(Math.max(height * 0.02, 16), 48);
+  const topInset = uiVisible
+    ? Math.min(Math.max(UI_TOP_RESERVE, baseTop), height * 0.22)
+    : baseTop;
+  const bottomInset = Math.min(overlayBottomInset(height), height * 0.72);
+  const usableH = Math.max(160, height - topInset - bottomInset);
   const desiredCenter = topInset + usableH / 2;
-  const offsetY = Math.round(height / 2 - desiredCenter);
+  const offsetY = Math.round(height / 2 - desiredCenter + selectionOffsetBoost);
 
   state.layout = { top: topInset, bottom: bottomInset, usableH, width, height, offsetY };
+  stats.layoutTop = topInset;
+  stats.layoutBottom = bottomInset;
+  stats.layoutUsableH = usableH;
+  stats.layoutOffsetY = offsetY;
   camera.aspect = width / height;
   if (offsetY !== 0) {
     camera.setViewOffset(width, height, 0, offsetY, width, height);
@@ -606,6 +698,65 @@ function updateProjectionLayout(width, height) {
     camera.aspect = width / height;
   }
   camera.updateProjectionMatrix();
+}
+
+const projectionPoint = new THREE.Vector3();
+
+function projectedBounds(box, width, height) {
+  if (!box || box.isEmpty() || !camera) return null;
+  camera.updateMatrixWorld();
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minY = Infinity;
+  let maxY = -Infinity;
+  let seen = false;
+  for (let corner = 0; corner < 8; corner += 1) {
+    projectionPoint.set(
+      corner & 1 ? box.max.x : box.min.x,
+      corner & 2 ? box.max.y : box.min.y,
+      corner & 4 ? box.max.z : box.min.z,
+    ).project(camera);
+    if (projectionPoint.z < -1 || projectionPoint.z > 1) continue;
+    const x = ((projectionPoint.x + 1) * width) / 2;
+    const y = ((1 - projectionPoint.y) * height) / 2;
+    minX = Math.min(minX, x);
+    maxX = Math.max(maxX, x);
+    minY = Math.min(minY, y);
+    maxY = Math.max(maxY, y);
+    seen = true;
+  }
+  return seen ? { minX, maxX, minY, maxY } : null;
+}
+
+/** Extra upward shift that keeps the selected part above an open sheet. */
+function selectionOverflow(width, height) {
+  if (!state.selectedSite || !sheetOpen) return 0;
+  const bounds = projectedBounds(focusBoxFor(state.selectedSite), width, height);
+  if (!bounds) return 0;
+  const safeBottom = height - sheetEl.offsetHeight - 20;
+  const safeTop = state.layout.top + 8;
+  const wanted = Math.max(0, bounds.maxY - safeBottom);
+  const room = Math.max(0, bounds.minY - safeTop);
+  return Math.min(wanted, room);
+}
+
+/**
+ * Re-lay out the projection for the chrome that is on screen. Opening a sheet
+ * lifts the model instead of moving the camera, so a pick keeps its framing.
+ */
+function applyOverlayLayout(
+  width = Math.max(1, canvas.clientWidth || window.innerWidth),
+  height = Math.max(1, canvas.clientHeight || window.innerHeight),
+) {
+  if (!camera) return;
+  selectionOffsetBoost = 0;
+  updateProjectionLayout(width, height);
+  const shift = selectionOverflow(width, height);
+  if (shift > 0.5) {
+    selectionOffsetBoost = shift;
+    updateProjectionLayout(width, height);
+  }
+  requestRender();
 }
 
 function syncViewFromCamera() {
@@ -628,6 +779,7 @@ function syncViewFromCamera() {
   if (nearest !== state.view) {
     state.view = nearest;
     updateViewButtons();
+    updateOverview();
   }
 }
 
@@ -660,7 +812,57 @@ function loadedSiteIds() {
 }
 
 function attentionModel() {
-  return buildAttention(state.cards, state.highlight.sites, loadedSiteIds());
+  const model = buildAttention(
+    state.cards,
+    state.highlight.sites,
+    loadedSiteIds(),
+    HIDDEN_DEEP_SITES,
+  );
+  for (const section of model.sections) {
+    for (const row of section.rows) {
+      if (row.siteZh === row.siteId) row.siteZh = siteName(row.siteId);
+    }
+  }
+  return model;
+}
+
+function attentionRows(model = attentionModel()) {
+  return model.sections.flatMap((section) => section.rows.map((row) => ({
+    ...row,
+    groupId: section.groupId,
+    groupZh: section.groupZh,
+  })));
+}
+
+const CIRCLED = '①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳';
+
+function circledNumber(value) {
+  if (!Number.isInteger(value) || value < 1) return '';
+  return CIRCLED[value - 1] ?? `${value}`;
+}
+
+const bodyCenter = new THREE.Vector3();
+const bodySize = new THREE.Vector3();
+const siteBox = new THREE.Box3();
+
+function meshCenterFor(siteId, side) {
+  siteBox.makeEmpty();
+  for (const item of state.instances) {
+    if (!item.bounds || item.siteId !== siteId) continue;
+    if (side !== null && side !== undefined && item.side !== side) continue;
+    siteBox.union(item.bounds);
+  }
+  if (siteBox.isEmpty()) return null;
+  return siteBox.getCenter(new THREE.Vector3());
+}
+
+function facesView(center, view) {
+  if (!center || !VIEWS[view]) return false;
+  state.bounds.getCenter(bodyCenter);
+  state.bounds.getSize(bodySize);
+  const axis = VIEWS[view].depthAxis;
+  const threshold = Math.max(0.008, bodySize.length() * 0.008);
+  return (center[axis] - bodyCenter[axis]) * VIEWS[view].dir[axis] > threshold;
 }
 
 function renderAttentionRow(row) {
@@ -669,10 +871,15 @@ function renderAttentionRow(row) {
   button.className = 'attention-row';
   button.dataset.siteId = row.siteId;
   button.dataset.side = row.side ?? '';
+  button.dataset.deep = row.deep ? '1' : '0';
   button.setAttribute(
     'aria-label',
-    `${row.siteZh}${row.sideZh ?? '中线'}，${row.worst}${row.missing ? '，模型里暂缺' : ''}`,
+    `${row.index} ${row.siteZh}${row.sideZh ?? '中线'}，${row.worst}${row.deep ? '，深层' : ''}${row.missing ? '，模型里暂缺' : ''}`,
   );
+
+  const num = document.createElement('span');
+  num.className = 'attention-num';
+  num.textContent = String(row.index);
 
   const main = document.createElement('span');
   main.className = 'attention-row-main';
@@ -689,7 +896,14 @@ function renderAttentionRow(row) {
   worst.className = 'attention-worst';
   worst.textContent = row.worst;
   main.append(head, worst);
-  button.append(main);
+  button.append(num, main);
+
+  if (row.deep) {
+    const deep = document.createElement('span');
+    deep.className = 'attention-deep';
+    deep.textContent = '深层';
+    button.append(deep);
+  }
 
   if (row.missing) {
     const missing = document.createElement('span');
@@ -697,6 +911,11 @@ function renderAttentionRow(row) {
     missing.textContent = '模型里暂缺';
     button.append(missing);
   }
+
+  const sev = document.createElement('span');
+  sev.className = 'attention-sev';
+  sev.textContent = row.severity > 1 ? `${row.severity}/10` : '异常';
+  button.append(sev);
 
   button.addEventListener('click', () => selectAttentionRow(row.siteId, row.side));
   return button;
@@ -710,7 +929,7 @@ function renderAttention(model = attentionModel()) {
       group.className = 'attention-group';
       const title = document.createElement('h3');
       title.className = 'attention-group-title';
-      title.textContent = section.groupZh;
+      title.textContent = `${section.groupZh} · ${section.rows.length} 处`;
       const rows = document.createElement('div');
       rows.className = 'attention-rows';
       rows.replaceChildren(...section.rows.map(renderAttentionRow));
@@ -718,6 +937,170 @@ function renderAttention(model = attentionModel()) {
       return group;
     }),
   );
+}
+
+function viewFacingCount(view, rows) {
+  let count = 0;
+  for (const row of rows) {
+    if (row.deep) continue;
+    const center = meshCenterFor(row.siteId, row.side);
+    if (center && facesView(center, view)) count += 1;
+  }
+  return count;
+}
+
+function overviewChip(text, className, onPress) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = `chip ${className}`;
+  button.textContent = text;
+  button.addEventListener('click', onPress);
+  return button;
+}
+
+function updateOverview(model = attentionModel()) {
+  const rows = attentionRows(model);
+  if (body.dataset.ui === '0' || rows.length === 0) {
+    overviewEl.hidden = true;
+    return;
+  }
+  overviewEl.hidden = false;
+  overviewCountEl.textContent = String(rows.length);
+  const left = rows.filter((row) => row.side === 'left').length;
+  const right = rows.filter((row) => row.side === 'right').length;
+  const deep = rows.filter((row) => row.deep).length;
+  overviewSubEl.textContent =
+    `${model.sections.length} 个肌群 · 左 ${left} · 右 ${right}`;
+
+  const chips = [];
+  if (deep > 0) {
+    chips.push(overviewChip(`深层 ${deep}`, 'chip-deep', () => {
+      if (!isIsolated()) setPreset('deep');
+    }));
+  }
+  const otherView = state.view === 'back' ? 'front' : 'back';
+  const otherCount = viewFacingCount(otherView, rows);
+  if (otherCount > 0) {
+    chips.push(overviewChip(
+      `${otherView === 'back' ? '背面' : '正面'} ${otherCount} ›`,
+      '',
+      () => setView(otherView),
+    ));
+  }
+  overviewChipsEl.replaceChildren(...chips);
+  stats.attentionLeft = left;
+  stats.attentionRight = right;
+  stats.attentionDeep = deep;
+}
+
+const markerNodes = new Map();
+
+function focusAttentionRow(row) {
+  focusedSite = row.siteId;
+  focusedSide = row.side;
+  updateFocusPill();
+  updateMarkers();
+  requestRender();
+}
+
+function clearFocus() {
+  if (focusedSite === null) return;
+  focusedSite = null;
+  focusedSide = null;
+  updateFocusPill();
+  updateMarkers();
+  requestRender();
+}
+
+function updateFocusPill() {
+  if (focusedSite === null || sheetOpen) {
+    focusPillEl.hidden = true;
+    return;
+  }
+  const row = attentionRows().find(
+    (entry) => entry.siteId === focusedSite && entry.side === focusedSide,
+  );
+  if (!row) {
+    focusPillEl.hidden = true;
+    return;
+  }
+  focusPillEl.hidden = false;
+  focusPillEl.classList.toggle('is-deep', Boolean(row.deep));
+  const label = document.createElement('b');
+  label.textContent = `${circledNumber(row.index)} ${row.siteZh} · ${row.sideZh ?? '中线'}`;
+  const rest = document.createElement('span');
+  rest.textContent = row.worst ? ` · ${row.worst}` : '';
+  focusTextEl.replaceChildren(label, rest);
+}
+
+function updateMarkers(model = attentionModel()) {
+  const width = Math.max(1, canvas.clientWidth || window.innerWidth);
+  const height = Math.max(1, canvas.clientHeight || window.innerHeight);
+  const canShow = body.dataset.ui !== '0'
+    && state.ready
+    && state.preset !== 'bone'
+    && camera;
+
+  const projected = [];
+  if (canShow) {
+    camera.updateMatrixWorld();
+    for (const row of attentionRows(model)) {
+      if (state.isolate && state.selectedSite && row.siteId !== state.selectedSite) {
+        continue;
+      }
+      const center = meshCenterFor(row.siteId, row.side);
+      if (!center || !facesView(center, state.view)) continue;
+      projectionPoint.copy(center).project(camera);
+      if (projectionPoint.z < -1 || projectionPoint.z > 1) continue;
+      const x = ((projectionPoint.x + 1) * width) / 2;
+      const y = ((1 - projectionPoint.y) * height) / 2;
+      if (x < 10 || x > width - 10 || y < state.layout.top || y > height - 10) {
+        continue;
+      }
+      projected.push({ row, x, y });
+      if (projected.length >= 4) break;
+    }
+  }
+
+  const keep = new Set();
+  for (const { row, x, y } of projected) {
+    keep.add(row.index);
+    let marker = markerNodes.get(row.index);
+    if (!marker) {
+      marker = document.createElement('button');
+      marker.type = 'button';
+      marker.className = 'marker';
+      marker.addEventListener('click', (event) => {
+        event.stopPropagation();
+        const latest = attentionRows().find((entry) => entry.index === row.index);
+        if (latest) focusAttentionRow(latest);
+      });
+      markerNodes.set(row.index, marker);
+      markersEl.append(marker);
+    }
+    marker.textContent = String(row.index);
+    marker.dataset.siteId = row.siteId;
+    marker.dataset.side = row.side ?? '';
+    marker.style.left = `${x}px`;
+    marker.style.top = `${y}px`;
+    marker.setAttribute(
+      'aria-label',
+      `${row.index} ${row.siteZh} ${row.sideZh ?? '中线'}${row.deep ? '，深层' : ''}`,
+    );
+    const selected = state.selectedSite === row.siteId
+      && (state.selectedSide === null || state.selectedSide === row.side);
+    const focused = focusedSite === row.siteId && focusedSide === row.side;
+    marker.classList.toggle('is-deep', Boolean(row.deep));
+    marker.classList.toggle('is-focused', selected || focused);
+    marker.classList.toggle('is-dimmed', Boolean(focusedSite || state.selectedSite) && !(selected || focused));
+  }
+
+  for (const [index, marker] of markerNodes) {
+    if (keep.has(index)) continue;
+    marker.remove();
+    markerNodes.delete(index);
+  }
+  stats.markerCount = projected.length;
 }
 
 function updateAttentionUi() {
@@ -733,6 +1116,9 @@ function updateAttentionUi() {
     0,
   );
   stats.attentionOpen = attentionOpen;
+  updateOverview(model);
+  updateMarkers(model);
+  updateFocusPill();
 
   if (count === 0) {
     if (attentionOpen) closeAttention({ focus: false });
@@ -744,6 +1130,7 @@ function updateAttentionUi() {
 function openAttention() {
   const model = attentionModel();
   if (model.count === 0) return false;
+  reopenAttentionOnClose = false;
   if (sheetOpen) closeSheet({ focus: false });
   renderAttention(model);
   attentionOpen = true;
@@ -758,6 +1145,7 @@ function openAttention() {
   } catch {
     // Focus is best-effort on hosts that do not expose options.
   }
+  applyOverlayLayout();
   return true;
 }
 
@@ -772,6 +1160,7 @@ function closeAttention(options = {}) {
   attentionSheetEl.classList.remove('is-open', 'is-dragging');
   attentionSheetEl.style.transform = '';
   attentionSheetEl.hidden = true;
+  applyOverlayLayout();
   if (options.focus !== false) {
     try {
       attentionTriggerEl.focus({ preventScroll: true });
@@ -784,6 +1173,7 @@ function closeAttention(options = {}) {
 function selectAttentionRow(siteId, side) {
   closeAttention({ focus: false });
   selectSite(siteId, side);
+  reopenAttentionOnClose = true;
 }
 
 function maybeAutoOpenAttention() {
@@ -910,22 +1300,84 @@ function axisChip(axis) {
   return chip;
 }
 
+function attentionRowFor(siteId, side) {
+  return attentionRows().find(
+    (row) => row.siteId === siteId && row.side === (side ?? null),
+  ) ?? null;
+}
+
+function formatMonthDay(at) {
+  if (!Number.isFinite(at) || at <= 0) return null;
+  const date = new Date(at);
+  if (Number.isNaN(date.getTime())) return null;
+  return (date.getMonth() + 1) + '/' + date.getDate();
+}
+
+function selectSheetSide(side) {
+  if (!state.selectedSite) return;
+  if (side !== 'left' && side !== 'right') return;
+  dispatch({ type: 'select', siteId: state.selectedSite, side });
+  updateUiFromState();
+  requestRender();
+}
+
 function renderSheet() {
   if (!state.selectedSite) return;
 
   const resolved = resolveCard(state.cards, state.selectedSite, state.selectedSide);
   const card = resolved.card;
+  sheetCard = card;
   const site = state.sites.get(state.selectedSite);
   const canIsolate = siteHasInstances(state.selectedSite);
-  sheetTitleEl.textContent = card?.siteZh ?? siteName(state.selectedSite);
-  sheetSideEl.textContent = canIsolate
-    ? selectionSideLabel()
-    : (card?.sideZh ?? '中线');
+  const shownSiteId = card?.siteId ?? state.selectedSite;
+  const shownSide = card ? card.side : state.selectedSide;
+  const sides = resolved.availableSides ?? [];
+  const row = attentionRowFor(shownSiteId, shownSide)
+    ?? attentionRowFor(state.selectedSite, state.selectedSide)
+    ?? (sides.length ? attentionRowFor(shownSiteId, sides[0]) : null);
+  const index = row?.index ?? null;
+  const title = card?.siteZh ?? row?.siteZh ?? siteName(state.selectedSite);
+  sheetTitleEl.textContent = index ? circledNumber(index) + ' ' + title : title;
+
+  const showSideToggle = sides.length > 0 && !(card && card.side === null);
+  sheetSideEl.hidden = showSideToggle;
+  sheetSidesEl.hidden = !showSideToggle;
+  if (showSideToggle) {
+    sheetSidesEl.replaceChildren(...sides.map((side) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.dataset.side = side;
+      button.textContent = side === 'left' ? '左' : '右';
+      button.setAttribute('aria-label', side === 'left' ? '左侧' : '右侧');
+      button.setAttribute('aria-pressed', String(shownSide === side));
+      button.addEventListener('click', () => selectSheetSide(side));
+      return button;
+    }));
+  } else {
+    sheetSideEl.textContent = canIsolate
+      ? selectionSideLabel()
+      : (card?.sideZh ?? '中线');
+  }
+
+  const meta = [];
+  if (card?.groupZh || row?.groupZh) meta.push(card?.groupZh || row?.groupZh);
+  const day = formatMonthDay(card?.at);
+  if (day) meta.push('最近 ' + day);
+  if (Number.isFinite(card?.confidence)) {
+    meta.push('置信度 ' + Math.round(card.confidence));
+  }
+  sheetMetaEl.textContent = meta.join(' · ');
+  sheetMetaEl.hidden = meta.length === 0;
+
   sheetAxesEl.replaceChildren(
     ...(card?.axes ?? []).map((axis) => axisChip(axis)),
   );
   if (card) {
-    sheetWorstEl.textContent = card.worst;
+    sheetWorstEl.textContent = !card.worst || card.worst === '状态平稳'
+      ? '状态平稳'
+      : '最差：' + card.worst;
+  } else if (resolved.needsSideChoice) {
+    sheetWorstEl.textContent = '左右都有判定，先选一侧';
   } else if (site?.kind === 'bone') {
     sheetWorstEl.textContent = '骨骼部位请在档案里查看';
   } else {
@@ -933,10 +1385,34 @@ function renderSheet() {
       ? '这一侧还没有判定'
       : '这个部位还没有判定';
   }
+
+  const related = card?.groupId
+    ? attentionRows().find(
+      (entry) => entry.groupId === card.groupId
+        && !(entry.siteId === shownSiteId && entry.side === shownSide)
+        && !entry.missing,
+    )
+    : null;
+  sheetRelatedEl.hidden = !related;
+  if (related) {
+    const lead = document.createTextNode('同区域还有：');
+    const label = document.createElement('b');
+    label.textContent = related.siteZh + ' · ' + (related.sideZh ?? '中线');
+    const rest = document.createTextNode(related.worst ? ' · ' + related.worst : '');
+    sheetRelatedEl.replaceChildren(lead, label, rest);
+    sheetRelatedEl.onclick = () => selectSite(related.siteId, related.side);
+  } else {
+    sheetRelatedEl.onclick = null;
+  }
+
   const hasCard = Boolean(card);
   sheetOpenEl.hidden = !hasCard;
   sheetOpenEl.disabled = !hasCard;
   stats.archiveAvailable = hasCard;
+  stats.sheetCardIndex = index;
+  stats.sheetNeedsSideChoice = Boolean(resolved.needsSideChoice);
+  stats.sheetAvailableSides = [...sides];
+  stats.sheetSideButtons = showSideToggle ? sides.length : 0;
   applyIsolateUi();
 }
 
@@ -949,8 +1425,10 @@ function openSheet() {
   const wasOpen = sheetOpen;
   sheetOpen = true;
   sheetEl.hidden = false;
+  applyOverlayLayout();
   requestAnimationFrame(() => {
     if (sheetOpen) sheetEl.classList.add('is-open');
+    if (sheetOpen) applyOverlayLayout();
   });
   if (!wasOpen) {
     try {
@@ -962,14 +1440,25 @@ function openSheet() {
 }
 
 function closeSheet(options = {}) {
+  const reopenAttention = reopenAttentionOnClose;
+  reopenAttentionOnClose = false;
   if (!sheetOpen) {
     sheetEl.hidden = true;
+    applyOverlayLayout();
+    if (reopenAttention && !attentionOpen && attentionModel().count > 0) {
+      openAttention();
+    }
     return;
   }
   sheetOpen = false;
+  selectionOffsetBoost = 0;
   sheetEl.classList.remove('is-open', 'is-dragging');
   sheetEl.style.transform = '';
   sheetEl.hidden = true;
+  applyOverlayLayout();
+  if (reopenAttention && !attentionOpen && attentionModel().count > 0) {
+    openAttention();
+  }
   if (options.focus !== false) {
     try {
       canvas.focus({ preventScroll: true });
@@ -1006,6 +1495,7 @@ function focusBoxFor(siteId) {
 
 function frameFocus(view, siteId = null) {
   if (!state.ready || !camera || !controls) return;
+  selectionOffsetBoost = 0;
   updateProjectionLayout(
     Math.max(1, canvas.clientWidth || window.innerWidth),
     Math.max(1, canvas.clientHeight || window.innerHeight),
@@ -1041,7 +1531,11 @@ function reorientTo(view) {
   state.viewTarget.copy(target);
   controls.update();
   updateLights();
-  requestRender();
+  if (sheetOpen) {
+    applyOverlayLayout();
+  } else {
+    requestRender();
+  }
 }
 
 function snapshotCamera() {
@@ -1076,9 +1570,14 @@ function restoreCamera(snapshot, view = 'front') {
   controls.minDistance = snapshot.minDistance;
   controls.maxDistance = snapshot.maxDistance;
   state.viewTarget.copy(controls.target);
+  selectionOffsetBoost = 0;
   controls.update();
   updateLights();
-  requestRender();
+  if (sheetOpen) {
+    applyOverlayLayout();
+  } else {
+    requestRender();
+  }
 }
 
 function exportState() {
@@ -1191,6 +1690,15 @@ function updateLights() {
   fillLight.position.copy(camera.position).add(new THREE.Vector3(-1.8, -0.4, 1.2));
   fillLight.target.position.copy(state.viewTarget);
   fillLight.target.updateMatrixWorld();
+
+  if (rimLight) {
+    viewDirection.copy(camera.position).sub(state.viewTarget).normalize();
+    rimLight.position.copy(state.viewTarget)
+      .addScaledVector(viewDirection, -2.4)
+      .add(new THREE.Vector3(0.9, 1.7, 0));
+    rimLight.target.position.copy(state.viewTarget);
+    rimLight.target.updateMatrixWorld();
+  }
 }
 
 function requestRender() {
@@ -1220,6 +1728,7 @@ function renderFrame(now) {
 
   controls.update();
   updateLights();
+  updateMarkers();
   renderer.render(scene, camera);
 
   stats.drawCalls = renderer.info.render.calls;
@@ -1657,8 +2166,10 @@ function buildBatches(manifest, gltf) {
       0,
     );
 
-    const material = new THREE.MeshLambertMaterial({
+    const material = new THREE.MeshStandardMaterial({
       color: 0xffffff,
+      roughness: 0.72,
+      metalness: 0.02,
       side: THREE.FrontSide,
       transparent: false,
       opacity: 1,
@@ -1749,6 +2260,7 @@ function applyVisibility() {
   let selectedObjectCount = 0;
   let selectedSiteInstanceCount = 0;
   let abnormalObjectCount = 0;
+  const abnormalColors = new Set();
   const highlightedSiteIds = new Set();
 
   for (const item of state.instances) {
@@ -1772,10 +2284,10 @@ function applyVisibility() {
     const selectedItem = Boolean(selected)
       && item.siteId === selected
       && (selectedSide === null || selectedSide === item.side);
-    batch.setColorAt(
-      item.instanceId,
-      toColor(colorForInstance(item, state.highlight, selected, selectedSide)),
+    const color = toColor(
+      colorForInstance(item, state.highlight, selected, selectedSide),
     );
+    batch.setColorAt(item.instanceId, color);
     if (visible) {
       visibleByBatch[item.batch] = true;
       visibleInstances += 1;
@@ -1784,6 +2296,7 @@ function applyVisibility() {
     if (selectedItem) selectedObjectCount += 1;
     if (abnormal && !selectedItem) {
       abnormalObjectCount += 1;
+      abnormalColors.add(color.getHexString());
       highlightedSiteIds.add(item.siteId);
     }
   }
@@ -1796,6 +2309,7 @@ function applyVisibility() {
   stats.highlightSites = state.highlight.sites.map((entry) => ({ ...entry }));
   stats.highlightedSiteIds = [...highlightedSiteIds];
   stats.abnormalObjectCount = abnormalObjectCount;
+  stats.abnormalColors = [...abnormalColors];
   stats.missingSites = missingHighlightSites(
     state.highlight,
     new Set(state.instances.map((item) => item.siteId)),
@@ -1865,6 +2379,7 @@ function pickAt(clientX, clientY) {
   }
 
   selectSite(null);
+  clearFocus();
   return false;
 }
 
@@ -1877,6 +2392,9 @@ function isDeepSite(siteId) {
 function selectSite(siteId, side = null) {
   const clear = siteId === null || siteId === undefined;
   if (!clear && !state.sites.has(siteId) && !siteHasCard(siteId)) return false;
+  if (!clear) reopenAttentionOnClose = false;
+  focusedSite = null;
+  focusedSide = null;
   if (!clear && state.isolate && !siteHasInstances(siteId)) {
     dispatch({ type: 'isolate', enabled: false });
   }
@@ -1987,6 +2505,7 @@ function setSpin(spin) {
 }
 
 function reset() {
+  reopenAttentionOnClose = false;
   stopTierNoticeTimers();
   stopSpinForExplicitAction();
   userMovedCamera = true;

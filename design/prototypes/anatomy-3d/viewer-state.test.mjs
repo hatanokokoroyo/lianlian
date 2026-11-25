@@ -8,6 +8,7 @@ import {
   VIEW_IDS,
   attentionFocusView,
   buildAttention,
+  cardSeverity,
   colorForInstance,
   createCards,
   createHighlight,
@@ -16,6 +17,7 @@ import {
   isolationControl,
   missingHighlightSites,
   nextTierForFps,
+  normalizeColor,
   reduce,
   resolveCard,
   restoreViewerState,
@@ -524,18 +526,17 @@ test('card resolution prefers the same side, then the midline card, then reports
     resolveCard(cards, 'gluteus-maximus', 'left').card.siteId,
     'gluteus-maximus',
   );
-  assert.deepEqual(resolveCard(cards, 'gluteus-maximus', 'right'), {
-    card: null,
-    reason: 'side',
-  });
+  const missingSide = resolveCard(cards, 'gluteus-maximus', 'right');
+  assert.equal(missingSide.card, null);
+  assert.equal(missingSide.reason, 'side');
+  assert.deepEqual(missingSide.availableSides, ['left']);
   assert.equal(
     resolveCard(cards, 'transversus-abdominis', null).card.siteId,
     'transversus-abdominis',
   );
-  assert.deepEqual(resolveCard(cards, 'multifidus', 'left'), {
-    card: null,
-    reason: 'site',
-  });
+  const missingSite = resolveCard(cards, 'multifidus', 'left');
+  assert.equal(missingSite.card, null);
+  assert.equal(missingSite.reason, 'site');
 });
 
 test('midline card fallback wins for one-sided selections', () => {
@@ -884,7 +885,7 @@ test('invalid preset and view actions leave the state untouched', () => {
   assert.equal(view.state.view, 'left');
 });
 
-test('highlight priority is selected over abnormal over side color', () => {
+test('highlight priority is selected over abnormal over the ivory muscle base', () => {
   const highlight = createHighlight(DEFAULT_PALETTE, [
     { siteId: 'gluteus-maximus', side: null },
   ]);
@@ -897,18 +898,18 @@ test('highlight priority is selected over abnormal over side color', () => {
   assert.equal(colorForInstance(item, highlight), DEFAULT_PALETTE.abnormal);
   assert.equal(
     colorForInstance({ ...item, siteId: 'gluteus-medius' }, highlight),
-    DEFAULT_PALETTE.left,
+    DEFAULT_PALETTE.muscle,
   );
   assert.equal(
     colorForInstance(
       { ...item, siteId: 'gluteus-medius', side: 'right' },
       highlight,
     ),
-    DEFAULT_PALETTE.right,
+    DEFAULT_PALETTE.muscle,
   );
 });
 
-test('a null side colors both sides while a named side colors only that side', () => {
+test('a null side colors both sides while a named side only flags that side', () => {
   const both = createHighlight(DEFAULT_PALETTE, [
     { siteId: 'transversus-abdominis', side: null },
   ]);
@@ -942,7 +943,7 @@ test('a null side colors both sides while a named side colors only that side', (
       { siteId: 'gluteus-maximus', side: 'right', kind: 'muscle' },
       left,
     ),
-    DEFAULT_PALETTE.right,
+    DEFAULT_PALETTE.muscle,
   );
 });
 
@@ -993,4 +994,176 @@ test('highlight requests merge palette defaults and collapse duplicate sites', (
     { siteId: 'multifidus', side: 'left' },
     { siteId: 'multifidus', side: null },
   ]);
+});
+
+test('theme tokens lose their alpha instead of turning into white', () => {
+  assert.equal(normalizeColor('#6ee7f0ff'), '#6ee7f0');
+  assert.equal(normalizeColor('#FF6B6BFF'), '#ff6b6b');
+  assert.equal(normalizeColor('#abc'), '#aabbcc');
+  assert.equal(normalizeColor('#AABBCC'), '#aabbcc');
+  assert.equal(normalizeColor('#ff6b6b'), '#ff6b6b');
+});
+
+test('anything that is not a hex color is rejected so callers can fall back', () => {
+  assert.equal(normalizeColor('rgb(1, 2, 3)'), null);
+  assert.equal(normalizeColor('#12'), null);
+  assert.equal(normalizeColor('#12345'), null);
+  assert.equal(normalizeColor('#gggggg'), null);
+  assert.equal(normalizeColor(''), null);
+  assert.equal(normalizeColor(null), null);
+  assert.equal(normalizeColor(42), null);
+});
+
+test('an eight-digit palette still yields a six-digit instance color', () => {
+  const highlight = createHighlight(
+    { abnormal: '#ff6b6bff', selected: '#c8f04aff', muscle: '#cbbeb0ff' },
+    [{ siteId: 'gluteus-maximus', side: 'left' }],
+  );
+  const item = { siteId: 'gluteus-maximus', side: 'left', kind: 'muscle' };
+
+  assert.equal(colorForInstance(item, highlight), '#ff6b6b');
+  assert.equal(
+    colorForInstance(item, highlight, 'gluteus-maximus'),
+    '#c8f04a',
+  );
+  assert.equal(
+    colorForInstance({ ...item, siteId: 'gluteus-medius' }, highlight),
+    '#cbbeb0',
+  );
+});
+
+test('an invalid palette value falls back to the palette default, never white', () => {
+  const highlight = createHighlight(
+    { abnormal: 'not-a-color', muscle: '#12345' },
+    [{ siteId: 'gluteus-maximus', side: 'left' }],
+  );
+  const item = { siteId: 'gluteus-maximus', side: 'left', kind: 'muscle' };
+
+  assert.equal(colorForInstance(item, highlight), DEFAULT_PALETTE.abnormal);
+  assert.equal(
+    colorForInstance({ ...item, siteId: 'gluteus-medius' }, highlight),
+    DEFAULT_PALETTE.muscle,
+  );
+  assert.notEqual(colorForInstance(item, highlight), 'ffffff');
+});
+
+test('side-less selection returns the only card but asks before showing it', () => {
+  const cards = createCards([
+    {
+      siteId: 'gluteus-medius',
+      siteZh: '臀中肌',
+      side: 'left',
+      sideZh: '左',
+      groupId: 'gluteal',
+      groupZh: '臀肌群',
+      axes: [],
+      at: 1,
+      resolved: false,
+      worst: '张力 弱',
+    },
+  ]);
+
+  const resolved = resolveCard(cards, 'gluteus-medius', null);
+  assert.equal(resolved.card.side, 'left');
+  assert.equal(resolved.needsSideChoice, true);
+  assert.deepEqual(resolved.availableSides, ['left']);
+});
+
+test('side-less selection with both sides returns a choice, not a missing side', () => {
+  const cards = createCards([
+    { siteId: 'gluteus-medius', siteZh: '臀中肌', side: 'left', groupId: 'gluteal', groupZh: '臀肌群', axes: [], at: 1, resolved: false, worst: '张力 弱' },
+    { siteId: 'gluteus-medius', siteZh: '臀中肌', side: 'right', groupId: 'gluteal', groupZh: '臀肌群', axes: [], at: 2, resolved: false, worst: '张力 紧' },
+  ]);
+
+  const resolved = resolveCard(cards, 'gluteus-medius', null);
+  assert.equal(resolved.card, null);
+  assert.equal(resolved.reason, null);
+  assert.equal(resolved.needsSideChoice, true);
+  assert.deepEqual(resolved.availableSides, ['left', 'right']);
+});
+
+test('a midline card wins over the side chooser', () => {
+  const cards = createCards([
+    { siteId: 'diaphragm', siteZh: '膈肌', side: null, groupId: 'core', groupZh: '核心', axes: [], at: 1, resolved: false, worst: '张力 紧' },
+  ]);
+
+  const resolved = resolveCard(cards, 'diaphragm', null);
+  assert.equal(resolved.card.side, null);
+  assert.equal(resolved.needsSideChoice, false);
+});
+
+test('card severity lets pain outrank every other abnormal axis', () => {
+  const pain = createCards([
+    {
+      siteId: 'trapezius',
+      siteZh: '斜方肌',
+      side: 'left',
+      axes: [
+        { axis: 'tension', label: '张力', value: '紧', measured: true, abnormal: true },
+        { axis: 'pain', label: '疼痛', value: '5 分', measured: true, abnormal: true },
+      ],
+      worst: '张力 紧',
+    },
+  ])[0];
+  const mobility = createCards([
+    {
+      siteId: 'soleus',
+      siteZh: '比目鱼肌',
+      side: 'left',
+      axes: [
+        { axis: 'mobility', label: '活动度', value: '受限', measured: true, abnormal: true },
+      ],
+      worst: '活动度 受限',
+    },
+  ])[0];
+  const calm = createCards([
+    {
+      siteId: 'gluteus-maximus',
+      siteZh: '臀大肌',
+      side: 'left',
+      axes: [
+        { axis: 'tension', label: '张力', value: '正常', measured: true, abnormal: false },
+      ],
+      worst: '状态平稳',
+    },
+  ])[0];
+
+  assert.equal(cardSeverity(pain), 5);
+  assert.equal(cardSeverity(mobility), 1);
+  assert.equal(cardSeverity(calm), 0);
+});
+
+test('attention groups sort by severity and rows keep one global numbering', () => {
+  const cards = createCards([
+    { siteId: 'soleus', siteZh: '比目鱼肌', side: 'left', sideZh: '左', groupId: 'calf', groupZh: '小腿', axes: [{ axis: 'mobility', label: '活动度', value: '受限', measured: true, abnormal: true }], at: 1, resolved: false, worst: '活动度 受限' },
+    { siteId: 'trapezius', siteZh: '斜方肌', side: 'left', sideZh: '左', groupId: 'shoulder', groupZh: '肩胛带', axes: [{ axis: 'pain', label: '疼痛', value: '5 分', measured: true, abnormal: true }], at: 2, resolved: false, worst: '疼痛 5 分' },
+    { siteId: 'gluteus-maximus', siteZh: '臀大肌', side: 'right', sideZh: '右', groupId: 'gluteal', groupZh: '臀肌群', axes: [{ axis: 'pain', label: '疼痛', value: '4 分', measured: true, abnormal: true }], at: 3, resolved: false, worst: '疼痛 4 分' },
+    { siteId: 'multifidus', siteZh: '多裂肌', side: 'left', sideZh: '左', groupId: 'spinal', groupZh: '脊柱深层', axes: [{ axis: 'stability', label: '稳定性', value: '差', measured: true, abnormal: true }], at: 4, resolved: false, worst: '稳定性 差' },
+  ]);
+
+  const attention = buildAttention(
+    cards,
+    [
+      { siteId: 'soleus', side: 'left' },
+      { siteId: 'trapezius', side: 'left' },
+      { siteId: 'gluteus-maximus', side: 'right' },
+      { siteId: 'multifidus', side: 'left' },
+    ],
+    new Set(['soleus', 'trapezius', 'gluteus-maximus', 'multifidus']),
+    new Set(['multifidus']),
+  );
+
+  assert.deepEqual(
+    attention.sections.map((section) => section.groupId),
+    ['shoulder', 'gluteal', 'calf', 'spinal'],
+  );
+  assert.deepEqual(
+    attention.sections.flatMap((section) => section.rows.map((row) => [row.index, row.siteId, row.deep])),
+    [
+      [1, 'trapezius', false],
+      [2, 'gluteus-maximus', false],
+      [3, 'soleus', false],
+      [4, 'multifidus', true],
+    ],
+  );
 });

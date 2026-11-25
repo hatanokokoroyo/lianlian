@@ -94,7 +94,7 @@ test("3D 异常集合：只取肌肉、按部位与侧别去重", () => {
     side_zh: side === "left" ? "左" : side === "right" ? "右" : null,
     at: 1,
     finding: 1,
-    confidence: 0.8,
+    confidence: 80,
     resolved: false,
     axes: [
       {
@@ -200,7 +200,7 @@ test("3D 卡片：同侧优先、中线兜底与 worst 透传", () => {
     "transversus-abdominis",
   ]);
   expect(cards.find((entry) => entry.siteId === "gluteus-maximus")?.worst).toBe(
-    "臀大肌左 · 张力 紧",
+    "张力 紧",
   );
   expect(cards.find((entry) => entry.siteId === "gluteus-medius")?.worst).toBe(
     "状态平稳",
@@ -222,7 +222,7 @@ test("3D 卡片：同侧优先、中线兜底与 worst 透传", () => {
     [{ siteId: "gluteus-maximus", side: "left" }],
     cards,
   );
-  expect(script.includes('"worst":"臀大肌左 · 张力 紧"')).toBe(true);
+  expect(script.includes('"worst":"张力 紧"')).toBe(true);
 });
 
 /** 「在档案里看依据」把部位与侧别解析成区域页目标。 */

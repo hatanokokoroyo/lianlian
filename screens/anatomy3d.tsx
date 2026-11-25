@@ -1,6 +1,6 @@
 // 3D 身体图：Rust loopback 服务提供 viewer 与 GLB，WebView 负责显示。
 // 这里只读档案里的肌肉异常，把主题色、异常集合与卡片推给 viewer，并承接跨页恢复与慢设备提示。
-import { effect, resource, signal, Text, token, View, WebView } from "nsh";
+import { cleanup, effect, resource, signal, Text, token, View, WebView } from "nsh";
 import type { WebViewRef } from "nsh";
 import { Anatomy3d, Findings } from "lianlian/native";
 
@@ -106,17 +106,50 @@ export function Anatomy3dScreen(props: {
   const findings = resource(() => Findings.load());
   const failure = signal<string | null>(null);
   const slowDevice = signal(false);
+  const slowToast = signal(false);
   const retryNonce = signal(0);
   let webview: WebViewRef | undefined;
   let highlightReady = false;
   let restoreDone = false;
   let saveInFlight: Promise<void> | null = null;
+  let slowToastShown = false;
+  let slowToastTimer: ReturnType<typeof setTimeout> | null = null;
 
+  const hideSlowToast = () => {
+    if (slowToastTimer) {
+      clearTimeout(slowToastTimer);
+      slowToastTimer = null;
+    }
+    slowToast.set(false);
+  };
+
+  const showSlowToastOnce = () => {
+    slowToastShown = true;
+    slowToast.set(true);
+    if (slowToastTimer) {
+      clearTimeout(slowToastTimer);
+    }
+    slowToastTimer = setTimeout(() => {
+      slowToastTimer = null;
+      slowToast.set(false);
+    }, 2500);
+  };
+
+  cleanup(() => {
+    if (slowToastTimer) {
+      clearTimeout(slowToastTimer);
+      slowToastTimer = null;
+    }
+  });
+
+  // The 3D surfaces own this palette: theme tokens arrive as 8-digit hex and
+  // their red/lime roles are UI semantics, not anatomy. Side is text-only, so
+  // left/right are kept for the legend only.
   const palette = (): HighlightPalette => ({
-    left: token("chart-1"),
-    right: token("chart-2"),
-    abnormal: token("destructive"),
-    selected: token("primary"),
+    left: "#6ee7f0",
+    right: "#f0a26e",
+    abnormal: "#e15e3f",
+    selected: "#d8e567",
   });
 
   const saveViewerState = () => {
@@ -230,6 +263,8 @@ export function Anatomy3dScreen(props: {
   const retry = () => {
     failure.set(null);
     slowDevice.set(false);
+    slowToastShown = false;
+    hideSlowToast();
     retryNonce.set(retryNonce() + 1);
     viewer.refetch();
   };
@@ -281,44 +316,41 @@ export function Anatomy3dScreen(props: {
         >
           3D 身体图
         </Text>
-        <View style={{ minWidth: 68, alignItems: "flex-end" }}>
+        <View
+          style={{
+            minWidth: 96,
+            flexDirection: "row",
+            alignItems: "center",
+            justifyContent: "flex-end",
+            gap: 6,
+          }}
+        >
+          {slowDevice() && !failureReason() ? (
+            <View
+              testID="anatomy3d-tier-chip"
+              style={{ flexDirection: "row", alignItems: "center", gap: 4 }}
+            >
+              <View
+                style={{
+                  width: 6,
+                  height: 6,
+                  borderRadius: 3,
+                  backgroundColor: token("muted-foreground"),
+                }}
+              />
+              <Text
+                style={{
+                  fontSize: 10,
+                  color: token("muted-foreground"),
+                }}
+              >
+                流畅档
+              </Text>
+            </View>
+          ) : null}
           <TextButton testID="anatomy3d-reset" label="重置" onPress={resetViewer} />
         </View>
       </View>
-
-      {slowDevice() && !failureReason() ? (
-        <View
-          testID="anatomy3d-slow-device"
-          style={{
-            flexDirection: "row",
-            alignItems: "center",
-            gap: 8,
-            paddingHorizontal: 12,
-            paddingVertical: 8,
-            borderBottomWidth: 1,
-            borderColor: token("border"),
-            backgroundColor: token("card"),
-          }}
-        >
-          <Text
-            style={{
-              flex: 1,
-              fontSize: typeScale.label,
-              lineHeight: leading.label,
-              color: token("muted-foreground"),
-            }}
-          >
-            这台设备可能较慢
-          </Text>
-          <TextButton
-            testID="anatomy3d-slow-device-back"
-            label="回档案"
-            onPress={() => {
-              void leaveViewer();
-            }}
-          />
-        </View>
-      ) : null}
 
       {findingsFailure() && !failureReason() ? (
         <View
@@ -380,6 +412,8 @@ export function Anatomy3dScreen(props: {
             restoreDone = false;
             failure.set(null);
             slowDevice.set(false);
+            slowToastShown = false;
+            hideSlowToast();
           }}
           onLoad={() => {
             void restoreThenHighlight();
@@ -398,6 +432,9 @@ export function Anatomy3dScreen(props: {
                 rememberViewerState(message.state);
               } else if (message?.type === "anatomy3d:slow-device") {
                 slowDevice.set(true);
+                if (!slowToastShown) {
+                  showSlowToastOnce();
+                }
               }
             } catch {
               // 页面消息不是我们的契约时忽略。
@@ -405,6 +442,45 @@ export function Anatomy3dScreen(props: {
           }}
         />
       )}
+
+      {slowToast() && !failureReason() ? (
+        <View
+          testID="anatomy3d-slow-toast"
+          style={{
+            position: "absolute",
+            top: 52,
+            left: 0,
+            right: 0,
+            alignItems: "center",
+          }}
+        >
+          <View
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 6,
+              paddingHorizontal: 12,
+              paddingVertical: 7,
+              borderWidth: 1,
+              borderColor: token("border"),
+              borderRadius: 999,
+              backgroundColor: token("card"),
+            }}
+          >
+            <View
+              style={{
+                width: 6,
+                height: 6,
+                borderRadius: 3,
+                backgroundColor: token("muted-foreground"),
+              }}
+            />
+            <Text style={{ fontSize: typeScale.label, color: token("foreground") }}>
+              已切到流畅档
+            </Text>
+          </View>
+        </View>
+      ) : null}
     </View>
   );
 }

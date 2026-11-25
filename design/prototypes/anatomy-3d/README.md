@@ -1,9 +1,9 @@
 # 3D 身体图 viewer（页面骨架）
 
 移动优先的 3D 身体图 viewer，用来验证 Z-Anatomy 三档 GLB 的加载、
-`BatchedMesh` 合批、拾取、左右分色、层级预设与隔离。它已经接进 App 的档案栈；
-当前页面骨架保留返回、重置、视角四段、层级菜单、首次提示、加载/失败态与
-档案异常高亮；详情卡与异常列表尚未进入这一票的页面骨架。
+`BatchedMesh` 合批、拾取、层级预设与隔离。它已经接进 App 的档案栈；页面保留
+返回、重置、视角四段、层级菜单、首次提示、加载/失败态、档案异常摘要与编号标记、
+异常清单和详情卡。
 
 模型：79 块肌肉 + 31 个有网格的骨骼部位，311 个节点；映射表 119 个 site，
 其中 110 个在 GLB 里有几何（9 个骨性定位点只有坐标，不在这两个 GLB 里）。
@@ -54,6 +54,15 @@ nsh run --target android
 
 ## 截图
 
+- `screenshots/refresh-front.png` / `refresh-back.png`：2026-11-25 视觉刷新验收
+  （8 条判定 → 12 个异常对象；正面 2 处、背面 5 处珊瑚红，暖象牙肌肉）
+- `screenshots/refresh-sheet.png`：臀中肌详情卡（编号 + 左侧别、同区域链接、
+  卡片打开后部位仍在卡片上方）
+- `screenshots/refresh-app-tier-chip.png`：App 内慢设备只在顶栏留「流畅档」
+  小状态，没有常驻条
+
+**2026-11-20 历史对照（左右青/橙配色）**
+
 - `screenshots/back-all.png`：背视全身，左右分色
 - `screenshots/back-glute-selected.png`：点选臀大肌（双侧高亮）
 - `screenshots/front-deep-tva.png`：深层预设 + 腹横肌高亮，浅层淡出
@@ -68,9 +77,11 @@ nsh run --target android
 
 - 拖动旋转，滚轮/双指缩放；极角限制在约 22°–158°，防止钻到头顶/脚底。
 - 四视角：正（+Z）、背（−Z）、左（+X）、右（−X）。
-- 正常肌肉保留左青 / 右橙（默认 `#6ee7f0` / `#f0a26e`）；异常部位用
-  `destructive`，选中用 `primary`。App 内这三个颜色与左右底色都由原生侧从主题
-  token 传入；独立浏览器没有原生宿主时用 `viewer-state.js` 里的默认 palette。
+- 正常肌肉是暖象牙 `#cbbeb0`，骨骼是浅沙 `#b3a798`；左右不再用半身色，
+  侧别只出现在文字芯片里。异常用 `#e15e3f`，选中用 `#d8e567`。App 与独立
+  浏览器共用这套解剖 palette；原生侧不再把 8 位主题 token 传进来。
+- 所有颜色入口都过 `normalizeColor()`：`#rgb` / `#rrggbb` / `#rrggbbaa`
+  会收成 6 位，非法值回退调色板默认值，不会静默变白。
 - 高亮粒度是「部位 + 侧别」：`side: null` 表示该部位左右两侧都算异常。
   只给肌肉染色，骨骼即使出现在异常集合里也忽略。
 - 视角按钮反映相机真实方向：自由旋转停止后，高亮最接近的正/背/左/右；
@@ -80,12 +91,21 @@ nsh run --target android
 - 层级菜单从「层级：<当前> ▾」打开，点外部或 Escape 关闭；当前项有选中态。
 - 首次进入显示「拖动旋转 · 双指缩放 · 点肌肉看详情」，第一次成功拖动/缩放/点选后
   淡出，并在 `localStorage` 记住，之后不再出现。
-- 点选、切层级、开关浮层都不改变相机；只有首屏加载、重置和「只看这块」取景。
+- 点选、切层级、开关浮层都不改变相机的位置/距离；详情卡打开时只调整投影偏移，
+  让选中部位留在卡片上方，关闭后恢复。只有首屏加载、重置和「只看这块」取景。
   隔离按钮在进入后变为「显示全部」，退出时原样恢复相机、层级、选中与侧别。
   隔离中层级控件禁用（视角仍可切），关闭详情卡也会退出隔离并恢复相机。
-- 有异常时，第二行右侧出现「需注意 N 处 ›」。打开后按肌群分组列出部位、侧别与最差
-  一条；缺网格的部位标「模型里暂缺」，仍可打开详情卡，但不提供「只看这块」。
-  列表是绝对定位浮层，开关不影响画布尺寸与相机。
+- 有异常时，顶部摘要显示「N 处需要注意」、肌群数与左右计数，并提供「深层 N」和
+  「背面/正面 N ›」切换；底部一条图例。模型上每视角最多 4 个编号标记，编号与
+  清单一致，点标记只更新底部 focus pill，「查看」才展开详情卡。
+- 异常清单按严重度排序（疼痛等级优先，其余异常轴算 1），同肌群的行保持相邻，
+  组标题只出现一次。行显示编号、部位、左侧别芯片、最差一条和严重度；深层行有
+  「深层」badge。点行会打开该部位的详情卡并自动切到深层，关闭详情卡回到清单。
+  缺网格的部位标「模型里暂缺」，仍可打开详情卡，但不提供「只看这块」。
+- 详情卡标题是「④ 臀中肌」这种编号 + 部位，侧别是可点的左/右切换；没有侧别时
+  若只有一侧有卡就显示那张，若两侧都有则要求先选一侧，不会把选择问题说成
+  「这一侧还没有判定」。卡片还显示肌群、最近日期、置信度、轴芯片、最差一条、
+  「同区域还有…」和「只看这块 / 在档案里看依据」。
 - 档位切换、自转与统计面板已从产品 UI 移除；对应能力保留在 `window.__viewer`
   里，供自动化契约检查使用。
 
@@ -126,7 +146,7 @@ window.__viewer = {
   ready,                 // boolean
   error,                 // string | null
   stats,                 // 见下
-  setHighlight({ palette, sites }), // 主题色 + 异常部位；不重新加载模型
+  setHighlight({ palette, sites, cards }), // 调色板 + 异常部位 + 档案卡；不重新加载模型
   setView(v),            // front|back|left|right
   setPreset(p),          // all|shallow|deep|bone
   selectSite(id),        // site_id | null
@@ -142,9 +162,16 @@ window.__viewer = {
 采样相同的纯函数决策与切档路径，用于无头校验。生产页面不显示任何测试控件。
 
 `setHighlight` 的 `sites` 是 `{ siteId, side }` 数组，`side` 为 `left` /
-`right` / `null`。`palette` 可只给 `left`、`right`、`abnormal`、`selected`，
-其余键沿用默认；缺网格的部位会出现在 `stats.missingSites` 里，不会静默消失。
-换档或重载模型后会沿用同一份高亮集合重新套色。
+`right` / `null`。`palette` 可只给 `left`、`right`、`mid`、`muscle`、
+`bone`、`abnormal`、`selected`，其余键沿用默认；8 位 hex 会在着色前归一化。
+缺网格的部位会出现在 `stats.missingSites` 里，不会静默消失。换档或重载模型后
+会沿用同一份高亮集合重新套色。
+
+`cards` 是原生算好的 `{ siteId, siteZh, side, sideZh, groupId, groupZh, axes, at,
+confidence, resolved, worst }` 数组；`side: null` 是中线/双侧卡。详情卡只渲染
+这份数据：`worst` 已经是「轴 + 取值」的一句话，日期和置信度（0–100）也原样
+显示。没有侧别时，viewer 先找同侧卡，再找中线卡；只有一侧有卡时直接显示那张，
+两侧都有时返回 `needsSideChoice` 让卡片显示左/右选择。
 
 Ready 后写 `document.body.dataset.viewerReady = '1'`；失败写
 `document.body.dataset.viewerError`。加载/渲染不依赖用户手势，截图模式可直接跑。
@@ -154,9 +181,12 @@ Ready 后写 `document.body.dataset.viewerReady = '1'`；失败写
 ```text
 tier, triangles, renderedTriangles, drawCalls, fps, fpsAvg, fpsMin, spin, spinYaw, loadMs, multiDraw,
 instances, sites, selectedSite, selectedObjectCount, highlightColor,
-highlightSites, highlightedSiteIds, abnormalObjectCount, missingSites, palette,
+highlightSites, highlightedSiteIds, abnormalObjectCount, abnormalColors, missingSites, palette,
 visibleInstances, view, preset, cameraDistance, cameraTarget,
 attentionOpen, attentionCount, attentionGroups, attentionMissing,
+attentionLeft, attentionRight, attentionDeep, markerCount,
+sheetCardIndex, sheetNeedsSideChoice, sheetAvailableSides, sheetSideButtons,
+layoutTop, layoutBottom, layoutUsableH, layoutOffsetY,
 autoTierSampledFps, autoTierDecision, tierNoticeCount, slowDevice
 ```
 
@@ -170,6 +200,8 @@ autoTierSampledFps, autoTierDecision, tierNoticeCount, slowDevice
 - `highlightSites`：最近一次 `setHighlight` 收到的部位 + 侧别
 - `highlightedSiteIds`：实际匹配到肌肉网格的异常 site（骨性忽略）
 - `abnormalObjectCount`：当前真正染成异常色的对象数（被选中覆盖的不算）
+- `abnormalColors`：这些异常对象最终写进 instanceColor 的 6 位 hex；用来锁
+  「8 位 token 不能变成白色」
 - `missingSites`：异常集合里没有网格的 site id
 - `palette`：当前生效的 palette
 - `visibleInstances`：当前实际可见 instance 数
@@ -177,6 +209,12 @@ autoTierSampledFps, autoTierDecision, tierNoticeCount, slowDevice
 - `cameraDistance` / `cameraTarget`：相机到目标点的距离与目标点，用于断言取景契约
 - `attentionOpen` / `attentionCount`：异常列表是否打开、行数（含缺网格行）
 - `attentionGroups` / `attentionMissing`：异常列表的分组数与缺网格行数
+- `attentionLeft` / `attentionRight` / `attentionDeep`：摘要里的左右与深层计数
+- `markerCount`：当前视角实际画出的编号标记数（最多 4）
+- `sheetCardIndex` / `sheetNeedsSideChoice` / `sheetAvailableSides` /
+  `sheetSideButtons`：详情卡编号与侧别选择契约
+- `layoutTop` / `layoutBottom` / `layoutUsableH` / `layoutOffsetY`：
+  投影预留的顶部/底部像素与相机 offset；`ui=0` 时底部应为 0
 - `autoTierSampledFps` / `autoTierDecision`：最近一次采样均值与纯函数给出的决定
 - `tierNoticeCount`：本次页面生命周期内「已切到流畅档」提示出现次数（最多 1）
 - `slowDevice`：`cap2000` 仍低于 20 fps 时是否已向原生报告
