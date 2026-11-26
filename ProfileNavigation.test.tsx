@@ -485,3 +485,59 @@ test("3D 身体图：档案读失败时仍能看模型，并可重试", async ()
     await Testing.failFindings(false);
   }
 });
+
+// 手边有什么：预设之外可以自己输入；点一下取消、长按删除，重名与超长挡住。
+test("训练条件：自定义器械可添加、取消与长按删除", async () => {
+  await freshDatabase();
+  const app = await open("./App.tsx");
+  await app.waitUntil(() => app.shows("id:onboarding-next") || app.shows("id:tab-today"));
+  await ensureOnboarded(app);
+  await app.waitFor("id:tab-today");
+
+  await app.press("id:tab-profile");
+  await app.waitFor("id:open-training");
+  await app.press("id:open-training");
+  await app.waitFor("id:save-training");
+
+  // 输入后点「添加」：chip 出现，输入框清空。
+  await app.type("id:training-equipment-input", "壶铃 12kg");
+  await app.press("id:training-equipment-add");
+  expect(app.shows("label:壶铃 12kg")).toBe(true);
+  expect(app.value("id:training-equipment-input")).toBe("");
+
+  // 点一下取消选中：chip 还在列表里，再点能恢复。
+  await app.press("label:壶铃 12kg");
+  expect(app.shows("label:壶铃 12kg")).toBe(true);
+  await app.press("label:壶铃 12kg");
+
+  // 重名不新增（和已有自定义项比）。
+  await app.type("id:training-equipment-input", "壶铃 12kg");
+  await app.press("id:training-equipment-add");
+  expect(app.count("label:壶铃 12kg")).toBe(1);
+
+  // 20 字上限：多打的字进不去。
+  const overlong = "一二三四五六七八九十一二三四五六七八九十一";
+  await app.clear("id:training-equipment-input");
+  await app.type("id:training-equipment-input", overlong);
+  expect(app.value("id:training-equipment-input")).toBe(overlong.slice(0, 20));
+  await app.clear("id:training-equipment-input");
+
+  // 选中「什么都没有」后再添加自定义项：互斥项自动清掉，保存不报错。
+  await app.press("id:training-equipment-nothing");
+  await app.type("id:training-equipment-input", "壶铃 12kg");
+  await app.press("id:training-equipment-add");
+  await app.press("id:save-training");
+  await app.waitFor("id:profile-saved");
+  expect(app.shows("id:profile-error")).toBe(false);
+
+  // 保存后离开再回来：自定义器械仍在列表里。
+  await app.press("id:back");
+  await app.waitFor("id:open-training");
+  await app.press("id:open-training");
+  await app.waitFor("id:save-training");
+  expect(app.shows("label:壶铃 12kg")).toBe(true);
+
+  // 长按删除：chip 从列表消失。
+  await app.longPress("label:壶铃 12kg");
+  expect(app.shows("label:壶铃 12kg")).toBe(false);
+});

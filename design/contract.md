@@ -171,7 +171,7 @@ v1 只有一种模式（深色）。全部值放在 `theme` 一节下，`light`/
 | 体重 | `measurements-scroll` `weight-chart` `add-measurement` `delete-measurement` |
 | 引导 | `onboarding-next` `onboarding-prev` `onboarding-step-3` `onboarding-error` |
 | 基本属性 | `basics-sex-{female\|male\|none}` `basics-age` `basics-height` `basics-weight` `condition-input` `condition-add` `condition-remove-{n}` |
-| 训练条件 | `training-days-{2\|3\|4\|5}` `training-minutes-{15\|30\|45}` `training-place-{home\|gym\|office\|outdoor}` `training-equipment-{band\|dumbbell-8kg\|mat\|foam-roller\|nothing}` |
+| 训练条件 | `training-days-{2\|3\|4\|5}` `training-minutes-{15\|30\|45}` `training-place-{home\|gym\|office\|outdoor}` `training-equipment-{band\|dumbbell-8kg\|mat\|foam-roller\|nothing}` `training-equipment-input` `training-equipment-add` `training-equipment-custom-{n}`（自定义器械，`n` 从 0 起） |
 | 设置 | `settings-scroll` `api-key` `reveal-key` `settings-tools` `tool-rounds` `save-tool-rounds` |
 | 通用 | `back` `open-conversations` |
 

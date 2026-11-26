@@ -51,6 +51,7 @@ export function Chip(props: {
   label: string;
   active: boolean;
   onPress: () => void;
+  onLongPress?: () => void;
   testID?: string;
 }) {
   return (
@@ -59,6 +60,7 @@ export function Chip(props: {
       role="button"
       accessibilityLabel={props.label}
       onPress={props.onPress}
+      onLongPress={props.onLongPress}
       style={{
         borderRadius: 999,
         paddingHorizontal: 12,
@@ -206,6 +208,7 @@ export function TextField(props: {
   placeholder?: string;
   testID?: string;
   multiline?: boolean;
+  maxLength?: number;
 }) {
   return (
     <Input
@@ -213,6 +216,7 @@ export function TextField(props: {
       value={props.value}
       placeholder={props.placeholder}
       multiline={props.multiline}
+      maxLength={props.maxLength}
       onChange={(event) => props.onChange(event.value)}
       style={{
         backgroundColor: token("muted"),

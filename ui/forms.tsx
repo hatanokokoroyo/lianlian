@@ -41,6 +41,12 @@ const EQUIPMENT = [
   { key: "foam-roller", zh: "泡沫轴" },
   { key: "nothing", zh: "什么都没有" },
 ] as const;
+/** 「什么都没有」与其他器械互斥；与 Rust 的 `TrainingContext::validate` 同一条规则。 */
+const NO_EQUIPMENT = "nothing";
+/** 自定义器械最多 20 个字。 */
+const EQUIPMENT_MAX_CHARS = 20;
+/** 预设器械的 key；档案里不是这些 key 的 label，就是用户自己输入的。 */
+const EQUIPMENT_KEYS = new Set<string>(EQUIPMENT.map((item) => item.key));
 
 /** 数字输入框里的字符串 → 数字；空串就是「未填」。 */
 function toNumber(raw: string): number | null {
@@ -94,6 +100,10 @@ export interface TrainingDraft {
   minutes: Signal<number | null>;
   places: Signal<string[]>;
   equipment: Signal<string[]>;
+  /** 自定义器械（含已取消选中的）；保存后从 equipment 里恢复。 */
+  custom: Signal<string[]>;
+  /** 自定义器械的输入框。 */
+  pending: Signal<string>;
 }
 
 export function newTrainingDraft(view: TrainingView): TrainingDraft {
@@ -102,6 +112,12 @@ export function newTrainingDraft(view: TrainingView): TrainingDraft {
     minutes: signal<number | null>(view.minutesPerSession ?? null),
     places: signal<string[]>([...view.places]),
     equipment: signal<string[]>([...view.equipment]),
+    custom: signal<string[]>(
+      view.equipment.filter(
+        (label) => label !== NO_EQUIPMENT && !EQUIPMENT_KEYS.has(label),
+      ),
+    ),
+    pending: signal(""),
   };
 }
 
@@ -119,6 +135,50 @@ function toggle(list: readonly string[], value: string): string[] {
   return list.includes(value)
     ? list.filter((item) => item !== value)
     : [...list, value];
+}
+
+/** 多选：已选就取消；新选时清掉「什么都没有」。 */
+function toggleEquipment(draft: TrainingDraft, label: string) {
+  const current = draft.equipment();
+  if (current.includes(label)) {
+    draft.equipment.set(current.filter((item) => item !== label));
+    return;
+  }
+  draft.equipment.set([
+    ...current.filter((item) => item !== NO_EQUIPMENT),
+    label,
+  ]);
+}
+
+/** 自定义器械：去空、限 20 字、不与预设或已有自定义重名。 */
+function addCustomEquipment(draft: TrainingDraft) {
+  const label = [...draft.pending().trim()]
+    .slice(0, EQUIPMENT_MAX_CHARS)
+    .join("");
+  if (label === "") {
+    return;
+  }
+  const taken = [
+    ...EQUIPMENT.map((item) => item.key),
+    ...EQUIPMENT.map((item) => item.zh),
+    ...draft.custom(),
+  ];
+  if (taken.includes(label)) {
+    draft.pending.set("");
+    return;
+  }
+  draft.custom.set([...draft.custom(), label]);
+  draft.equipment.set([
+    ...draft.equipment().filter((item) => item !== NO_EQUIPMENT),
+    label,
+  ]);
+  draft.pending.set("");
+}
+
+/** 长按删掉一条自定义器械；预设项不能删。 */
+function removeCustomEquipment(draft: TrainingDraft, label: string) {
+  draft.custom.set(draft.custom().filter((item) => item !== label));
+  draft.equipment.set(draft.equipment().filter((item) => item !== label));
 }
 
 /** 首次记录身高体重：只有引导第一步用它，档案页只显示「当前值」（测量决定）。 */
@@ -288,24 +348,42 @@ export function TrainingFields(props: { draft: TrainingDraft }) {
               label={item.zh}
               active={draft.equipment().includes(item.key)}
               onPress={() => {
-                const current = draft.equipment();
-                if (current.includes(item.key)) {
+                if (item.key === NO_EQUIPMENT) {
                   draft.equipment.set(
-                    current.filter((label) => label !== item.key),
+                    draft.equipment().includes(NO_EQUIPMENT) ? [] : [NO_EQUIPMENT],
                   );
-                } else if (item.key === "nothing") {
-                  // 「什么都没有」独占：选它就清掉别的。
-                  draft.equipment.set(["nothing"]);
-                } else {
-                  draft.equipment.set([
-                    ...current.filter((label) => label !== "nothing"),
-                    item.key,
-                  ]);
+                  return;
                 }
+                toggleEquipment(draft, item.key);
               }}
             />
           ))}
+          {draft.custom().map((label, index) => (
+            <Chip
+              testID={`training-equipment-custom-${index}`}
+              label={label}
+              active={draft.equipment().includes(label)}
+              onPress={() => toggleEquipment(draft, label)}
+              onLongPress={() => removeCustomEquipment(draft, label)}
+            />
+          ))}
         </ChipRow>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+          <View style={{ flex: 1 }}>
+            <TextField
+              testID="training-equipment-input"
+              value={draft.pending()}
+              onChange={(value) => draft.pending.set(value)}
+              placeholder="其他器械，最多 20 字"
+              maxLength={EQUIPMENT_MAX_CHARS}
+            />
+          </View>
+          <TextButton
+            testID="training-equipment-add"
+            label="添加"
+            onPress={() => addCustomEquipment(draft)}
+          />
+        </View>
       </View>
     </View>
   );
