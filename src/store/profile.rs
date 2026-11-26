@@ -92,6 +92,7 @@ mod tests {
             sex: Some(Sex::Female),
             age: Some(32),
             conditions: vec!["右侧踝关节扭伤过两次".to_owned()],
+            personal_context: vec!["有健身房训练经历，肌肉量较大".to_owned()],
         }
     }
 
@@ -128,6 +129,20 @@ mod tests {
     }
 
     #[test]
+    fn an_old_basics_record_without_personal_context_reads_as_empty() {
+        let temp = TempStore::new("profile-old-basics");
+        temp.store()
+            .write_profile(
+                BASICS,
+                r#"{"sex":"female","age":32,"conditions":["右侧踝关节扭伤过两次"]}"#,
+            )
+            .expect("写旧记录");
+        let basics = temp.store().basics().expect("读旧记录");
+        assert_eq!(basics.conditions, vec!["右侧踝关节扭伤过两次".to_owned()]);
+        assert!(basics.personal_context.is_empty());
+    }
+
+    #[test]
     fn saving_refuses_what_the_domain_refuses() {
         let temp = TempStore::new("profile-invalid");
         let bad = Basics {
@@ -157,6 +172,24 @@ mod tests {
                 max: 7.0,
                 value: 9.0,
             })
+        );
+    }
+
+    #[test]
+    fn duplicate_personal_context_is_refused_on_save() {
+        let temp = TempStore::new("profile-duplicate-personal-context");
+        let bad = Basics {
+            personal_context: vec![
+                "有健身房训练经历".to_owned(),
+                " 有健身房训练经历 ".to_owned(),
+            ],
+            ..Basics::new()
+        };
+        assert_eq!(
+            temp.store().save_basics(&bad).unwrap_err(),
+            StoreError::Domain(DomainError::DuplicatePersonalContext(
+                "有健身房训练经历".to_owned()
+            ))
         );
     }
 

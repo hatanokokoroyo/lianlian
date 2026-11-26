@@ -122,6 +122,10 @@ pub enum DomainError {
     EmptyCondition,
     /// 基础疾病清单里已经有这一条。
     DuplicateCondition(String),
+    /// 个人情况条目是空白。
+    EmptyPersonalContext,
+    /// 个人情况清单里已经有这一条。
+    DuplicatePersonalContext(String),
     /// 「什么都没有」与其他器械不能同时存在。
     NoEquipmentExclusive,
     /// 器械标签是空白。
@@ -277,6 +281,10 @@ impl fmt::Display for DomainError {
             DomainError::EmptyCondition => write!(f, "基础疾病那一条是空的。"),
             DomainError::DuplicateCondition(text) => {
                 write!(f, "基础疾病里已经有「{text}」这一条了。")
+            }
+            DomainError::EmptyPersonalContext => write!(f, "个人情况那一条是空的。"),
+            DomainError::DuplicatePersonalContext(text) => {
+                write!(f, "个人情况里已经有「{text}」这一条了。")
             }
             DomainError::NoEquipmentExclusive => {
                 write!(f, "选了「什么都没有」就不能再选别的器械。")

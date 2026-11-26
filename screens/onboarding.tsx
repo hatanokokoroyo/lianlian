@@ -48,13 +48,7 @@ export function Onboarding(props: {
     let message: string | null = null;
     if (current === 1) {
       const payload = basicsPayload(basics);
-      message = await Profile.saveBasics(
-        payload.sex,
-        payload.age,
-        payload.heightCm,
-        payload.weightKg,
-        payload.conditions,
-      );
+      message = await Profile.saveBasics(payload);
     } else if (current === 2) {
       const payload = trainingPayload(training);
       message = await Profile.saveTraining(

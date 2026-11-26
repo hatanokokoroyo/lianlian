@@ -26,7 +26,8 @@ use crate::store::Store;
 use crate::store::settings::{API_KEY, SKIPPED_UPDATE, TOOL_ROUNDS};
 
 /// 基本属性。
-#[derive(Debug, Clone, PartialEq, JsObject)]
+#[derive(Debug, Clone, Default, PartialEq, JsObject)]
+#[non_exhaustive]
 pub struct BasicsView {
     /// `female` / `male`；`null` 是「不填」。
     pub sex: Option<String>,
@@ -38,6 +39,26 @@ pub struct BasicsView {
     pub weight_kg: Option<f64>,
     /// 基础疾病或旧伤，自由文本的清单。
     pub conditions: Vec<String>,
+    /// 个人情况，自由文本的清单。
+    pub personal_context: Vec<String>,
+}
+
+/// 保存基本属性的输入。
+#[derive(Debug, Clone, Default, PartialEq, JsObject)]
+#[non_exhaustive]
+pub struct BasicsInput {
+    /// `female` / `male`；`null` 是「不填」。
+    pub sex: Option<String>,
+    /// 年龄。
+    pub age: Option<f64>,
+    /// 身高，厘米：填了且与最新一条不同，就追加一条测量。
+    pub height_cm: Option<f64>,
+    /// 体重，千克：填了且与最新一条不同，就追加一条测量。
+    pub weight_kg: Option<f64>,
+    /// 基础疾病或旧伤，自由文本的清单。
+    pub conditions: Vec<String>,
+    /// 个人情况，自由文本的清单。
+    pub personal_context: Vec<String>,
 }
 
 /// 训练条件。
@@ -2567,20 +2588,14 @@ impl Profile {
     }
 
     /// 保存基本属性；返回失败原因，成功是 `null`。
-    pub async fn save_basics(
-        sex: Option<String>,
-        age: Option<f64>,
-        height_cm: Option<f64>,
-        weight_kg: Option<f64>,
-        conditions: Vec<String>,
-    ) -> Option<String> {
-        let basics = match build_basics(sex, age, conditions) {
-            Ok(basics) => basics,
+    pub async fn save_basics(input: BasicsInput) -> Option<String> {
+        // 身高体重是测量：填了且与最新一条不同，就追加一条；清空不删历史。
+        let drafts = match body_measurements(input.height_cm, input.weight_kg) {
+            Ok(drafts) => drafts,
             Err(message) => return Some(message),
         };
-        // 身高体重是测量：填了且与最新一条不同，就追加一条；清空不删历史。
-        let drafts = match body_measurements(height_cm, weight_kg) {
-            Ok(drafts) => drafts,
+        let basics = match build_basics(input) {
+            Ok(basics) => basics,
             Err(message) => return Some(message),
         };
         let store = match Store::open_app() {
@@ -2637,20 +2652,22 @@ impl Profile {
     }
 }
 
-fn build_basics(
-    sex: Option<String>,
-    age: Option<f64>,
-    conditions: Vec<String>,
-) -> Result<Basics, String> {
+fn build_basics(input: BasicsInput) -> Result<Basics, String> {
     Ok(Basics {
-        sex: parse_sex(sex.as_deref()),
-        age: parse_age(age).map_err(|error| error.to_string())?,
-        conditions: conditions
-            .into_iter()
-            .map(|condition| condition.trim().to_owned())
-            .filter(|condition| !condition.is_empty())
-            .collect(),
+        sex: parse_sex(input.sex.as_deref()),
+        age: parse_age(input.age).map_err(|error| error.to_string())?,
+        conditions: clean_text_list(input.conditions),
+        personal_context: clean_text_list(input.personal_context),
     })
+}
+
+/// 文本清单入库前统一去空白、丢空条目。
+fn clean_text_list(items: Vec<String>) -> Vec<String> {
+    items
+        .into_iter()
+        .map(|item| item.trim().to_owned())
+        .filter(|item| !item.is_empty())
+        .collect()
 }
 
 fn build_training(
@@ -2668,11 +2685,7 @@ fn build_training(
             .iter()
             .filter_map(|place| Place::from_key(place))
             .collect(),
-        equipment: equipment
-            .into_iter()
-            .map(|label| label.trim().to_owned())
-            .filter(|label| !label.is_empty())
-            .collect(),
+        equipment: clean_text_list(equipment),
     })
 }
 
@@ -2693,6 +2706,7 @@ fn basics_view(basics: &Basics, height_cm: Option<f64>, weight_kg: Option<f64>) 
         height_cm,
         weight_kg,
         conditions: basics.conditions.clone(),
+        personal_context: basics.personal_context.clone(),
     }
 }
 
@@ -2843,6 +2857,31 @@ mod tests {
         assert_eq!(view.age, None);
         assert_eq!(view.height_cm, None);
         assert!(view.conditions.is_empty());
+        assert!(view.personal_context.is_empty());
+    }
+
+    #[test]
+    fn basics_view_carries_personal_context() {
+        let basics = Basics {
+            personal_context: vec!["有健身房训练经历".to_owned()],
+            ..Basics::new()
+        };
+        let view = basics_view(&basics, None, None);
+        assert_eq!(view.personal_context, vec!["有健身房训练经历".to_owned()]);
+    }
+
+    #[test]
+    fn build_basics_trims_and_drops_blank_personal_context() {
+        let basics = build_basics(BasicsInput {
+            sex: Some("female".to_owned()),
+            age: Some(32.0),
+            conditions: vec![" 右侧踝关节扭伤过两次 ".to_owned()],
+            personal_context: vec![" 有健身房训练经历 ".to_owned(), "   ".to_owned()],
+            ..BasicsInput::default()
+        })
+        .expect("合法");
+        assert_eq!(basics.conditions, vec!["右侧踝关节扭伤过两次".to_owned()]);
+        assert_eq!(basics.personal_context, vec!["有健身房训练经历".to_owned()]);
     }
 
     #[test]

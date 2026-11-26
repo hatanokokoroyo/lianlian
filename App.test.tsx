@@ -22,6 +22,17 @@ test("首启引导、档案可改、缺项提示与重开仍在", async () => {
   await app.type("id:condition-input", "右侧踝关节扭伤过两次");
   await app.press("id:condition-add");
   expect(app.texts()).toContain("右侧踝关节扭伤过两次");
+  await app.type("id:personal-context-input", "有健身房训练经历，肌肉量较大");
+  await app.press("id:personal-context-add");
+  expect(app.texts()).toContain("有健身房训练经历，肌肉量较大");
+  await app.type("id:personal-context-input", "有健身房训练经历，肌肉量较大");
+  await app.press("id:personal-context-add");
+  expect(app.texts()).toContain(
+    "个人情况里已经有「有健身房训练经历，肌肉量较大」这一条了。",
+  );
+  await app.clear("id:personal-context-input");
+  await app.press("id:personal-context-add");
+  expect(app.texts()).toContain("个人情况那一条是空的。");
 
   await app.press("id:onboarding-next");
   await app.waitFor("id:training-days-3");
@@ -49,11 +60,15 @@ test("首启引导、档案可改、缺项提示与重开仍在", async () => {
   await app.waitUntil(() =>
     app.texts().some((text) => text.includes("1 条基础疾病或旧伤")),
   );
+  await app.waitUntil(() =>
+    app.texts().some((text) => text.includes("1 条个人情况")),
+  );
   expect(app.texts().some((text) => text.includes("齐全 · 每周"))).toBe(true);
 
   await app.press("id:open-basics");
   await app.waitFor("id:save-basics");
   expect(app.texts()).toContain("右侧踝关节扭伤过两次");
+  expect(app.texts()).toContain("有健身房训练经历，肌肉量较大");
 
   await app.clear("id:basics-age");
   await app.type("id:basics-age", "33");
@@ -89,6 +104,7 @@ test("首启引导、档案可改、缺项提示与重开仍在", async () => {
   // 输入框里的值不进 texts()，按 value 断言；这一步同时验证它来自库而不是内存。
   expect(reopened.value("id:basics-age")).toBe("33");
   expect(reopened.texts()).toContain("右侧踝关节扭伤过两次");
+  expect(reopened.texts()).toContain("有健身房训练经历，肌肉量较大");
 
   // 改而不存：再开一次应当还是库里的 33，说明编辑没有悄悄漏进存储。
   await reopened.clear("id:basics-age");

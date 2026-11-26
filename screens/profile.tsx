@@ -196,7 +196,7 @@ function sexZh(sex: string | null | undefined): string | null {
   return null;
 }
 
-/** 根页基本属性摘要：性别、年龄、基础疾病条数。 */
+/** 根页基本属性摘要：性别、年龄、基础疾病条数、个人情况条数。 */
 function basicsSummary(state: ProfileView): string {
   const parts: string[] = [];
   const sex = sexZh(state.basics.sex);
@@ -208,6 +208,9 @@ function basicsSummary(state: ProfileView): string {
   }
   if (state.basics.conditions.length > 0) {
     parts.push(`${state.basics.conditions.length} 条基础疾病或旧伤`);
+  }
+  if (state.basics.personalContext.length > 0) {
+    parts.push(`${state.basics.personalContext.length} 条个人情况`);
   }
   return parts.length > 0 ? parts.join(" · ") : "还没填";
 }
@@ -376,13 +379,7 @@ function BasicsPage(props: {
     error.set(null);
     saved.set(null);
     const payload = basicsPayload(props.drafts.basics, false);
-    const message = await Profile.saveBasics(
-      payload.sex,
-      payload.age,
-      payload.heightCm,
-      payload.weightKg,
-      payload.conditions,
-    );
+    const message = await Profile.saveBasics(payload);
     if (message) {
       error.set(message);
       return;
@@ -398,7 +395,7 @@ function BasicsPage(props: {
       <ScreenHeader
         eyebrow="我的数据"
         title="基本属性"
-        note="身高体重来自测量记录；这里改性别、年龄与基础疾病或旧伤。"
+        note="身高体重来自测量记录；这里改性别、年龄、基础疾病或旧伤与个人情况。"
       />
       <View style={{ padding: 16, gap: 12 }}>
         {error() ? (

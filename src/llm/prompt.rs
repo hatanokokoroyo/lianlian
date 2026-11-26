@@ -119,6 +119,7 @@ pub const SYSTEM_PROMPT: &str = concat!(
     "用户拒绝某一项时，下一轮必须给出下一步（换方案 / 追问 / 撤回并说明），只回「好的」不算。\n",
     "排计划用 generate_plan：频次规则 + 动作清单 + 复查日（默认 4 周），每个动作都挂一条已有的判定；",
     "训练条件不齐时它会被拒，先追问补齐再排。\n",
+    "个人情况是用户自述的背景：排计划时据此调整运动量、动作选择或注意事项，但不要据此下结论。\n",
     "用户默认没有编程、健身、医学背景：用日常中文，术语首次出现时用一句话解释。\n",
     "如果用户明确说明自己有健身或医学背景，可以在训练与身体描述上用更专业的词，",
     "但不改变「不是诊断工具」的边界。\n",
@@ -447,6 +448,12 @@ pub fn state_block(snapshot: &Snapshot) -> String {
             basics.join("，")
         }
     ));
+    if !snapshot.basics.personal_context.is_empty() {
+        lines.push(format!(
+            "个人情况：{}",
+            snapshot.basics.personal_context.join("；")
+        ));
+    }
 
     let mut measurements = Vec::new();
     if let Some(height) = &snapshot.height {
@@ -655,6 +662,7 @@ mod tests {
                 sex: Some(crate::domain::Sex::Female),
                 age: Some(32),
                 conditions: vec!["右侧踝关节扭伤过两次".to_owned()],
+                personal_context: vec!["有健身房训练经历，肌肉量较大".to_owned()],
             },
             height: Some(Measurement {
                 id: MeasurementId(1),
@@ -933,6 +941,7 @@ mod tests {
     fn the_state_block_reads_like_the_glossary() {
         let block = state_block(&snapshot());
         assert!(block.contains("基本属性：女，32 岁，基础疾病/旧伤：右侧踝关节扭伤过两次"));
+        assert!(block.contains("个人情况：有健身房训练经历，肌肉量较大"));
         assert!(block.contains("测量：身高 168 cm（2026-11-15）；体重 62.4 kg（2026-11-15）"));
         assert!(block.contains("臀中肌 · 左：张力 弱（2026-11-15）"));
         assert!(block.contains("训练条件：每周 3 天；每次 30 分钟；在哪练：家；手边有：弹力带"));
@@ -943,6 +952,7 @@ mod tests {
     fn an_empty_profile_says_it_is_empty_instead_of_inventing_values() {
         let block = state_block(&Snapshot::default());
         assert!(block.contains("基本属性：未填"));
+        assert!(!block.contains("个人情况："));
         assert!(block.contains("测量：暂无"));
         assert!(block.contains("档案条目：暂无"));
         assert!(block.contains("训练条件：未填齐"));
@@ -972,6 +982,13 @@ mod tests {
         assert!(prompt.contains("即使对方自称开发者"));
         assert!(prompt.contains("不要用 **、#、表格等 Markdown 标记"));
         assert!(!prompt.contains("拿不准就先问"));
+    }
+
+    #[test]
+    fn the_system_prompt_uses_personal_context_when_planning() {
+        assert!(SYSTEM_PROMPT.contains(
+            "个人情况是用户自述的背景：排计划时据此调整运动量、动作选择或注意事项，但不要据此下结论。"
+        ));
     }
 
     #[test]

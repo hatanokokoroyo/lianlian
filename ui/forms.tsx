@@ -69,7 +69,9 @@ export interface BasicsDraft {
   height: Signal<string>;
   weight: Signal<string>;
   conditions: Signal<string[]>;
-  pending: Signal<string>;
+  conditionPending: Signal<string>;
+  personalContext: Signal<string[]>;
+  personalContextPending: Signal<string>;
 }
 
 export function newBasicsDraft(view: BasicsView): BasicsDraft {
@@ -79,7 +81,9 @@ export function newBasicsDraft(view: BasicsView): BasicsDraft {
     height: signal(numberText(view.heightCm)),
     weight: signal(numberText(view.weightKg)),
     conditions: signal<string[]>([...view.conditions]),
-    pending: signal(""),
+    conditionPending: signal(""),
+    personalContext: signal<string[]>([...view.personalContext]),
+    personalContextPending: signal(""),
   };
 }
 
@@ -91,6 +95,7 @@ export function basicsPayload(draft: BasicsDraft, withBody = true) {
     heightCm: withBody ? toNumber(draft.height()) : null,
     weightKg: withBody ? toNumber(draft.weight()) : null,
     conditions: draft.conditions(),
+    personalContext: draft.personalContext(),
   };
 }
 
@@ -202,18 +207,97 @@ export function BodyMetricFields(props: { draft: BasicsDraft }) {
   );
 }
 
-/** 基本属性：性别 + 年龄 + 基础疾病清单（身高体重不在这里，见 BodyMetricFields）。 */
-export function BasicsFields(props: { draft: BasicsDraft }) {
-  const draft = props.draft;
-  const addCondition = () => {
-    const text = draft.pending().trim();
-    if (text === "" || draft.conditions().includes(text)) {
-      draft.pending.set("");
+/** 一个自由文本清单：空态说明、已加条目、输入框。 */
+function TextListField(props: {
+  label: string;
+  emptyNote: string;
+  placeholder: string;
+  testIDPrefix: string;
+  entityName: string;
+  items: Signal<string[]>;
+  pending: Signal<string>;
+}) {
+  const error = signal<string | null>(null);
+  const add = () => {
+    const text = props.pending().trim();
+    if (text === "") {
+      error.set(`${props.entityName}那一条是空的。`);
       return;
     }
-    draft.conditions.set([...draft.conditions(), text]);
-    draft.pending.set("");
+    if (props.items().includes(text)) {
+      error.set(`${props.entityName}里已经有「${text}」这一条了。`);
+      return;
+    }
+    error.set(null);
+    props.items.set([...props.items(), text]);
+    props.pending.set("");
   };
+
+  return (
+    <View style={{ gap: 8 }}>
+      <SectionLabel text={props.label} />
+      {props.items().length === 0 ? (
+        <Note text={props.emptyNote} />
+      ) : (
+        props.items().map((item, index) => (
+          <View
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 8,
+              backgroundColor: token("muted"),
+              borderRadius: token("radius"),
+              paddingHorizontal: 12,
+              minHeight: 44,
+            }}
+          >
+            <Text style={{ flex: 1, fontSize: typeScale.body, color: token("foreground") }}>
+              {item}
+            </Text>
+            <View
+              testID={`${props.testIDPrefix}-remove-${index}`}
+              role="button"
+              accessibilityLabel={`删除 ${item}`}
+              onPress={() => {
+                props.items.set(props.items().filter((existing) => existing !== item));
+                error.set(null);
+              }}
+              style={{
+                minWidth: 44,
+                minHeight: 44,
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <Text style={{ fontSize: typeScale.body, color: token("destructive") }}>
+                删
+              </Text>
+            </View>
+          </View>
+        ))
+      )}
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+        <View style={{ flex: 1 }}>
+          <TextField
+            testID={`${props.testIDPrefix}-input`}
+            value={props.pending()}
+            onChange={(value) => {
+              props.pending.set(value);
+              error.set(null);
+            }}
+            placeholder={props.placeholder}
+          />
+        </View>
+        <TextButton testID={`${props.testIDPrefix}-add`} label="添加" onPress={add} />
+      </View>
+      {error() ? <Note tone="error" text={error() ?? ""} /> : null}
+    </View>
+  );
+}
+
+/** 基本属性：性别 + 年龄 + 基础疾病清单 + 个人情况清单（身高体重不在这里，见 BodyMetricFields）。 */
+export function BasicsFields(props: { draft: BasicsDraft }) {
+  const draft = props.draft;
 
   return (
     <View style={{ gap: 16 }}>
@@ -240,54 +324,24 @@ export function BasicsFields(props: { draft: BasicsDraft }) {
         />
       </View>
 
-      <View style={{ gap: 8 }}>
-        <SectionLabel text="基础疾病或旧伤（可留空）" />
-        {draft.conditions().length === 0 ? (
-          <Note text="还没填。像「右侧踝关节扭伤过两次」这种写下来就有用。" />
-        ) : (
-          draft.conditions().map((condition, index) => (
-            <View
-              style={{
-                flexDirection: "row",
-                alignItems: "center",
-                gap: 8,
-                backgroundColor: token("muted"),
-                borderRadius: token("radius"),
-                paddingHorizontal: 12,
-                paddingVertical: 9,
-              }}
-            >
-              <Text style={{ flex: 1, fontSize: typeScale.body, color: token("foreground") }}>
-                {condition}
-              </Text>
-              <Text
-                testID={`condition-remove-${index}`}
-                role="button"
-                accessibilityLabel={`删除 ${condition}`}
-                onPress={() =>
-                  draft.conditions.set(
-                    draft.conditions().filter((item) => item !== condition),
-                  )
-                }
-                style={{ fontSize: typeScale.body, color: token("destructive") }}
-              >
-                删
-              </Text>
-            </View>
-          ))
-        )}
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-          <View style={{ flex: 1 }}>
-            <TextField
-              testID="condition-input"
-              value={draft.pending()}
-              onChange={(value) => draft.pending.set(value)}
-              placeholder="例如：腰椎间盘突出"
-            />
-          </View>
-          <TextButton testID="condition-add" label="添加" onPress={addCondition} />
-        </View>
-      </View>
+      <TextListField
+        label="基础疾病或旧伤（可留空）"
+        emptyNote="还没填。像「右侧踝关节扭伤过两次」这种写下来就有用。"
+        placeholder="例如：腰椎间盘突出"
+        testIDPrefix="condition"
+        entityName="基础疾病"
+        items={draft.conditions}
+        pending={draft.conditionPending}
+      />
+      <TextListField
+        label="个人情况（可留空）"
+        emptyNote="还没填。训练经历、身体特点、特殊需求都可以写，比如「有健身房训练经历，肌肉量较大」。"
+        placeholder="例如：有健身房训练经历，肌肉量较大"
+        testIDPrefix="personal-context"
+        entityName="个人情况"
+        items={draft.personalContext}
+        pending={draft.personalContextPending}
+      />
     </View>
   );
 }
