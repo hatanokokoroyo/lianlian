@@ -1,15 +1,16 @@
 //! 训练日的存储（#13）：按日期一行，值是 `Day` 的 JSON（含动作**快照**）。
 //!
-//! 展开只补缺失的日期，已有的一律不动——这是「改计划不得篡改历史」的落点：
-//! 已展开的日子留着当时的快照，新版本只影响之后新展开的天。推迟是把那一行
-//! 挪到新日期，并记住原来的日期（`postponed_from`），否则下一次展开会把它又排回来。
+//! 展开只补缺失的日期；改计划会把今天的任务项换成新版并清空完成状态，也会刷新
+//! 未来还没开始的训练日（推迟过的保留日期与来源，只换动作）；已经过去的日子留着
+//! 当时的快照——这是「改计划不得篡改历史」的落点。推迟是把那一行挪到新日期，并
+//! 记住原来的日期（`postponed_from`），否则下一次展开会把它又排回来。
 
 use std::collections::BTreeSet;
 
 use redb::{ReadableDatabase, ReadableTable, TableDefinition};
 
 use super::{db_error, Store, StoreError};
-use crate::domain::day::{expand, Date, Day, ExerciseSnapshot};
+use crate::domain::day::{expand, Date, Day, DayState, ExerciseSnapshot};
 use crate::domain::{DomainError, Timestamp};
 
 /// 训练日：`YYYY-MM-DD` → Day 的 JSON。
@@ -51,8 +52,9 @@ impl Store {
 
     /// 从 `today` 起把生效计划展开到 `horizon` 天。
     ///
-    /// 只插缺失的日期：已经有的一律不动（快照留在展开那一刻）；被推迟搬走的
-    /// 原日期也不再补回来。没有生效计划时什么都不做。
+    /// 只插缺失的日期；今天若有训练，任务项无条件换成当前版本并清空完成状态；
+    /// 未来还没开始的训练日也换成当前版本（推迟过的保留日期与来源）。已经过去的
+    /// 日子保留原快照；被推迟搬走的原日期也不再补回来。没有生效计划时什么都不做。
     pub fn ensure_days(
         &self,
         today: Date,
@@ -80,19 +82,67 @@ impl Store {
         }
 
         let anchor = Date::from_ms(plan.at);
-        let missing: Vec<Day> = expand(plan.frequency, anchor, today, to)
+        let planned = expand(plan.frequency, anchor, today, to);
+        let planned_set: BTreeSet<Date> = planned.iter().copied().collect();
+
+        // 改计划后：今天的任务项无条件换新版并清空完成状态；未来的课跟着新版走
+        // （推迟过的保留日期与来源，只换动作）；已经过去的日子不动。
+        let mut refreshed = Vec::new();
+        let mut dropped = Vec::new();
+        for day in &existing {
+            if day.date < today || day.date > to || day.plan_version == plan.version {
+                continue;
+            }
+            if day.date == today {
+                if planned_set.contains(&day.date) || day.postponed_from.is_some() {
+                    let mut next = Day::from_plan(&plan, day.date, snapshots.clone(), at);
+                    next.postponed_from = day.postponed_from;
+                    refreshed.push(next);
+                } else {
+                    dropped.push(day.date);
+                }
+                continue;
+            }
+            if let Some(from) = day.postponed_from {
+                if day.state == DayState::Planned
+                    && day.done_count() == 0
+                    && day.skipped_count() == 0
+                {
+                    let mut next = Day::from_plan(&plan, day.date, snapshots.clone(), at);
+                    next.postponed_from = Some(from);
+                    refreshed.push(next);
+                }
+                continue;
+            }
+            if day.state != DayState::Planned
+                || day.done_count() > 0
+                || day.skipped_count() > 0
+            {
+                continue;
+            }
+            if planned_set.contains(&day.date) {
+                refreshed.push(Day::from_plan(&plan, day.date, snapshots.clone(), at));
+            } else {
+                dropped.push(day.date);
+            }
+        }
+
+        let missing: Vec<Day> = planned
             .into_iter()
             .filter(|date| !taken.contains(date) && !moved_away.contains(date))
             .map(|date| Day::from_plan(&plan, date, snapshots.clone(), at))
             .collect();
-        if missing.is_empty() {
+        if missing.is_empty() && refreshed.is_empty() && dropped.is_empty() {
             return Ok(Vec::new());
         }
 
         let write = self.db().begin_write().map_err(db_error)?;
         {
             let mut table = write.open_table(DAYS).map_err(db_error)?;
-            for day in &missing {
+            for date in &dropped {
+                table.remove(date.iso().as_str()).map_err(db_error)?;
+            }
+            for day in refreshed.iter().chain(missing.iter()) {
                 table
                     .insert(day.date.iso().as_str(), to_json(day)?.as_str())
                     .map_err(db_error)?;
@@ -315,7 +365,7 @@ mod tests {
     }
 
     #[test]
-    fn a_new_plan_version_does_not_rewrite_days_that_already_exist() {
+    fn a_new_plan_version_does_not_rewrite_days_in_the_past() {
         let (temp, finding) = ready_store("days-snapshot");
         let start = date("2026-11-16").0 * crate::domain::day::DAY_MS;
         temp.store()
@@ -329,7 +379,7 @@ mod tests {
         assert_eq!(old.plan_version, 1);
         assert_eq!(old.exercises[0].name, "臀桥");
 
-        // 第二版换动作与频次：已存在的快照不动，新展开的日子用第二版。
+        // 第二版换动作与频次：已经过去的日子快照不动，新展开的日子用第二版。
         let mut second = draft(Frequency::PerWeek(2), finding.id);
         second.exercises[0].name = "单腿臀桥".to_owned();
         temp.store()
@@ -346,6 +396,227 @@ mod tests {
 
         let unchanged = temp.store().day(date("2026-11-16")).expect("读").expect("有");
         assert_eq!(unchanged, old, "旧快照一个字都不变");
+    }
+
+    #[test]
+    fn a_new_plan_version_refreshes_future_days_that_have_not_started() {
+        let (temp, finding) = ready_store("days-refresh-future");
+        // 2026-11-16 是周一：每周三次排在一/三/五。
+        temp.store()
+            .create_plan(
+                None,
+                date("2026-11-16").0 * crate::domain::day::DAY_MS,
+                draft(Frequency::PerWeek(3), finding.id),
+            )
+            .expect("第一版");
+        temp.store()
+            .ensure_days(date("2026-11-16"), 14, AT)
+            .expect("展开第一版");
+
+        // 今天是周二：今天休息，明天（周三）有课，且已经是第一版的快照。
+        assert!(temp.store().day(date("2026-11-17")).expect("读").is_none());
+        let tomorrow = temp.store().day(date("2026-11-18")).expect("读").expect("有");
+        assert_eq!(tomorrow.plan_version, 1);
+        assert_eq!(tomorrow.exercises[0].name, "臀桥");
+
+        // 今天在对话里改计划：新版本换动作；今天的课没开始，明天的课也没开始。
+        let mut second = draft(Frequency::PerWeek(3), finding.id);
+        second.exercises[0].name = "单腿臀桥".to_owned();
+        temp.store()
+            .create_plan(
+                None,
+                date("2026-11-17").0 * crate::domain::day::DAY_MS,
+                second,
+            )
+            .expect("第二版");
+
+        // 日历从今天重新展开：明天与更之后应换成第二版，昨天保持第一版。
+        temp.store()
+            .ensure_days(date("2026-11-17"), 14, AT)
+            .expect("展开第二版");
+
+        let refreshed = temp.store().day(date("2026-11-18")).expect("读").expect("有");
+        assert_eq!(refreshed.plan_version, 2, "明天的课还没开始，应该用新版");
+        assert_eq!(refreshed.exercises[0].name, "单腿臀桥");
+
+        let later = temp.store().day(date("2026-11-20")).expect("读").expect("有");
+        assert_eq!(later.plan_version, 2, "更之后的训练日也用新版");
+        assert_eq!(later.exercises[0].name, "单腿臀桥");
+
+        let past = temp.store().day(date("2026-11-16")).expect("读").expect("有");
+        assert_eq!(past.plan_version, 1, "已经过去的训练日不动");
+        assert_eq!(past.exercises[0].name, "臀桥");
+    }
+
+    #[test]
+    fn a_new_plan_version_removes_future_days_the_new_frequency_drops() {
+        let (temp, finding) = ready_store("days-refresh-frequency");
+        temp.store()
+            .create_plan(
+                None,
+                date("2026-11-16").0 * crate::domain::day::DAY_MS,
+                draft(Frequency::PerWeek(3), finding.id),
+            )
+            .expect("第一版");
+        temp.store()
+            .ensure_days(date("2026-11-16"), 14, AT)
+            .expect("展开第一版");
+
+        // 今天周二改成每周一次（只排周一）：周三、周五不再是训练日。
+        temp.store()
+            .create_plan(
+                None,
+                date("2026-11-17").0 * crate::domain::day::DAY_MS,
+                draft(Frequency::PerWeek(1), finding.id),
+            )
+            .expect("第二版");
+        temp.store()
+            .ensure_days(date("2026-11-17"), 14, AT)
+            .expect("展开第二版");
+
+        assert!(temp.store().day(date("2026-11-18")).expect("读").is_none(), "周三该回到休息日");
+        assert!(temp.store().day(date("2026-11-20")).expect("读").is_none(), "周五该回到休息日");
+        let monday = temp.store().day(date("2026-11-23")).expect("读").expect("有");
+        assert_eq!(monday.plan_version, 2);
+        let past = temp.store().day(date("2026-11-16")).expect("读").expect("有");
+        assert_eq!(past.plan_version, 1, "已经过去的训练日不动");
+    }
+
+    #[test]
+    fn a_new_plan_version_refreshes_a_postponed_future_day() {
+        let (temp, finding) = ready_store("days-refresh-postponed");
+        temp.store()
+            .create_plan(
+                None,
+                date("2026-11-16").0 * crate::domain::day::DAY_MS,
+                draft(Frequency::PerWeek(3), finding.id),
+            )
+            .expect("第一版");
+        temp.store()
+            .ensure_days(date("2026-11-16"), 14, AT)
+            .expect("展开第一版");
+
+        // 今天周二，把周三的课推到周六；被推走的行仍算未来训练日。
+        let moved = temp
+            .store()
+            .postpone(date("2026-11-18"), date("2026-11-21"))
+            .expect("推迟");
+        assert_eq!(moved.plan_version, 1);
+        assert_eq!(moved.postponed_from, Some(date("2026-11-18")));
+
+        let mut second = draft(Frequency::PerWeek(3), finding.id);
+        second.exercises[0].name = "单腿臀桥".to_owned();
+        temp.store()
+            .create_plan(
+                None,
+                date("2026-11-17").0 * crate::domain::day::DAY_MS,
+                second,
+            )
+            .expect("第二版");
+        temp.store()
+            .ensure_days(date("2026-11-17"), 14, AT)
+            .expect("展开第二版");
+
+        let postponed = temp
+            .store()
+            .day(date("2026-11-21"))
+            .expect("读")
+            .expect("有");
+        assert_eq!(postponed.plan_version, 2, "推迟过的未来训练日也要换新版");
+        assert_eq!(postponed.exercises[0].name, "单腿臀桥");
+        assert_eq!(
+            postponed.postponed_from,
+            Some(date("2026-11-18")),
+            "推迟来源不能丢"
+        );
+        assert!(temp.store().day(date("2026-11-18")).expect("读").is_none());
+    }
+
+    #[test]
+    fn updating_a_plan_on_a_training_day_resets_its_items_to_uncompleted() {
+        let (temp, finding) = ready_store("days-refresh-today-done");
+        temp.store()
+            .create_plan(
+                None,
+                date("2026-11-16").0 * crate::domain::day::DAY_MS,
+                draft(Frequency::PerWeek(3), finding.id),
+            )
+            .expect("第一版");
+        temp.store()
+            .ensure_days(date("2026-11-16"), 14, AT)
+            .expect("展开第一版");
+
+        // 今天周三，已经完成当天训练。
+        let completed = temp
+            .store()
+            .toggle_exercise(date("2026-11-18"), 0)
+            .expect("打卡");
+        assert_eq!(completed.state, crate::domain::DayState::Completed);
+
+        let mut second = draft(Frequency::PerWeek(3), finding.id);
+        second.exercises[0].name = "单腿臀桥".to_owned();
+        temp.store()
+            .create_plan(
+                None,
+                date("2026-11-18").0 * crate::domain::day::DAY_MS,
+                second,
+            )
+            .expect("第二版");
+        temp.store()
+            .ensure_days(date("2026-11-18"), 14, AT)
+            .expect("展开第二版");
+
+        let today = temp
+            .store()
+            .day(date("2026-11-18"))
+            .expect("读")
+            .expect("有");
+        assert_eq!(today.plan_version, 2, "训练日改计划，今天的任务项要换新版");
+        assert_eq!(today.exercises[0].name, "单腿臀桥");
+        assert_eq!(today.state, crate::domain::DayState::Planned, "完成状态要重置");
+        assert!(!today.done[0], "已完成的任务项要回到未完成");
+        assert_eq!(today.done_count(), 0);
+    }
+
+    #[test]
+    fn updating_a_plan_on_a_training_day_removes_today_if_the_new_plan_rests() {
+        let (temp, finding) = ready_store("days-refresh-today-rest");
+        temp.store()
+            .create_plan(
+                None,
+                date("2026-11-16").0 * crate::domain::day::DAY_MS,
+                draft(Frequency::PerWeek(3), finding.id),
+            )
+            .expect("第一版");
+        temp.store()
+            .ensure_days(date("2026-11-16"), 14, AT)
+            .expect("展开第一版");
+        temp.store()
+            .toggle_exercise(date("2026-11-18"), 0)
+            .expect("打卡");
+
+        // 今天周三改成每周一次（只排周一）：今天回到休息日。
+        temp.store()
+            .create_plan(
+                None,
+                date("2026-11-18").0 * crate::domain::day::DAY_MS,
+                draft(Frequency::PerWeek(1), finding.id),
+            )
+            .expect("第二版");
+        temp.store()
+            .ensure_days(date("2026-11-18"), 14, AT)
+            .expect("展开第二版");
+
+        assert!(
+            temp.store().day(date("2026-11-18")).expect("读").is_none(),
+            "新版今天休息，旧训练日要让位"
+        );
+        let monday = temp
+            .store()
+            .day(date("2026-11-23"))
+            .expect("读")
+            .expect("有");
+        assert_eq!(monday.plan_version, 2);
     }
 
     #[test]
